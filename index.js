@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-require('dotenv').config();
+require('dotenv').config({ override: true });
 const fs = require('fs');
 const readline = require('readline');
 const ConfigLoader = require('./src/core/ConfigLoader');
@@ -54,7 +54,8 @@ async function main() {
     let task = null;
 
     // Check if task is provided as argument
-    const nonFlagArgs = args.filter(arg => !arg.startsWith('--') && arg !== args[configIndex + 1]);
+    const configValue = configIndex !== -1 ? args[configIndex + 1] : null;
+    const nonFlagArgs = args.filter(arg => !arg.startsWith('--') && arg !== configValue);
     if (nonFlagArgs.length > 0) {
       task = nonFlagArgs.join(' ');
     }

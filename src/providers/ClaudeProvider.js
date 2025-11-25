@@ -36,7 +36,23 @@ class ClaudeProvider extends LLMProvider {
 
       const response = await this.client.messages.create(params);
 
-      return response.content[0].text;
+      // Validate response structure
+      if (!response || !response.content) {
+        throw new Error(`Invalid response structure: ${JSON.stringify(response)}`);
+      }
+
+      // Handle empty content array (Claude chose not to respond)
+      if (response.content.length === 0) {
+        return "[No response provided - model chose not to contribute]";
+      }
+
+      // Claude responses have a 'text' property in content blocks
+      const textContent = response.content.find(block => block.type === 'text');
+      if (!textContent || !textContent.text) {
+        throw new Error(`No text content in response: ${JSON.stringify(response.content)}`);
+      }
+
+      return textContent.text;
     } catch (error) {
       throw new Error(`Claude API error: ${error.message}`);
     }

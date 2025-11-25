@@ -103,11 +103,11 @@ The configuration file (`.llm-conclave.json`) defines:
       "prompt": "You are a senior software architect. Approach problems from a systems design perspective, considering scalability, maintainability, and best practices."
     },
     "Critic": {
-      "model": "claude-3-5-sonnet-20241022",
+      "model": "claude-sonnet-4-5",
       "prompt": "You are a critical thinker and devil's advocate. Challenge assumptions, identify potential issues, and push for robust solutions."
     },
     "Pragmatist": {
-      "model": "grok-beta",
+      "model": "grok-3",
       "prompt": "You are a pragmatic engineer focused on practical, implementable solutions. Balance idealism with real-world constraints."
     },
     "Creative": {
@@ -126,13 +126,13 @@ The configuration file (`.llm-conclave.json`) defines:
 - `gpt-3.5-turbo`
 
 **Anthropic (requires `ANTHROPIC_API_KEY`):**
-- `claude-3-5-sonnet-20241022` (or shorthand: `sonnet-3.5`)
-- `claude-3-opus-20240229` (or shorthand: `opus`)
-- `claude-3-haiku-20240307` (or shorthand: `haiku`)
+- `claude-sonnet-4-5` (or shorthand: `sonnet`)
+- `claude-opus-4-5` (or shorthand: `opus`)
+- `claude-haiku-4-5` (or shorthand: `haiku`)
 
 **xAI (requires `XAI_API_KEY`):**
-- `grok-beta`
-- `grok-vision-beta`
+- `grok-3`
+- `grok-vision-3`
 
 ## How It Works
 
@@ -205,7 +205,7 @@ The judge's system prompt controls how it evaluates consensus:
 ```json
 {
   "judge": {
-    "model": "claude-3-5-sonnet-20241022",
+    "model": "claude-sonnet-4-5",
     "prompt": "You are a neutral mediator. Look for genuine agreement, not just surface-level consensus. Push agents to address disagreements. When real consensus emerges, respond with 'CONSENSUS_REACHED' and summarize the solution."
   }
 }

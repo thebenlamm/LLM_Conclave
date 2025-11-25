@@ -24,12 +24,12 @@ class ProviderFactory {
         modelLower.includes('opus') || modelLower.includes('haiku')) {
       // Map common shorthand to full model names
       let fullModelName = modelIdentifier;
-      if (modelLower === 'sonnet 3.5' || modelLower === 'sonnet-3.5') {
-        fullModelName = 'claude-3-5-sonnet-20241022';
-      } else if (modelLower === 'opus' || modelLower === 'opus-3') {
-        fullModelName = 'claude-3-opus-20240229';
-      } else if (modelLower === 'haiku' || modelLower === 'haiku-3') {
-        fullModelName = 'claude-3-haiku-20240307';
+      if (modelLower === 'sonnet' || modelLower === 'sonnet-4.5') {
+        fullModelName = 'claude-sonnet-4-5';
+      } else if (modelLower === 'opus' || modelLower === 'opus-4.5') {
+        fullModelName = 'claude-opus-4-5';
+      } else if (modelLower === 'haiku' || modelLower === 'haiku-4.5') {
+        fullModelName = 'claude-haiku-4-5';
       }
       return new ClaudeProvider(fullModelName);
     }
@@ -49,8 +49,8 @@ class ProviderFactory {
   static getSupportedModels() {
     return [
       'gpt-4o, gpt-4-turbo, gpt-3.5-turbo (OpenAI)',
-      'claude-3-5-sonnet-20241022, sonnet-3.5, opus, haiku (Anthropic)',
-      'grok-beta, grok-vision-beta (xAI)'
+      'claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5, sonnet, opus, haiku (Anthropic)',
+      'grok-3, grok-vision-3 (xAI)'
     ];
   }
 }
