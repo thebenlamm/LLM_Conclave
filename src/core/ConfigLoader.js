@@ -112,11 +112,11 @@ class ConfigLoader {
           prompt: 'You are a senior software architect. Approach problems from a systems design perspective, considering scalability, maintainability, and best practices.'
         },
         'Critic': {
-          model: 'claude-3-5-sonnet-20241022',
+          model: 'claude-sonnet-4-5',
           prompt: 'You are a critical thinker and devil\'s advocate. Challenge assumptions, identify potential issues, and push for robust solutions.'
         },
         'Pragmatist': {
-          model: 'grok-beta',
+          model: 'grok-3',
           prompt: 'You are a pragmatic engineer focused on practical, implementable solutions. Balance idealism with real-world constraints.'
         }
       }
