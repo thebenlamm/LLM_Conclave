@@ -6,6 +6,7 @@ A command-line tool that enables multiple LLMs (ChatGPT, Claude, Grok, and other
 
 - **Multi-Agent Collaboration**: Configure multiple LLM agents with different models and personas
 - **Judge-Coordinated Consensus**: An AI judge evaluates discussion progress and guides agents toward agreement
+- **Project Context Analysis**: Point the conclave at any codebase or document directory for analysis
 - **Flexible Configuration**: Use the same model multiple times with different system prompts
 - **Multiple LLM Providers**: Support for OpenAI (GPT), Anthropic (Claude), and xAI (Grok)
 - **Autonomous Operation**: Runs fully autonomously after task submission
@@ -61,6 +62,7 @@ node index.js
 --help, -h          # Show help information
 --init              # Create example configuration file
 --config <path>     # Use custom configuration file
+--project <path>    # Include project/directory context for analysis
 ```
 
 ### Examples
@@ -77,6 +79,58 @@ node index.js ./tasks/project-brief.txt
 
 # Use custom config
 node index.js --config ./configs/creative-team.json "Write a short story about AI"
+
+# Analyze a project directory
+node index.js --project ./my-app "Review this code for potential bugs and security issues"
+
+# Review documentation
+node index.js --project ./docs "Review my technical writing for clarity and completeness"
+
+# Investigate a bug
+node index.js --project ./src "Find why the login feature isn't working on mobile"
+```
+
+## Project Context Analysis
+
+LLM Conclave can analyze codebases, documents, and entire project directories. Use the `--project` flag to point it at any directory:
+
+```bash
+node index.js --project /path/to/project "your question or task"
+```
+
+### How It Works
+
+1. **Smart Filtering**: Automatically excludes common non-essential files:
+   - Dependencies: `node_modules`, `.venv`, `venv`
+   - Version control: `.git`, `.svn`, `.hg`
+   - Build outputs: `dist`, `build`, `out`, `target`
+   - Binary files: images, videos, executables, archives
+   - Large files: files over 100KB
+
+2. **Context Format**: Agents receive:
+   - Directory structure (file tree)
+   - Contents of all included files
+   - Full conversation history
+
+3. **Use Cases**:
+   - Bug investigation: "Find the cause of this login error"
+   - Code review: "Review this code for security vulnerabilities"
+   - Architecture review: "Suggest improvements to this codebase structure"
+   - Documentation review: "Review my technical writing for clarity"
+   - Refactoring advice: "How can I improve this code?"
+
+### Example Session
+
+```bash
+# Point conclave at your project
+node index.js --project ./my-webapp "Review this React app for performance issues"
+
+# The agents will:
+# 1. Read all source files (excluding node_modules, etc.)
+# 2. See the full directory structure
+# 3. Discuss performance concerns
+# 4. Reach consensus on recommendations
+# 5. Output detailed findings to the outputs/ directory
 ```
 
 ## Configuration
@@ -219,6 +273,8 @@ The judge's system prompt controls how it evaluates consensus:
 - **Voting mechanisms**: Explicit agent voting before final decision
 - **Custom turn management**: More flexible conversation patterns
 - **Additional providers**: Support for more LLM providers
+- **Custom file filters**: User-configurable include/exclude patterns for project analysis
+- **Embeddings/RAG**: Support for very large projects using vector search
 
 ## License
 

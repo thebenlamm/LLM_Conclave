@@ -36,17 +36,28 @@ class ConversationManager {
    * Start the conversation with a given task
    * @param {string} task - The task for agents to solve
    * @param {Object} judge - Judge instance with provider and prompt
+   * @param {Object} projectContext - Optional ProjectContext instance
    * @returns {Object} - Final result with consensus and history
    */
-  async startConversation(task, judge) {
+  async startConversation(task, judge, projectContext = null) {
     console.log(`\n${'='.repeat(80)}`);
     console.log(`TASK: ${task}`);
     console.log(`${'='.repeat(80)}\n`);
 
+    // Build initial message with optional project context
+    let initialMessage = '';
+
+    if (projectContext) {
+      initialMessage += projectContext.formatContext();
+      initialMessage += '\n---\n\n';
+    }
+
+    initialMessage += `Task: ${task}\n\nPlease share your perspective on how to approach this task.`;
+
     // Add initial task to conversation history
     this.conversationHistory.push({
       role: 'user',
-      content: `Task: ${task}\n\nPlease share your perspective on how to approach this task.`,
+      content: initialMessage,
       speaker: 'System'
     });
 
