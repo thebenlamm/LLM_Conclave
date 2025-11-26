@@ -9,6 +9,7 @@ class ProjectContext {
     this.projectPath = path.resolve(projectPath);
     this.files = [];
     this.fileTree = '';
+    this.isSingleFile = false;
 
     // Smart defaults for exclusion
     this.excludeDirs = new Set([
@@ -80,8 +81,28 @@ class ProjectContext {
       }
 
       const stats = fs.statSync(this.projectPath);
+
+      // Handle single file
+      if (stats.isFile()) {
+        this.isSingleFile = true;
+        const content = this.readFileSafely(this.projectPath);
+
+        if (content === null) {
+          return { success: false, error: `Unable to read file: ${this.projectPath}` };
+        }
+
+        this.files.push({
+          path: this.projectPath,
+          relativePath: path.basename(this.projectPath),
+          content: content
+        });
+
+        return { success: true, fileCount: 1 };
+      }
+
+      // Handle directory
       if (!stats.isDirectory()) {
-        return { success: false, error: `Path is not a directory: ${this.projectPath}` };
+        return { success: false, error: `Path is not a file or directory: ${this.projectPath}` };
       }
 
       // Build file tree and collect files
@@ -233,6 +254,18 @@ class ProjectContext {
    */
   formatContext() {
     let context = '# Project Context\n\n';
+
+    // Handle single file
+    if (this.isSingleFile) {
+      const file = this.files[0];
+      context += `File: ${file.relativePath}\n\n`;
+      context += '```\n';
+      context += file.content;
+      context += '\n```\n\n';
+      return context;
+    }
+
+    // Handle directory
     context += `Project Path: ${this.projectPath}\n\n`;
 
     // Add file tree
@@ -260,8 +293,12 @@ class ProjectContext {
    */
   getSummary() {
     const totalSize = this.files.reduce((sum, file) => sum + file.content.length, 0);
-    const avgSize = this.files.length > 0 ? Math.round(totalSize / this.files.length) : 0;
 
+    if (this.isSingleFile) {
+      return `Loaded file: ${this.files[0].relativePath} (${totalSize} bytes)`;
+    }
+
+    const avgSize = this.files.length > 0 ? Math.round(totalSize / this.files.length) : 0;
     return `Loaded ${this.files.length} files (avg ${avgSize} bytes per file, ${totalSize} bytes total)`;
   }
 }

@@ -160,7 +160,7 @@ Options:
   --help, -h          Show this help message
   --init              Create an example configuration file (.llm-conclave.json)
   --config <path>     Specify a custom configuration file path
-  --project <path>    Include project/directory context for analysis
+  --project <path>    Include file or directory context for analysis
 
 Task Input:
   You can provide the task in three ways:
@@ -169,9 +169,9 @@ Task Input:
   3. Interactively: node index.js (you'll be prompted)
 
 Project Context:
-  Use --project to point the conclave at a codebase or document directory.
-  The tool will read files and include them in the conversation context.
-  Smart filtering excludes node_modules, .git, binaries, and large files.
+  Use --project to point the conclave at a file or directory.
+  - Single file: Reads and includes that file's content
+  - Directory: Reads all files with smart filtering (excludes node_modules, .git, binaries, large files)
 
 Configuration:
   The tool looks for .llm-conclave.json in the current directory.
@@ -183,6 +183,7 @@ Examples:
   node index.js task.txt
   node index.js --config custom-config.json "Design an API"
   node index.js --project ./my-app "Review this code for bugs"
+  node index.js --project transcript.txt "Correct transcription errors"
   node index.js --project ../docs "Review my technical writing"
 
 Environment Variables:

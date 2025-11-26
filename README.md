@@ -62,7 +62,7 @@ node index.js
 --help, -h          # Show help information
 --init              # Create example configuration file
 --config <path>     # Use custom configuration file
---project <path>    # Include project/directory context for analysis
+--project <path>    # Include file or directory context for analysis
 ```
 
 ### Examples
@@ -83,7 +83,10 @@ node index.js --config ./configs/creative-team.json "Write a short story about A
 # Analyze a project directory
 node index.js --project ./my-app "Review this code for potential bugs and security issues"
 
-# Review documentation
+# Correct a single file (transcription, document, etc.)
+node index.js --project transcript.txt "Correct all spelling and grammar errors"
+
+# Review documentation directory
 node index.js --project ./docs "Review my technical writing for clarity and completeness"
 
 # Investigate a bug
@@ -92,14 +95,24 @@ node index.js --project ./src "Find why the login feature isn't working on mobil
 
 ## Project Context Analysis
 
-LLM Conclave can analyze codebases, documents, and entire project directories. Use the `--project` flag to point it at any directory:
+LLM Conclave can analyze individual files or entire directories. Use the `--project` flag to point it at any file or directory:
 
 ```bash
+# Single file
+node index.js --project /path/to/file.txt "your question or task"
+
+# Directory
 node index.js --project /path/to/project "your question or task"
 ```
 
 ### How It Works
 
+**For Single Files:**
+- Reads the file content directly
+- Works with any text file (transcriptions, documents, code, configs, etc.)
+- No size or type restrictions beyond text readability
+
+**For Directories:**
 1. **Smart Filtering**: Automatically excludes common non-essential files:
    - Dependencies: `node_modules`, `.venv`, `venv`
    - Version control: `.git`, `.svn`, `.hg`
@@ -112,12 +125,20 @@ node index.js --project /path/to/project "your question or task"
    - Contents of all included files
    - Full conversation history
 
-3. **Use Cases**:
-   - Bug investigation: "Find the cause of this login error"
-   - Code review: "Review this code for security vulnerabilities"
-   - Architecture review: "Suggest improvements to this codebase structure"
-   - Documentation review: "Review my technical writing for clarity"
-   - Refactoring advice: "How can I improve this code?"
+### Use Cases
+
+**Single File:**
+- Transcription correction: "Fix all errors in this transcription"
+- Document editing: "Improve the clarity and flow of this article"
+- Code review: "Review this function for bugs"
+- Config validation: "Check this config file for errors"
+
+**Directory:**
+- Bug investigation: "Find the cause of this login error"
+- Code review: "Review this code for security vulnerabilities"
+- Architecture review: "Suggest improvements to this codebase structure"
+- Documentation review: "Review my technical writing for clarity"
+- Refactoring advice: "How can I improve this code?"
 
 ### Example Session
 
