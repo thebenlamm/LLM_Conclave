@@ -4,13 +4,14 @@ const ProviderFactory = require('../providers/ProviderFactory');
  * Manages the multi-agent conversation
  */
 class ConversationManager {
-  constructor(config) {
+  constructor(config, memoryManager = null) {
     this.config = config;
     this.agents = {};
     this.agentOrder = [];
     this.conversationHistory = [];
     this.currentRound = 0;
     this.maxRounds = config.max_rounds || 20;
+    this.memoryManager = memoryManager;
 
     this.initializeAgents();
   }
@@ -44,9 +45,19 @@ class ConversationManager {
     console.log(`TASK: ${task}`);
     console.log(`${'='.repeat(80)}\n`);
 
-    // Build initial message with optional project context
+    // Build initial message with optional project memory
     let initialMessage = '';
 
+    // Add project memory context if available
+    if (this.memoryManager && this.memoryManager.projectMemory) {
+      const memoryContext = this.memoryManager.getRelevantMemory(task);
+      if (memoryContext) {
+        initialMessage += memoryContext;
+        initialMessage += '\n---\n\n';
+      }
+    }
+
+    // Add project file context if provided
     if (projectContext) {
       initialMessage += projectContext.formatContext();
       initialMessage += '\n---\n\n';
@@ -107,13 +118,30 @@ class ConversationManager {
       finalSolution = await this.conductFinalVote(judge);
     }
 
-    return {
+    const result = {
       task: task,
       rounds: this.currentRound,
       consensusReached: consensusReached,
       solution: finalSolution,
       conversationHistory: this.conversationHistory
     };
+
+    // Record conversation in project memory if available
+    if (this.memoryManager && this.memoryManager.projectMemory) {
+      try {
+        await this.memoryManager.recordConversation({
+          task: task,
+          agents: this.agentOrder,
+          consensusReached: consensusReached,
+          rounds: this.currentRound,
+          outputPath: null // Will be set by the caller if needed
+        });
+      } catch (error) {
+        console.error(`Warning: Failed to record conversation in memory: ${error.message}`);
+      }
+    }
+
+    return result;
   }
 
   /**

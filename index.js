@@ -8,6 +8,7 @@ const ConversationManager = require('./src/core/ConversationManager');
 const OutputHandler = require('./src/core/OutputHandler');
 const ProviderFactory = require('./src/providers/ProviderFactory');
 const ProjectContext = require('./src/utils/ProjectContext');
+const MemoryManager = require('./src/memory/MemoryManager');
 
 /**
  * Main CLI entry point for LLM Conclave
@@ -38,6 +39,27 @@ async function main() {
       process.exit(0);
     }
 
+    // Handle project memory commands
+    if (args.includes('--init-project')) {
+      await handleInitProject(args);
+      process.exit(0);
+    }
+
+    if (args.includes('--list-projects')) {
+      await handleListProjects();
+      process.exit(0);
+    }
+
+    if (args.includes('--project-info')) {
+      await handleProjectInfo(args);
+      process.exit(0);
+    }
+
+    if (args.includes('--delete-project')) {
+      await handleDeleteProject(args);
+      process.exit(0);
+    }
+
     // Load configuration
     let config;
     const configIndex = args.indexOf('--config');
@@ -49,6 +71,25 @@ async function main() {
       console.error(`\n❌ Configuration Error: ${error.message}\n`);
       console.log(`Run 'node index.js --init' to create an example configuration file.\n`);
       process.exit(1);
+    }
+
+    // Check for project memory
+    let memoryManager = null;
+    const projectIdIndex = args.indexOf('--project-id');
+    const projectId = projectIdIndex !== -1 ? args[projectIdIndex + 1] : null;
+
+    if (projectId) {
+      console.log(`\nLoading project memory: ${projectId}`);
+      memoryManager = new MemoryManager();
+      try {
+        await memoryManager.loadProject(projectId);
+        console.log(`✓ Project memory loaded`);
+        console.log(`  Total conversations: ${memoryManager.projectMemory.metadata.totalConversations}`);
+        console.log(`  Total decisions: ${memoryManager.projectMemory.metadata.totalDecisions}\n`);
+      } catch (error) {
+        console.error(`\n❌ ${error.message}\n`);
+        process.exit(1);
+      }
     }
 
     // Check for project context
@@ -112,8 +153,8 @@ async function main() {
       systemPrompt: config.judge.prompt
     };
 
-    // Create conversation manager
-    const conversationManager = new ConversationManager(config);
+    // Create conversation manager with optional memory manager
+    const conversationManager = new ConversationManager(config, memoryManager);
 
     // Start the conversation
     console.log(`Starting conversation...\n`);
@@ -162,6 +203,13 @@ Options:
   --config <path>     Specify a custom configuration file path
   --project <path>    Include file or directory context for analysis
 
+Project Memory Options:
+  --init-project <id>       Create a new project with persistent memory
+  --project-id <id>         Use an existing project (loads its memory)
+  --list-projects           List all projects
+  --project-info <id>       Show information about a project
+  --delete-project <id>     Delete a project
+
 Task Input:
   You can provide the task in three ways:
   1. As a command-line argument: node index.js "Design a social media app"
@@ -183,8 +231,12 @@ Examples:
   node index.js task.txt
   node index.js --config custom-config.json "Design an API"
   node index.js --project ./my-app "Review this code for bugs"
-  node index.js --project transcript.txt "Correct transcription errors"
-  node index.js --project ../docs "Review my technical writing"
+
+  # Project Memory Examples
+  node index.js --init-project my-company
+  node index.js --project-id my-company "We need to name our first product"
+  node index.js --list-projects
+  node index.js --project-info my-company
 
 Environment Variables:
   OPENAI_API_KEY      - OpenAI API key (for GPT models)
@@ -193,6 +245,153 @@ Environment Variables:
 
   Create a .env file in the project root with these variables.
 `);
+}
+
+/**
+ * Handle --init-project command
+ */
+async function handleInitProject(args) {
+  const index = args.indexOf('--init-project');
+  const projectId = args[index + 1];
+
+  if (!projectId) {
+    console.error('❌ Please provide a project ID: --init-project <id>\n');
+    process.exit(1);
+  }
+
+  const memoryManager = new MemoryManager();
+
+  try {
+    await memoryManager.createProject(projectId, {});
+    console.log(`✓ Created project: ${projectId}`);
+    console.log(`  Memory stored in: .conclave/projects/${projectId}.json`);
+    console.log(`\nNext steps:`);
+    console.log(`  1. Run: node index.js --project-id ${projectId} "your task"`);
+    console.log(`  2. The project will remember all decisions and context\n`);
+  } catch (error) {
+    console.error(`❌ ${error.message}\n`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Handle --list-projects command
+ */
+async function handleListProjects() {
+  const memoryManager = new MemoryManager();
+
+  try {
+    const projects = await memoryManager.listProjects();
+
+    if (projects.length === 0) {
+      console.log('No projects found. Create one with: --init-project <id>\n');
+      return;
+    }
+
+    console.log(`Found ${projects.length} project(s):\n`);
+
+    for (const projectId of projects) {
+      const info = await memoryManager.getProjectInfo(projectId);
+      console.log(`  ${projectId}`);
+      if (info) {
+        console.log(`    Created: ${new Date(info.created).toLocaleDateString()}`);
+        console.log(`    Last Modified: ${new Date(info.lastModified).toLocaleDateString()}`);
+        console.log(`    Conversations: ${info.totalConversations}, Decisions: ${info.totalDecisions}`);
+        if (info.overview) {
+          console.log(`    Overview: ${info.overview}`);
+        }
+      }
+      console.log();
+    }
+  } catch (error) {
+    console.error(`❌ ${error.message}\n`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Handle --project-info command
+ */
+async function handleProjectInfo(args) {
+  const index = args.indexOf('--project-info');
+  const projectId = args[index + 1];
+
+  if (!projectId) {
+    console.error('❌ Please provide a project ID: --project-info <id>\n');
+    process.exit(1);
+  }
+
+  const memoryManager = new MemoryManager();
+
+  try {
+    await memoryManager.loadProject(projectId);
+    const memory = memoryManager.projectMemory;
+
+    console.log(`\nProject: ${projectId}`);
+    console.log(`${'='.repeat(80)}\n`);
+
+    console.log(`Created: ${new Date(memory.created).toLocaleString()}`);
+    console.log(`Last Modified: ${new Date(memory.lastModified).toLocaleString()}\n`);
+
+    if (memory.coreContext.overview) {
+      console.log(`Overview: ${memory.coreContext.overview}\n`);
+    }
+
+    if (memory.coreContext.goals.length > 0) {
+      console.log(`Goals:`);
+      memory.coreContext.goals.forEach(g => console.log(`  - ${g}`));
+      console.log();
+    }
+
+    console.log(`Statistics:`);
+    console.log(`  Total Conversations: ${memory.metadata.totalConversations}`);
+    console.log(`  Total Decisions: ${memory.metadata.totalDecisions}`);
+
+    if (Object.keys(memory.metadata.agentParticipation).length > 0) {
+      console.log(`\nAgent Participation:`);
+      Object.entries(memory.metadata.agentParticipation).forEach(([agent, count]) => {
+        console.log(`  ${agent}: ${count} conversations`);
+      });
+    }
+
+    if (memory.decisions.length > 0) {
+      console.log(`\nRecent Decisions (last 5):`);
+      memory.decisions.slice(-5).forEach(d => {
+        console.log(`  - ${d.topic} (${new Date(d.timestamp).toLocaleDateString()})`);
+        if (d.outcome) {
+          console.log(`    ${d.outcome.substring(0, 100)}${d.outcome.length > 100 ? '...' : ''}`);
+        }
+      });
+    }
+    console.log();
+
+  } catch (error) {
+    console.error(`❌ ${error.message}\n`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Handle --delete-project command
+ */
+async function handleDeleteProject(args) {
+  const index = args.indexOf('--delete-project');
+  const projectId = args[index + 1];
+
+  if (!projectId) {
+    console.error('❌ Please provide a project ID: --delete-project <id>\n');
+    process.exit(1);
+  }
+
+  const memoryManager = new MemoryManager();
+
+  try {
+    await memoryManager.deleteProject(projectId);
+    console.log(`✓ Deleted project: ${projectId}\n`);
+  } catch (error) {
+    console.error(`❌ ${error.message}\n`);
+    process.exit(1);
+  }
 }
 
 // Run main function
