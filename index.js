@@ -9,6 +9,7 @@ const OutputHandler = require('./src/core/OutputHandler');
 const ProviderFactory = require('./src/providers/ProviderFactory');
 const ProjectContext = require('./src/utils/ProjectContext');
 const MemoryManager = require('./src/memory/MemoryManager');
+const Orchestrator = require('./src/orchestration/Orchestrator');
 
 /**
  * Main CLI entry point for LLM Conclave
@@ -143,28 +144,48 @@ async function main() {
 
     console.log(`\nTask: ${task}\n`);
     console.log(`Agents: ${Object.keys(config.agents).join(', ')}`);
-    console.log(`Judge Model: ${config.judge.model}`);
-    console.log(`Max Rounds: ${config.max_rounds}`);
-    console.log(`Turn Management: ${config.turn_management}\n`);
 
-    // Initialize judge
-    const judge = {
-      provider: ProviderFactory.createProvider(config.judge.model),
-      systemPrompt: config.judge.prompt
-    };
+    // Check if orchestrated mode is enabled
+    const orchestrated = args.includes('--orchestrated');
 
-    // Create conversation manager with optional memory manager
-    const conversationManager = new ConversationManager(config, memoryManager);
+    let result;
 
-    // Start the conversation
-    console.log(`Starting conversation...\n`);
-    const result = await conversationManager.startConversation(task, judge, projectContext);
+    if (orchestrated) {
+      // Use orchestrated mode
+      console.log(`Mode: Orchestrated (Primary/Secondary/Validation flow)\n`);
 
-    // Save results
-    const filePaths = OutputHandler.saveResults(result);
+      const orchestrator = new Orchestrator(config, memoryManager);
+      result = await orchestrator.executeTask(task, projectContext);
 
-    // Print summary
-    OutputHandler.printSummary(result, filePaths);
+      // Save orchestrated results
+      const filePaths = saveOrchestratedResults(result);
+      printOrchestratedSummary(result, filePaths);
+
+    } else {
+      // Use standard consensus mode
+      console.log(`Judge Model: ${config.judge.model}`);
+      console.log(`Max Rounds: ${config.max_rounds}`);
+      console.log(`Turn Management: ${config.turn_management}\n`);
+
+      // Initialize judge
+      const judge = {
+        provider: ProviderFactory.createProvider(config.judge.model),
+        systemPrompt: config.judge.prompt
+      };
+
+      // Create conversation manager with optional memory manager
+      const conversationManager = new ConversationManager(config, memoryManager);
+
+      // Start the conversation
+      console.log(`Starting conversation...\n`);
+      result = await conversationManager.startConversation(task, judge, projectContext);
+
+      // Save results
+      const filePaths = OutputHandler.saveResults(result);
+
+      // Print summary
+      OutputHandler.printSummary(result, filePaths);
+    }
 
   } catch (error) {
     console.error(`\n❌ Error: ${error.message}`);
@@ -202,6 +223,7 @@ Options:
   --init              Create an example configuration file (.llm-conclave.json)
   --config <path>     Specify a custom configuration file path
   --project <path>    Include file or directory context for analysis
+  --orchestrated      Use orchestrated mode (primary/secondary/validation flow)
 
 Project Memory Options:
   --init-project <id>       Create a new project with persistent memory
@@ -209,6 +231,19 @@ Project Memory Options:
   --list-projects           List all projects
   --project-info <id>       Show information about a project
   --delete-project <id>     Delete a project
+
+Modes:
+  Standard Mode (default):
+    - All agents discuss together in rounds
+    - Judge evaluates consensus
+    - Best for open-ended collaboration
+
+  Orchestrated Mode (--orchestrated):
+    - Primary agent responds first (based on task classification)
+    - Secondary agents provide structured critiques
+    - Primary agent revises based on feedback
+    - Validator agents review final output
+    - Best for domain-specific advisory workflows
 
 Task Input:
   You can provide the task in three ways:
@@ -237,6 +272,11 @@ Examples:
   node index.js --project-id my-company "We need to name our first product"
   node index.js --list-projects
   node index.js --project-info my-company
+
+  # Orchestrated Mode Examples
+  node index.js --orchestrated "Name our skincare product line"
+  node index.js --orchestrated --project-id my-company "Plan our launch strategy"
+  node index.js --orchestrated --config advisors.json "Create marketing campaign"
 
 Environment Variables:
   OPENAI_API_KEY      - OpenAI API key (for GPT models)
@@ -392,6 +432,119 @@ async function handleDeleteProject(args) {
     console.error(`❌ ${error.message}\n`);
     process.exit(1);
   }
+}
+
+/**
+ * Save orchestrated conversation results
+ */
+function saveOrchestratedResults(result) {
+  const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+  const outputDir = `outputs/conclave-${timestamp}`;
+
+  // Create output directory
+  if (!fs.existsSync('outputs')) {
+    fs.mkdirSync('outputs');
+  }
+  fs.mkdirSync(outputDir);
+
+  const transcriptPath = `${outputDir}/conclave-${timestamp}-orchestrated-transcript.md`;
+  const finalPath = `${outputDir}/conclave-${timestamp}-final-output.md`;
+  const jsonPath = `${outputDir}/conclave-${timestamp}-full.json`;
+
+  // Generate transcript
+  let transcript = `# LLM Conclave Orchestrated Conversation\n\n`;
+  transcript += `**Task:** ${result.task}\n\n`;
+  transcript += `**Mode:** Orchestrated\n\n`;
+  transcript += `**Primary Agent:** ${result.classification.primaryAgent}\n`;
+  transcript += `**Task Type:** ${result.classification.taskType}\n`;
+  transcript += `**Confidence:** ${(result.classification.confidence * 100).toFixed(0)}%\n\n`;
+  transcript += `---\n\n`;
+
+  transcript += `## Phase 1: Primary Response\n\n`;
+  transcript += `**Agent:** ${result.classification.primaryAgent}\n\n`;
+  transcript += `${result.primaryResponse}\n\n`;
+  transcript += `---\n\n`;
+
+  transcript += `## Phase 2: Critiques\n\n`;
+  result.critiques.forEach(critique => {
+    transcript += `### ${critique.agent}\n\n`;
+    transcript += `${critique.content}\n\n`;
+  });
+  transcript += `---\n\n`;
+
+  transcript += `## Phase 3: Revised Response\n\n`;
+  transcript += `**Agent:** ${result.classification.primaryAgent}\n\n`;
+  transcript += `${result.revisedResponse}\n\n`;
+
+  if (result.validations && result.validations.length > 0) {
+    transcript += `---\n\n`;
+    transcript += `## Phase 4: Validation\n\n`;
+    result.validations.forEach(validation => {
+      transcript += `### ${validation.validator}\n\n`;
+      transcript += `**Status:** ${validation.status}\n\n`;
+      transcript += `${validation.content}\n\n`;
+    });
+  }
+
+  // Write files
+  fs.writeFileSync(transcriptPath, transcript);
+
+  let finalOutput = `# Final Output\n\n`;
+  finalOutput += `**Task:** ${result.task}\n\n`;
+  finalOutput += `---\n\n`;
+  finalOutput += `${result.finalOutput}\n`;
+
+  if (result.validations && result.validations.length > 0) {
+    finalOutput += `\n---\n\n## Validation Summary\n\n`;
+    result.validations.forEach(v => {
+      finalOutput += `- **${v.validator}:** ${v.status}\n`;
+    });
+  }
+
+  fs.writeFileSync(finalPath, finalOutput);
+  fs.writeFileSync(jsonPath, JSON.stringify(result, null, 2));
+
+  return {
+    transcript: transcriptPath,
+    final: finalPath,
+    json: jsonPath
+  };
+}
+
+/**
+ * Print orchestrated conversation summary
+ */
+function printOrchestratedSummary(result, filePaths) {
+  console.log(`\n${'='.repeat(80)}`);
+  console.log(`ORCHESTRATED CONVERSATION COMPLETE`);
+  console.log(`${'='.repeat(80)}\n`);
+
+  console.log(`Task: ${result.task}`);
+  console.log(`Primary Agent: ${result.classification.primaryAgent}`);
+  console.log(`Task Type: ${result.classification.taskType}\n`);
+
+  if (result.validations && result.validations.length > 0) {
+    console.log(`Validation Results:`);
+    result.validations.forEach(v => {
+      const icon = v.status === 'PASS' ? '✓' : v.status === 'FAIL' ? '✗' : '⚠';
+      console.log(`  ${icon} ${v.validator}: ${v.status}`);
+    });
+    console.log();
+  }
+
+  console.log(`Files saved:`);
+  console.log(`  - Full transcript: ${filePaths.transcript}`);
+  console.log(`  - Final output: ${filePaths.final}`);
+  console.log(`  - JSON data: ${filePaths.json}\n`);
+
+  console.log(`Final Output:`);
+  console.log(`${'-'.repeat(80)}`);
+  const preview = result.finalOutput.substring(0, 500);
+  console.log(preview);
+  if (result.finalOutput.length > 500) {
+    console.log(`\n... (see ${filePaths.final} for full output)`);
+  }
+  console.log(`${'-'.repeat(80)}\n`);
 }
 
 // Run main function
