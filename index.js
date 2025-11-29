@@ -10,6 +10,8 @@ const ProviderFactory = require('./src/providers/ProviderFactory');
 const ProjectContext = require('./src/utils/ProjectContext');
 const MemoryManager = require('./src/memory/MemoryManager');
 const Orchestrator = require('./src/orchestration/Orchestrator');
+const InteractiveInit = require('./src/init/InteractiveInit');
+const ConfigWriter = require('./src/init/ConfigWriter');
 
 /**
  * Main CLI entry point for LLM Conclave
@@ -33,10 +35,27 @@ async function main() {
     }
 
     if (args.includes('--init')) {
-      const configPath = ConfigLoader.createExample();
-      console.log(`✓ Created example configuration file: ${configPath}`);
-      console.log(`  Edit this file to customize your agents and judge.`);
-      console.log(`  Then run: node index.js "your task here"\n`);
+      // Check if user wants template-only mode
+      const templateOnly = args.includes('--template-only');
+
+      if (templateOnly) {
+        // Create template config (old behavior)
+        await ConfigWriter.createTemplate();
+      } else {
+        // Run interactive init
+        const projectNameIndex = args.indexOf('--init');
+        const projectName = args[projectNameIndex + 1] && !args[projectNameIndex + 1].startsWith('--')
+          ? args[projectNameIndex + 1]
+          : null;
+
+        const init = new InteractiveInit({
+          projectName,
+          overwrite: args.includes('--overwrite')
+        });
+
+        await init.run();
+      }
+
       process.exit(0);
     }
 
@@ -226,7 +245,8 @@ Usage: node index.js [options] [task]
 
 Options:
   --help, -h          Show this help message
-  --init              Create an example configuration file (.llm-conclave.json)
+  --init [name]       Interactive setup wizard (creates config and project)
+  --init --template-only    Create template config without interactive setup
   --config <path>     Specify a custom configuration file path
   --project <path>    Include file or directory context for analysis
   --orchestrated      Use orchestrated mode (primary/secondary/validation flow)
@@ -267,22 +287,15 @@ Configuration:
   Use --init to create an example configuration file.
 
 Examples:
-  node index.js --init
+  # Interactive Setup (Recommended - First Time)
+  node index.js --init                    # Guided setup with AI-generated agents
+  node index.js --init my-project         # Setup with project name
+
+  # Running Tasks
   node index.js "Create a task management app"
   node index.js task.txt
-  node index.js --config custom-config.json "Design an API"
-  node index.js --project ./my-app "Review this code for bugs"
-
-  # Project Memory Examples
-  node index.js --init-project my-company
-  node index.js --project-id my-company "We need to name our first product"
-  node index.js --list-projects
-  node index.js --project-info my-company
-
-  # Orchestrated Mode Examples
-  node index.js --orchestrated "Name our skincare product line"
-  node index.js --orchestrated --project-id my-company "Plan our launch strategy"
-  node index.js --orchestrated --config advisors.json "Create marketing campaign"
+  node index.js --orchestrated "Name our product"
+  node index.js --orchestrated "Plan our launch strategy"
 
 Environment Variables:
   OPENAI_API_KEY      - OpenAI API key (for GPT models)
