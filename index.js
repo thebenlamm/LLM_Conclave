@@ -48,9 +48,18 @@ async function main() {
           ? args[projectNameIndex + 1]
           : null;
 
+        // Get scanning options
+        const scan = args.includes('--scan');
+        const noScan = args.includes('--no-scan');
+        const scanTimeoutIndex = args.indexOf('--scan-timeout');
+        const scanTimeout = scanTimeoutIndex !== -1 ? parseInt(args[scanTimeoutIndex + 1]) : null;
+
         const init = new InteractiveInit({
           projectName,
-          overwrite: args.includes('--overwrite')
+          overwrite: args.includes('--overwrite'),
+          scan,
+          noScan,
+          scanTimeout
         });
 
         await init.run();
@@ -251,6 +260,11 @@ Options:
   --project <path>    Include file or directory context for analysis
   --orchestrated      Use orchestrated mode (primary/secondary/validation flow)
 
+Init Options:
+  --scan              Force project directory scanning
+  --no-scan           Skip project scanning (faster setup)
+  --scan-timeout <s>  Scan timeout in seconds (default: 30)
+
 Project Memory Options:
   --init-project <id>       Create a new project with persistent memory
   --project-id <id>         Use an existing project (loads its memory)
@@ -290,6 +304,8 @@ Examples:
   # Interactive Setup (Recommended - First Time)
   node index.js --init                    # Guided setup with AI-generated agents
   node index.js --init my-project         # Setup with project name
+  node index.js --init --scan             # Force project scanning
+  node index.js --init --no-scan          # Skip scanning (faster)
 
   # Running Tasks
   node index.js "Create a task management app"

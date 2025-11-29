@@ -7,6 +7,7 @@ const APIKeyDetector = require('./APIKeyDetector');
 const AgentGenerator = require('./AgentGenerator');
 const PromptBuilder = require('./PromptBuilder');
 const ConfigWriter = require('./ConfigWriter');
+const ProjectScanner = require('./ProjectScanner');
 
 class InteractiveInit {
   constructor(options = {}) {
@@ -45,11 +46,23 @@ class InteractiveInit {
       // Step 2: Get project description
       const description = await this.promptProjectDescription();
 
+      // Step 2.5: Optional project scanning
+      let scanContext = null;
+      if (!this.options.noScan && !this.options.scan) {
+        // Ask user if they want to scan
+        if (await ProjectScanner.shouldScan()) {
+          scanContext = await this.scanProject();
+        }
+      } else if (this.options.scan) {
+        // Force scan
+        scanContext = await this.scanProject();
+      }
+
       // Step 3: Generate agents
       PromptBuilder.thinking(`[Generating agents with ${provider.provider}...]`);
 
       const generator = new AgentGenerator(provider.provider, provider.model);
-      const { agents, reasoning } = await generator.generateAgents(description);
+      const { agents, reasoning } = await generator.generateAgents(description, scanContext);
 
       // Step 4: Present agents to user
       const finalAgents = await this.presentAgentProposal(agents, reasoning, generator);
@@ -90,6 +103,29 @@ class InteractiveInit {
         resolve(name);
       });
     });
+  }
+
+  /**
+   * Scan project directory
+   */
+  async scanProject() {
+    try {
+      PromptBuilder.thinking('[Scanning project directory...]');
+
+      const scanner = new ProjectScanner();
+      const timeout = this.options.scanTimeout ? this.options.scanTimeout * 1000 : 30000;
+      const results = await scanner.scan(timeout);
+
+      console.log(`✓ ${results.summary.split('\n')[0]}`); // First line of summary
+      console.log(`  ${scanner.getBriefSummary()}\n`);
+
+      return scanner.formatForLLM();
+
+    } catch (error) {
+      console.warn(`⚠️  Scan failed: ${error.message}`);
+      console.log('Continuing without scan results...\n');
+      return null;
+    }
   }
 
   /**
