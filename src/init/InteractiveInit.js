@@ -45,18 +45,21 @@ class InteractiveInit {
 
       // Step 2: Get project description
       const description = await this.promptProjectDescription();
+      this.lastDescription = description;
+      this.lastScanContext = null;
 
       // Step 2.5: Optional project scanning
       let scanContext = null;
       if (!this.options.noScan && !this.options.scan) {
         // Ask user if they want to scan
-        if (await ProjectScanner.shouldScan()) {
+        if (await ProjectScanner.shouldScan(this.rl)) {
           scanContext = await this.scanProject();
         }
       } else if (this.options.scan) {
         // Force scan
         scanContext = await this.scanProject();
       }
+      this.lastScanContext = scanContext;
 
       // Step 3: Generate agents
       PromptBuilder.thinking(`[Generating agents with ${provider.provider}...]`);
@@ -195,7 +198,7 @@ class InteractiveInit {
 
         case 'r':
           PromptBuilder.thinking('\n[Regenerating agents...]');
-          const result = await generator.generateAgents(this.lastDescription);
+          const result = await generator.generateAgents(this.lastDescription, this.lastScanContext);
           currentAgents = result.agents;
           reasoning = result.reasoning;
           break;

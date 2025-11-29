@@ -4,7 +4,6 @@
 
 const fs = require('fs').promises;
 const path = require('path');
-const readline = require('readline');
 
 class ProjectScanner {
   constructor(projectPath = process.cwd()) {
@@ -21,9 +20,10 @@ class ProjectScanner {
 
   /**
    * Ask user if they want to scan the project
+   * @param {readline.Interface} rl - Readline interface to use
    * @returns {Promise<boolean>}
    */
-  static async shouldScan() {
+  static async shouldScan(rl) {
     // Check if we're in a directory with files (not empty)
     try {
       const files = await fs.readdir(process.cwd());
@@ -34,17 +34,11 @@ class ProjectScanner {
       return false;
     }
 
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
-
     console.log('\nI can analyze your project directory to better understand your needs.');
     console.log('This will scan key files (README, package.json, etc.) and take ~20 seconds.\n');
 
     return new Promise((resolve) => {
       rl.question('Scan project? (y/n): ', (answer) => {
-        rl.close();
         resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
       });
     });
