@@ -15,34 +15,41 @@ class TaskClassifier {
     const taskLower = task.toLowerCase();
     const scores = {};
 
-    // Score each decision-making agent based on keyword matches
-    for (const [agentName, role] of Object.entries(AGENT_ROLES)) {
-      if (role.type !== 'decision_maker') continue;
+    // Check if we have role definitions for any of the available agents
+    const hasRoleDefs = availableAgents.some(name => AGENT_ROLES[name]);
 
-      let score = 0;
-      let matchedKeywords = [];
+    if (hasRoleDefs) {
+      // Score each decision-making agent based on keyword matches
+      // Only score agents that are both in AGENT_ROLES AND availableAgents
+      for (const agentName of availableAgents) {
+        const role = AGENT_ROLES[agentName];
+        if (!role || role.type !== 'decision_maker') continue;
 
-      // Check speaksFirstFor keywords (high weight)
-      for (const keyword of role.speaksFirstFor) {
-        if (taskLower.includes(keyword.toLowerCase())) {
-          score += 3;
-          matchedKeywords.push(keyword);
+        let score = 0;
+        let matchedKeywords = [];
+
+        // Check speaksFirstFor keywords (high weight)
+        for (const keyword of role.speaksFirstFor) {
+          if (taskLower.includes(keyword.toLowerCase())) {
+            score += 3;
+            matchedKeywords.push(keyword);
+          }
         }
-      }
 
-      // Check broader domain keywords (lower weight)
-      for (const domain of role.domains) {
-        if (taskLower.includes(domain.toLowerCase())) {
-          score += 1;
-          matchedKeywords.push(domain);
+        // Check broader domain keywords (lower weight)
+        for (const domain of role.domains) {
+          if (taskLower.includes(domain.toLowerCase())) {
+            score += 1;
+            matchedKeywords.push(domain);
+          }
         }
-      }
 
-      if (score > 0) {
-        scores[agentName] = {
-          score,
-          matchedKeywords: [...new Set(matchedKeywords)] // dedupe
-        };
+        if (score > 0) {
+          scores[agentName] = {
+            score,
+            matchedKeywords: [...new Set(matchedKeywords)] // dedupe
+          };
+        }
       }
     }
 
@@ -75,18 +82,14 @@ class TaskClassifier {
 
     // If no clear match, default to first available agent
     if (!primaryAgent || confidence < 0.3) {
-      // Try to use first available agent from config
       if (availableAgents.length > 0) {
         primaryAgent = availableAgents[0];
         taskType = 'general';
         confidence = 0.5;
         reasoning = `No specific domain match, using first available agent: ${primaryAgent}`;
       } else {
-        // Fallback if no agents provided (shouldn't happen)
-        primaryAgent = 'Growth_Strategist';
-        taskType = 'strategic';
-        confidence = 0.5;
-        reasoning = 'No specific domain match, defaulting to strategic approach';
+        // This shouldn't happen, but handle gracefully
+        throw new Error('No agents available for task classification');
       }
     }
 
