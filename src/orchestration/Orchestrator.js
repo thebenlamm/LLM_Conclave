@@ -52,7 +52,8 @@ class Orchestrator {
     console.log(`${'='.repeat(80)}\n`);
 
     // Step 1: Classify task and determine primary agent
-    const classification = TaskClassifier.classify(task);
+    const availableAgents = Object.keys(this.agents);
+    const classification = TaskClassifier.classify(task, availableAgents);
     console.log(`\n[Orchestrator] Task Classification:`);
     console.log(`  Primary Agent: ${classification.primaryAgent}`);
     console.log(`  Task Type: ${classification.taskType}`);
@@ -187,7 +188,8 @@ class Orchestrator {
    * Collect critiques from secondary agents
    */
   async collectCritiques(primaryAgent, primaryResponse, task, context) {
-    const secondaryAgents = TaskClassifier.getSecondaryAgents(primaryAgent);
+    const availableAgents = Object.keys(this.agents);
+    const secondaryAgents = TaskClassifier.getSecondaryAgents(primaryAgent, availableAgents);
     const critiques = [];
 
     for (const agentName of secondaryAgents) {
@@ -281,7 +283,8 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
    * Run validation gates
    */
   async runValidation(content, task, context) {
-    const validators = TaskClassifier.getValidators();
+    const availableAgents = Object.keys(this.agents);
+    const validators = TaskClassifier.getValidators(availableAgents);
     const validationResults = [];
 
     for (const validatorName of validators) {
@@ -359,12 +362,13 @@ Be thorough but concise.`;
 
       // Record as a decision if it's a significant outcome
       if (classification.confidence > 0.6) {
+        const availableAgents = Object.keys(this.agents);
         await this.memoryManager.recordDecision({
           topic: classification.taskType,
           description: task,
           outcome: typeof finalOutput === 'string' ? finalOutput : finalOutput.content,
           participants: [classification.primaryAgent],
-          validators: TaskClassifier.getValidators(),
+          validators: TaskClassifier.getValidators(availableAgents),
           consensusReached: true
         });
       }
