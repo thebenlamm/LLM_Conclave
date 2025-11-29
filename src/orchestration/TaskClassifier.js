@@ -68,7 +68,7 @@ class TaskClassifier {
 
     // Calculate confidence
     const totalScore = Object.values(scores).reduce((sum, data) => sum + data.score, 0);
-    const confidence = totalScore > 0 ? (maxScore / totalScore) : 0;
+    let confidence = totalScore > 0 ? (maxScore / totalScore) : 0;
 
     // Determine task type based on primary agent
     let taskType = 'general';
