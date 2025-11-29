@@ -92,20 +92,48 @@ Validators provide structured reviews:
 
 ## Usage
 
+### Simplified Per-Directory Workflow (Recommended)
+
+Set up once per project directory:
+
+```bash
+cd ~/my-company
+
+# 1. Install llm-conclave globally (one-time)
+npm install -g /path/to/llm_conclave
+
+# 2. Copy config template
+cp /path/to/llm_conclave/company-advisors-config.json .llm-conclave.json
+
+# 3. Edit config to set your project_id
+# Edit .llm-conclave.json: { "project_id": "my-company", ... }
+
+# 4. Initialize the project
+llm-conclave --init-project my-company
+
+# 5. Now just run commands - config and project picked up automatically!
+llm-conclave --orchestrated "Name our product"
+llm-conclave --orchestrated "Plan our launch"
+llm-conclave --orchestrated "Create pricing strategy"
+
+# All conversations use the same project memory automatically
+```
+
 ### Basic Orchestrated Conversation
 
 ```bash
-node index.js --orchestrated "Name our skincare product for sensitive skin"
+# Without project memory
+llm-conclave --orchestrated "Name our skincare product for sensitive skin"
 ```
 
-### With Project Memory
+### With Project Memory (Manual)
 
 ```bash
 # Create project
-node index.js --init-project my-company
+llm-conclave --init-project my-company
 
-# Run orchestrated conversation with memory
-node index.js --orchestrated --project-id my-company "Plan our Q1 launch"
+# Run orchestrated conversation with memory (specify each time)
+llm-conclave --orchestrated --project-id my-company "Plan our Q1 launch"
 ```
 
 ### With Custom Config
@@ -137,12 +165,36 @@ node index.js --project-info wellness-brand
 
 ## Configuration
 
+### Project-Specific Setup
+
+You can add an optional `project_id` field to your config to avoid specifying `--project-id` on every command:
+
+```json
+{
+  "project_id": "my-company",
+  "agents": {...}
+}
+```
+
+With this set, you can simply run:
+```bash
+llm-conclave --orchestrated "your task"
+```
+
+Instead of:
+```bash
+llm-conclave --orchestrated --project-id my-company "your task"
+```
+
+The `--project-id` flag overrides the config if you need to use a different project temporarily.
+
 ### Agent Setup
 
 Use `company-advisors-config.json` as a template:
 
 ```json
 {
+  "project_id": "my-company",
   "agents": {
     "Brand_Architect": {
       "model": "claude-sonnet-4-5",
