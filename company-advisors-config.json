@@ -1,4 +1,5 @@
 {
+  "project_id": "my-company",
   "turn_management": "roundrobin",
   "max_rounds": 10,
   "judge": {

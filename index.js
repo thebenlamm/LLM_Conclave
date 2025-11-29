@@ -77,10 +77,16 @@ async function main() {
     // Check for project memory
     let memoryManager = null;
     const projectIdIndex = args.indexOf('--project-id');
-    const projectId = projectIdIndex !== -1 ? args[projectIdIndex + 1] : null;
+    let projectId = projectIdIndex !== -1 ? args[projectIdIndex + 1] : null;
+
+    // If no --project-id flag, check if config has a default project_id
+    if (!projectId && config.project_id) {
+      projectId = config.project_id;
+      console.log(`\nUsing default project from config: ${projectId}`);
+    }
 
     if (projectId) {
-      console.log(`\nLoading project memory: ${projectId}`);
+      console.log(projectIdIndex !== -1 ? `\nLoading project memory: ${projectId}` : '');
       memoryManager = new MemoryManager();
       try {
         await memoryManager.loadProject(projectId);
