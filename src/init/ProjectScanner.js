@@ -236,7 +236,20 @@ class ProjectScanner {
    * Find and read key files
    */
   async _findKeyFiles() {
-    const keyFileNames = ['README.md', 'README.txt', 'package.json', 'requirements.txt'];
+    const keyFileNames = [
+      'README.md',
+      'README.txt',
+      'package.json',
+      'requirements.txt',
+      // AI/LLM documentation files
+      'CLAUDE.md',
+      'CLAUDE_INSTRUCTIONS.md',
+      'AI.md',
+      'LLM.md',
+      'PROMPTS.md',
+      '.cursorrules',
+      '.claude/instructions.md'
+    ];
 
     for (const fileName of keyFileNames) {
       try {
@@ -248,12 +261,20 @@ class ProjectScanner {
 
         const content = await fs.readFile(filePath, 'utf8');
 
-        // Truncate to first 500 characters
-        const truncated = content.substring(0, 500);
+        // Truncate to first 1000 characters for AI docs (they're usually more relevant)
+        // Standard docs get 500 characters
+        const isAIDoc = fileName.toUpperCase().includes('CLAUDE') ||
+                       fileName.toUpperCase().includes('AI') ||
+                       fileName.toUpperCase().includes('LLM') ||
+                       fileName === '.cursorrules';
+
+        const maxLength = isAIDoc ? 1000 : 500;
+        const truncated = content.substring(0, maxLength);
 
         this.results.keyFiles.push({
           name: fileName,
-          content: truncated
+          content: truncated,
+          isAIDoc
         });
 
       } catch (error) {
@@ -338,10 +359,24 @@ class ProjectScanner {
   formatForLLM() {
     let output = this.results.summary;
 
+    // Prioritize AI documentation files (most relevant for agent generation)
+    const aiDocs = this.results.keyFiles.filter(f => f.isAIDoc);
+    if (aiDocs.length > 0) {
+      output += '\n\nAI DOCUMENTATION FOUND:\n';
+      aiDocs.forEach(doc => {
+        output += `\n${doc.name}:\n`;
+        output += doc.content;
+        if (doc.content.length >= 1000) {
+          output += '\n[truncated]';
+        }
+        output += '\n';
+      });
+    }
+
     // Add README excerpt if available
     const readme = this.results.keyFiles.find(f => f.name.startsWith('README'));
     if (readme) {
-      output += '\n\nREADME excerpt:\n';
+      output += '\nREADME excerpt:\n';
       output += readme.content;
       if (readme.content.length >= 500) {
         output += '\n[truncated]';
@@ -367,6 +402,13 @@ class ProjectScanner {
 
     if (this.results.domains.length > 0) {
       parts.push(this.results.domains.slice(0, 2).join(', '));
+    }
+
+    // Mention if AI docs were found
+    const aiDocs = this.results.keyFiles.filter(f => f.isAIDoc);
+    if (aiDocs.length > 0) {
+      const aiDocNames = aiDocs.map(d => d.name).join(', ');
+      parts.push(`AI docs: ${aiDocNames}`);
     }
 
     return parts.length > 0 ? `I see: ${parts.join(', ')}` : 'Scan completed';
