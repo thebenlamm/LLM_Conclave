@@ -315,7 +315,8 @@ Keep your critique constructive and focused.`;
       const messages = [{ role: 'user', content: critiquePrompt }];
 
       try {
-        const critique = await agent.provider.chat(messages, agent.systemPrompt);
+        const response = await agent.provider.chat(messages, agent.systemPrompt);
+        const critique = typeof response === 'string' ? response : response.text;
 
         if (!quiet) {
           console.log(`${agentName} Critique:\n${critique}\n`);
@@ -370,7 +371,8 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
     const messages = [{ role: 'user', content: revisionPrompt }];
 
     try {
-      const revision = await agent.provider.chat(messages, agent.systemPrompt);
+      const response = await agent.provider.chat(messages, agent.systemPrompt);
+      const revision = typeof response === 'string' ? response : response.text;
 
       if (!quiet) {
         console.log(`${primaryAgent} Revised Response:\n${revision}\n`);
@@ -423,7 +425,8 @@ Be thorough but concise.`;
       const messages = [{ role: 'user', content: validationPrompt }];
 
       try {
-        const validation = await agent.provider.chat(messages, agent.systemPrompt);
+        const response = await agent.provider.chat(messages, agent.systemPrompt);
+        const validation = typeof response === 'string' ? response : response.text;
 
         if (!quiet) {
           console.log(`${validatorName} Validation:\n${validation}\n`);
