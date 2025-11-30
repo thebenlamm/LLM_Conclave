@@ -5,7 +5,6 @@
 const readline = require('readline');
 const Orchestrator = require('../orchestration/Orchestrator');
 const StatusDisplay = require('./StatusDisplay');
-const ConfigLoader = require('../config/ConfigLoader');
 
 class InteractiveSession {
   constructor(config, projectId = null) {
