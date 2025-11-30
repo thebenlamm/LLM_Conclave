@@ -12,6 +12,7 @@ const MemoryManager = require('./src/memory/MemoryManager');
 const Orchestrator = require('./src/orchestration/Orchestrator');
 const InteractiveInit = require('./src/init/InteractiveInit');
 const ConfigWriter = require('./src/init/ConfigWriter');
+const InteractiveSession = require('./src/interactive/InteractiveSession');
 
 /**
  * Main CLI entry point for LLM Conclave
@@ -27,6 +28,27 @@ async function main() {
   try {
     // Parse command line arguments
     const args = process.argv.slice(2);
+
+    // If no arguments, launch interactive mode
+    if (args.length === 0) {
+      // Load configuration
+      let config;
+      try {
+        config = ConfigLoader.load();
+      } catch (error) {
+        console.error(`\n❌ Configuration Error: ${error.message}\n`);
+        console.log(`Run 'llm-conclave --init' to create a configuration file.\n`);
+        process.exit(1);
+      }
+
+      // Get project ID from config if available
+      const projectId = config.project_id || null;
+
+      // Launch interactive session
+      const session = new InteractiveSession(config, projectId);
+      await session.start();
+      return; // Interactive session handles its own exit
+    }
 
     // Handle special commands
     if (args.includes('--help') || args.includes('-h')) {

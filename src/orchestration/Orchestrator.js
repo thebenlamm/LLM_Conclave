@@ -44,60 +44,80 @@ class Orchestrator {
    * Execute orchestrated conversation
    * @param {string} task - The task to accomplish
    * @param {Object} projectContext - Optional project file context
+   * @param {Object} options - Execution options { quiet: boolean, onStatus: function }
    * @returns {Object} - Result with final output and metadata
    */
-  async executeTask(task, projectContext = null) {
-    console.log(`\n${'='.repeat(80)}`);
-    console.log(`ORCHESTRATED TASK: ${task}`);
-    console.log(`${'='.repeat(80)}\n`);
+  async executeTask(task, projectContext = null, options = {}) {
+    const { quiet = false, onStatus = null } = options;
+
+    if (!quiet) {
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`ORCHESTRATED TASK: ${task}`);
+      console.log(`${'='.repeat(80)}\n`);
+    }
 
     // Step 1: Classify task and determine primary agent
     const availableAgents = Object.keys(this.agents);
     const classification = TaskClassifier.classify(task, availableAgents);
-    console.log(`\n[Orchestrator] Task Classification:`);
-    console.log(`  Primary Agent: ${classification.primaryAgent}`);
-    console.log(`  Task Type: ${classification.taskType}`);
-    console.log(`  Confidence: ${(classification.confidence * 100).toFixed(0)}%`);
-    console.log(`  Reasoning: ${classification.reasoning}\n`);
+
+    if (!quiet) {
+      console.log(`\n[Orchestrator] Task Classification:`);
+      console.log(`  Primary Agent: ${classification.primaryAgent}`);
+      console.log(`  Task Type: ${classification.taskType}`);
+      console.log(`  Confidence: ${(classification.confidence * 100).toFixed(0)}%`);
+      console.log(`  Reasoning: ${classification.reasoning}\n`);
+    }
 
     // Build initial context
     let initialContext = this.buildInitialContext(task, projectContext);
 
     // Step 2: Primary agent responds
-    console.log(`\n--- Phase 1: Primary Agent Response ---\n`);
+    if (onStatus) onStatus(1, 4, `${classification.primaryAgent} analyzing...`);
+    if (!quiet) console.log(`\n--- Phase 1: Primary Agent Response ---\n`);
+
     const primaryResponse = await this.getPrimaryResponse(
       classification.primaryAgent,
       task,
-      initialContext
+      initialContext,
+      quiet
     );
 
     // Step 3: Secondary agents critique
-    console.log(`\n--- Phase 2: Secondary Agent Critiques ---\n`);
+    if (onStatus) onStatus(2, 4, 'Collecting critiques...');
+    if (!quiet) console.log(`\n--- Phase 2: Secondary Agent Critiques ---\n`);
+
     const critiques = await this.collectCritiques(
       classification.primaryAgent,
       primaryResponse,
       task,
-      initialContext
+      initialContext,
+      quiet
     );
 
     // Step 4: Primary agent revises
-    console.log(`\n--- Phase 3: Primary Agent Revision ---\n`);
+    if (onStatus) onStatus(3, 4, 'Refining response...');
+    if (!quiet) console.log(`\n--- Phase 3: Primary Agent Revision ---\n`);
+
     const revisedResponse = await this.getRevision(
       classification.primaryAgent,
       primaryResponse,
       critiques,
       task,
-      initialContext
+      initialContext,
+      quiet
     );
 
     // Step 5: Validation gates
     let finalOutput = revisedResponse;
     if (requiresValidation(task)) {
-      console.log(`\n--- Phase 4: Validation Gates ---\n`);
+      if (onStatus) onStatus(4, 4, 'Running validation...');
+      if (!quiet) console.log(`\n--- Phase 4: Validation Gates ---\n`);
+
       const validationResults = await this.runValidation(
         revisedResponse,
         task,
-        initialContext
+        initialContext,
+        quiet
       );
 
       finalOutput = {
@@ -111,9 +131,13 @@ class Orchestrator {
       await this.recordInMemory(task, classification, finalOutput);
     }
 
-    console.log(`\n${'='.repeat(80)}`);
-    console.log(`ORCHESTRATION COMPLETE`);
-    console.log(`${'='.repeat(80)}\n`);
+    if (!quiet) {
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`ORCHESTRATION COMPLETE`);
+      console.log(`${'='.repeat(80)}\n`);
+    }
+
+    const outputContent = typeof finalOutput === 'string' ? finalOutput : finalOutput.content;
 
     return {
       task,
@@ -122,7 +146,8 @@ class Orchestrator {
       critiques,
       revisedResponse,
       validations: finalOutput.validations || null,
-      finalOutput: typeof finalOutput === 'string' ? finalOutput : finalOutput.content,
+      output: outputContent,
+      finalOutput: outputContent,
       conversationHistory: this.conversationHistory
     };
   }
@@ -154,13 +179,15 @@ class Orchestrator {
   /**
    * Get primary agent's initial response
    */
-  async getPrimaryResponse(agentName, task, context) {
+  async getPrimaryResponse(agentName, task, context, quiet = false) {
     const agent = this.agents[agentName];
     if (!agent) {
       throw new Error(`Agent ${agentName} not found in configuration`);
     }
 
-    console.log(`[${agentName} (${agent.model}) is responding...]\n`);
+    if (!quiet) {
+      console.log(`[${agentName} (${agent.model}) is responding...]\n`);
+    }
 
     const prompt = `${context}Task: ${task}\n\nAs the primary agent for this task, provide your initial response. Be comprehensive but concise.`;
 
@@ -168,7 +195,10 @@ class Orchestrator {
 
     try {
       const response = await agent.provider.chat(messages, agent.systemPrompt);
-      console.log(`${agentName}:\n${response}\n`);
+
+      if (!quiet) {
+        console.log(`${agentName}:\n${response}\n`);
+      }
 
       this.conversationHistory.push({
         phase: 'primary_response',
@@ -187,7 +217,7 @@ class Orchestrator {
   /**
    * Collect critiques from secondary agents
    */
-  async collectCritiques(primaryAgent, primaryResponse, task, context) {
+  async collectCritiques(primaryAgent, primaryResponse, task, context, quiet = false) {
     const availableAgents = Object.keys(this.agents);
     const secondaryAgents = TaskClassifier.getSecondaryAgents(primaryAgent, availableAgents);
     const critiques = [];
@@ -196,7 +226,9 @@ class Orchestrator {
       const agent = this.agents[agentName];
       if (!agent) continue;
 
-      console.log(`[${agentName} (${agent.model}) is critiquing...]\n`);
+      if (!quiet) {
+        console.log(`[${agentName} (${agent.model}) is critiquing...]\n`);
+      }
 
       const critiquePrompt = `${context}Task: ${task}
 
@@ -215,7 +247,10 @@ Keep your critique constructive and focused.`;
 
       try {
         const critique = await agent.provider.chat(messages, agent.systemPrompt);
-        console.log(`${agentName} Critique:\n${critique}\n`);
+
+        if (!quiet) {
+          console.log(`${agentName} Critique:\n${critique}\n`);
+        }
 
         critiques.push({
           agent: agentName,
@@ -230,7 +265,9 @@ Keep your critique constructive and focused.`;
         });
 
       } catch (error) {
-        console.error(`Error with ${agentName}: ${error.message}`);
+        if (!quiet) {
+          console.error(`Error with ${agentName}: ${error.message}`);
+        }
       }
     }
 
@@ -240,10 +277,12 @@ Keep your critique constructive and focused.`;
   /**
    * Get revised response from primary agent
    */
-  async getRevision(primaryAgent, originalResponse, critiques, task, context) {
+  async getRevision(primaryAgent, originalResponse, critiques, task, context, quiet = false) {
     const agent = this.agents[primaryAgent];
 
-    console.log(`[${primaryAgent} is revising based on feedback...]\n`);
+    if (!quiet) {
+      console.log(`[${primaryAgent} is revising based on feedback...]\n`);
+    }
 
     const critiquesSummary = critiques
       .map(c => `${c.agent}:\n${c.content}`)
@@ -263,7 +302,10 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
 
     try {
       const revision = await agent.provider.chat(messages, agent.systemPrompt);
-      console.log(`${primaryAgent} Revised Response:\n${revision}\n`);
+
+      if (!quiet) {
+        console.log(`${primaryAgent} Revised Response:\n${revision}\n`);
+      }
 
       this.conversationHistory.push({
         phase: 'revision',
@@ -274,7 +316,9 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
 
       return revision;
     } catch (error) {
-      console.error(`Error with ${primaryAgent}: ${error.message}`);
+      if (!quiet) {
+        console.error(`Error with ${primaryAgent}: ${error.message}`);
+      }
       return originalResponse; // Fallback to original
     }
   }
@@ -282,7 +326,7 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
   /**
    * Run validation gates
    */
-  async runValidation(content, task, context) {
+  async runValidation(content, task, context, quiet = false) {
     const availableAgents = Object.keys(this.agents);
     const validators = TaskClassifier.getValidators(availableAgents);
     const validationResults = [];
@@ -291,7 +335,9 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
       const agent = this.agents[validatorName];
       if (!agent) continue;
 
-      console.log(`[${validatorName} is validating...]\n`);
+      if (!quiet) {
+        console.log(`[${validatorName} is validating...]\n`);
+      }
 
       const validationPrompt = `${context}Task: ${task}
 
@@ -309,7 +355,10 @@ Be thorough but concise.`;
 
       try {
         const validation = await agent.provider.chat(messages, agent.systemPrompt);
-        console.log(`${validatorName} Validation:\n${validation}\n`);
+
+        if (!quiet) {
+          console.log(`${validatorName} Validation:\n${validation}\n`);
+        }
 
         const status = this.extractValidationStatus(validation);
 
@@ -328,7 +377,9 @@ Be thorough but concise.`;
         });
 
       } catch (error) {
-        console.error(`Error with ${validatorName}: ${error.message}`);
+        if (!quiet) {
+          console.error(`Error with ${validatorName}: ${error.message}`);
+        }
       }
     }
 
