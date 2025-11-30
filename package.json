@@ -4,12 +4,15 @@
   "description": "Multi-agent LLM collaboration tool for solving tasks through structured conversation",
   "main": "index.js",
   "bin": {
-    "llm-conclave": "./index.js"
+    "llm-conclave": "./dist/index.js"
   },
   "scripts": {
-    "start": "node index.js",
-    "init": "node index.js --init",
-    "help": "node index.js --help"
+    "start": "ts-node index.ts",
+    "dev": "ts-node index.ts",
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "init": "ts-node index.ts --init",
+    "help": "ts-node index.ts --help"
   },
   "keywords": [
     "llm",
@@ -26,9 +29,16 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.1",
     "dotenv": "^17.2.3",
+    "glob": "^13.0.0",
     "openai": "^6.9.1"
   },
   "engines": {
     "node": ">=14.0.0"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/node": "^24.10.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }
