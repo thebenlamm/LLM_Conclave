@@ -13,6 +13,7 @@
 const TaskClassifier = require('./TaskClassifier');
 const { AGENT_ROLES, getResolutionMode, requiresValidation } = require('./AgentRoles');
 const ProviderFactory = require('../providers/ProviderFactory');
+const ToolRegistry = require('../tools/ToolRegistry');
 
 class Orchestrator {
   constructor(config, memoryManager = null) {
@@ -20,6 +21,8 @@ class Orchestrator {
     this.memoryManager = memoryManager;
     this.agents = {};
     this.conversationHistory = [];
+    this.toolRegistry = new ToolRegistry();
+    this.toolExecutions = []; // Track tool executions for output
 
     this.initializeAgents();
   }
@@ -148,7 +151,8 @@ class Orchestrator {
       validations: finalOutput.validations || null,
       output: outputContent,
       finalOutput: outputContent,
-      conversationHistory: this.conversationHistory
+      conversationHistory: this.conversationHistory,
+      toolExecutions: this.toolExecutions // Include tool execution summary
     };
   }
 
@@ -177,6 +181,69 @@ class Orchestrator {
   }
 
   /**
+   * Execute agent with tool support (handles tool calling loop)
+   */
+  async executeAgentWithTools(agent, messages, quiet = false) {
+    const tools = this.toolRegistry.getAnthropicTools(); // Works for both Anthropic and OpenAI
+    let currentMessages = [...messages];
+    let finalText = null;
+    const maxIterations = 10; // Prevent infinite loops
+    let iterations = 0;
+
+    while (iterations < maxIterations) {
+      iterations++;
+
+      // Call agent with tools
+      const response = await agent.provider.chat(
+        currentMessages,
+        agent.systemPrompt,
+        { tools: agent.provider.getProviderName() === 'OpenAI' ? this.toolRegistry.getOpenAITools() : tools }
+      );
+
+      // Check if response has tool calls
+      if (response.tool_calls && response.tool_calls.length > 0) {
+        // Execute each tool
+        for (const toolCall of response.tool_calls) {
+          const result = await this.toolRegistry.executeTool(toolCall.name, toolCall.input);
+
+          // Track tool execution for output
+          this.toolExecutions.push({
+            agent: agent.name,
+            tool: toolCall.name,
+            input: toolCall.input,
+            success: result.success,
+            summary: result.summary || result.error
+          });
+
+          if (!quiet) {
+            console.log(`  ✓ ${result.summary || result.error}`);
+          }
+
+          // Add tool result to messages
+          currentMessages.push({
+            role: 'tool_result',
+            tool_use_id: toolCall.id,
+            content: result.success ? result.result : `Error: ${result.error}`
+          });
+        }
+
+        // Continue loop to get agent's next response
+        continue;
+      }
+
+      // No tool calls - agent is done
+      finalText = response.text;
+      break;
+    }
+
+    if (iterations >= maxIterations) {
+      throw new Error('Tool calling loop exceeded maximum iterations');
+    }
+
+    return finalText;
+  }
+
+  /**
    * Get primary agent's initial response
    */
   async getPrimaryResponse(agentName, task, context, quiet = false) {
@@ -189,25 +256,27 @@ class Orchestrator {
       console.log(`[${agentName} (${agent.model}) is responding...]\n`);
     }
 
-    const prompt = `${context}Task: ${task}\n\nAs the primary agent for this task, provide your initial response. Be comprehensive but concise.`;
+    const prompt = `${context}Task: ${task}\n\nAs the primary agent for this task, provide your initial response. Be comprehensive but concise.
+
+You have access to tools to read and write files, list files, edit files, and run commands. Use these tools to take concrete actions rather than just discussing what should be done.`;
 
     const messages = [{ role: 'user', content: prompt }];
 
     try {
-      const response = await agent.provider.chat(messages, agent.systemPrompt);
+      const response = await this.executeAgentWithTools(agent, messages, quiet);
 
-      if (!quiet) {
+      if (!quiet && response) {
         console.log(`${agentName}:\n${response}\n`);
       }
 
       this.conversationHistory.push({
         phase: 'primary_response',
         agent: agentName,
-        content: response,
+        content: response || '[Agent used tools only]',
         role: 'primary'
       });
 
-      return response;
+      return response || '[Agent completed task using tools]';
     } catch (error) {
       console.error(`Error with ${agentName}: ${error.message}`);
       return `[Error: Unable to get response from ${agentName}]`;

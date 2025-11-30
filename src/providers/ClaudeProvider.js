@@ -13,14 +13,43 @@ class ClaudeProvider extends LLMProvider {
     });
   }
 
-  async chat(messages, systemPrompt = null) {
+  async chat(messages, systemPrompt = null, options = {}) {
     try {
+      const { tools = null } = options;
+
       // Claude API expects messages without system role in the messages array
       // System prompt is passed separately
-      const messageArray = messages.map(msg => ({
-        role: msg.role === 'assistant' ? 'assistant' : 'user',
-        content: msg.content
-      }));
+      const messageArray = messages.map(msg => {
+        // Handle messages with tool results
+        if (msg.role === 'tool_result') {
+          return {
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: msg.tool_use_id,
+              content: msg.content
+            }]
+          };
+        }
+
+        // Handle messages with tool calls from assistant
+        if (msg.role === 'assistant' && msg.tool_calls) {
+          return {
+            role: 'assistant',
+            content: msg.tool_calls.map(tc => ({
+              type: 'tool_use',
+              id: tc.id,
+              name: tc.name,
+              input: tc.input
+            }))
+          };
+        }
+
+        return {
+          role: msg.role === 'assistant' ? 'assistant' : 'user',
+          content: msg.content
+        };
+      });
 
       const params = {
         model: this.modelName,
@@ -34,6 +63,11 @@ class ClaudeProvider extends LLMProvider {
         params.system = systemPrompt;
       }
 
+      // Add tools if provided
+      if (tools && tools.length > 0) {
+        params.tools = tools;
+      }
+
       const response = await this.client.messages.create(params);
 
       // Validate response structure
@@ -43,7 +77,21 @@ class ClaudeProvider extends LLMProvider {
 
       // Handle empty content array (Claude chose not to respond)
       if (response.content.length === 0) {
-        return "[No response provided - model chose not to contribute]";
+        return { text: "[No response provided - model chose not to contribute]" };
+      }
+
+      // Check if response contains tool uses
+      const toolUses = response.content.filter(block => block.type === 'tool_use');
+      if (toolUses.length > 0) {
+        // Return tool calls for execution
+        return {
+          tool_calls: toolUses.map(tu => ({
+            id: tu.id,
+            name: tu.name,
+            input: tu.input
+          })),
+          text: response.content.find(block => block.type === 'text')?.text || null
+        };
       }
 
       // Claude responses have a 'text' property in content blocks
@@ -52,7 +100,7 @@ class ClaudeProvider extends LLMProvider {
         throw new Error(`No text content in response: ${JSON.stringify(response.content)}`);
       }
 
-      return textContent.text;
+      return { text: textContent.text };
     } catch (error) {
       throw new Error(`Claude API error: ${error.message}`);
     }

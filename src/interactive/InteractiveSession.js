@@ -104,11 +104,31 @@ class InteractiveSession {
         }
       });
 
-      // Clear status and show response
+      // Clear status
       this.display.clear();
       console.log(''); // Blank line
-      this.display.response(result.output);
-      console.log(''); // Blank line after response
+
+      // Show tool executions if any
+      if (result.toolExecutions && result.toolExecutions.length > 0) {
+        result.toolExecutions.forEach(exec => {
+          if (exec.success) {
+            this.display.success(exec.summary);
+          } else {
+            this.display.error(exec.summary);
+          }
+        });
+        console.log(''); // Blank line after tools
+      }
+
+      // Show response if there is one
+      if (result.output && result.output !== '[Agent completed task using tools]') {
+        this.display.response(result.output);
+        console.log(''); // Blank line after response
+      } else if (result.toolExecutions && result.toolExecutions.length > 0) {
+        // If only tools, no text response
+        this.display.info('Task completed');
+        console.log('');
+      }
 
       // Store in history
       this.conversationHistory.push({
