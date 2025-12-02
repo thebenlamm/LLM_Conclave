@@ -1,16 +1,19 @@
 # LLM Conclave
 
-A command-line tool that enables multiple LLMs (ChatGPT, Claude, Grok, and others) to collaboratively solve tasks through multi-turn conversation.
+A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xAI Grok, Google Gemini, and Mistral AI) to collaboratively solve tasks through multi-turn conversation.
 
 ## Features
 
 - **Multi-Agent Collaboration**: Configure multiple LLM agents with different models and personas
-- **Judge-Coordinated Consensus**: An AI judge evaluates discussion progress and guides agents toward agreement
+- **5 LLM Providers**: OpenAI GPT, Anthropic Claude, xAI Grok, Google Gemini, and Mistral AI
+- **Two Operational Modes**:
+  - **Consensus Mode**: Democratic discussion with judge-coordinated consensus
+  - **Orchestrated Mode**: Structured workflow with primary/secondary agents and validation
+- **Tool Support**: Agents can read/write files, run commands, and perform real file operations
 - **Project Context Analysis**: Point the conclave at any codebase or document directory for analysis
+- **Interactive Init**: AI-powered agent generation based on your project description
 - **Flexible Configuration**: Use the same model multiple times with different system prompts
-- **Multiple LLM Providers**: Support for OpenAI (GPT), Anthropic (Claude), and xAI (Grok)
 - **Autonomous Operation**: Runs fully autonomously after task submission
-- **Round-Robin Turns**: Agents take turns in a structured conversation flow
 - **Comprehensive Output**: Saves full transcript, consensus, and JSON data
 
 ## Installation
@@ -25,20 +28,26 @@ A command-line tool that enables multiple LLMs (ChatGPT, Claude, Grok, and other
    cp .env.example .env
    # Edit .env and add your API keys
    ```
+4. (Optional) Link globally to use `llm-conclave` command:
+   ```bash
+   npm link
+   ```
 
 ## Quick Start
 
 1. **Initialize configuration:**
    ```bash
-   node index.js --init
+   llm-conclave --init
+   # Or without npm link: node index.js --init
    ```
-   This creates `.llm-conclave.json` with example agents.
+   This creates `.llm-conclave.json` with AI-generated agents tailored to your project.
 
 2. **Edit the configuration** to customize your agents (see Configuration section below)
 
 3. **Run with a task:**
    ```bash
-   node index.js "Design a social media application"
+   llm-conclave "Design a social media application"
+   # Or: node index.js "Design a social media application"
    ```
 
 ## Usage
@@ -59,38 +68,65 @@ node index.js
 ### Options
 
 ```bash
---help, -h          # Show help information
---init              # Create example configuration file
---config <path>     # Use custom configuration file
---project <path>    # Include file or directory context for analysis
+--help, -h              # Show help information
+--init                  # Create AI-generated agent configuration
+--config <path>         # Use custom configuration file
+--project <path>        # Include file or directory context for analysis
+--orchestrated          # Use orchestrated mode (primary/secondary/validation workflow)
+--project-id <id>       # Use persistent project memory
+```
+
+### Operational Modes
+
+**Consensus Mode (default):**
+- Democratic discussion where all agents contribute equally
+- Judge coordinates and evaluates consensus after each round
+- Best for open-ended problems requiring diverse perspectives
+
+**Orchestrated Mode (`--orchestrated`):**
+- Structured workflow with designated primary agent
+- Secondary agents provide critiques
+- Optional validation gates for quality assurance
+- Best for tasks requiring domain expertise and validation
+- **Agents have full tool access**: Can read/write files, run commands, edit code
+
+Example:
+```bash
+llm-conclave --orchestrated "Correct all 10 lines of oz.txt one at a time"
 ```
 
 ### Examples
 
 ```bash
-# Create initial config
-node index.js --init
+# Create initial config with AI-generated agents
+llm-conclave --init
 
-# Run with inline task
-node index.js "Create a task management application with real-time collaboration"
+# Run with inline task (consensus mode)
+llm-conclave "Create a task management application with real-time collaboration"
 
 # Run with task from file
-node index.js ./tasks/project-brief.txt
+llm-conclave ./tasks/project-brief.txt
 
 # Use custom config
-node index.js --config ./configs/creative-team.json "Write a short story about AI"
+llm-conclave --config ./configs/creative-team.json "Write a short story about AI"
 
 # Analyze a project directory
-node index.js --project ./my-app "Review this code for potential bugs and security issues"
+llm-conclave --project ./my-app "Review this code for potential bugs and security issues"
 
-# Correct a single file (transcription, document, etc.)
-node index.js --project transcript.txt "Correct all spelling and grammar errors"
+# Orchestrated mode: Agents can perform actual file operations
+llm-conclave --orchestrated "Correct lines 1-2 of oz.txt"
+
+# Orchestrated mode: Iterative file processing
+llm-conclave --orchestrated "Correct all 10 lines of document.txt one at a time"
+
+# Orchestrated mode: Code refactoring
+llm-conclave --orchestrated --project ./src "Refactor the authentication module"
 
 # Review documentation directory
-node index.js --project ./docs "Review my technical writing for clarity and completeness"
+llm-conclave --project ./docs "Review my technical writing for clarity and completeness"
 
 # Investigate a bug
-node index.js --project ./src "Find why the login feature isn't working on mobile"
+llm-conclave --project ./src "Find why the login feature isn't working on mobile"
 ```
 
 ## Project Context Analysis
@@ -144,7 +180,7 @@ node index.js --project /path/to/project "your question or task"
 
 ```bash
 # Point conclave at your project
-node index.js --project ./my-webapp "Review this React app for performance issues"
+llm-conclave --project ./my-webapp "Review this React app for performance issues"
 
 # The agents will:
 # 1. Read all source files (excluding node_modules, etc.)
@@ -152,6 +188,10 @@ node index.js --project ./my-webapp "Review this React app for performance issue
 # 3. Discuss performance concerns
 # 4. Reach consensus on recommendations
 # 5. Output detailed findings to the outputs/ directory
+
+# Or use orchestrated mode for actual file changes:
+llm-conclave --orchestrated --project ./my-webapp "Fix all ESLint errors"
+# Agents can read, analyze, and directly edit files!
 ```
 
 ## Configuration
@@ -186,8 +226,12 @@ The configuration file (`.llm-conclave.json`) defines:
       "prompt": "You are a pragmatic engineer focused on practical, implementable solutions. Balance idealism with real-world constraints."
     },
     "Creative": {
-      "model": "gpt-4o",
+      "model": "gemini-1.5-pro",
       "prompt": "You are a creative innovator. Think outside the box and propose novel, unconventional approaches."
+    },
+    "Analyst": {
+      "model": "mistral-large-latest",
+      "prompt": "You are a data-driven analyst. Focus on metrics, evidence, and quantifiable outcomes when evaluating solutions."
     }
   }
 }
@@ -300,14 +344,15 @@ The judge's system prompt controls how it evaluates consensus:
 
 ## Future Enhancements
 
-- **Cost tracking**: Monitor API usage and costs
+- **Cost tracking**: Monitor API usage and costs across providers
 - **Judge-directed turns**: Judge selects who speaks next based on discussion needs
 - **Streaming output**: Real-time display of agent responses
 - **Voting mechanisms**: Explicit agent voting before final decision
-- **Custom turn management**: More flexible conversation patterns
-- **Additional providers**: Support for more LLM providers
+- **Custom turn management**: More flexible conversation patterns beyond round-robin
 - **Custom file filters**: User-configurable include/exclude patterns for project analysis
 - **Embeddings/RAG**: Support for very large projects using vector search
+- **Agent memory**: Long-term memory for agents across sessions
+- **Parallel execution**: Run independent agent analyses in parallel
 
 ## License
 
@@ -319,10 +364,12 @@ Contributions welcome! Please open an issue or PR.
 
 ## Troubleshooting
 
-**"Configuration file not found"**: Run `node index.js --init` to create a config file
+**"Configuration file not found"**: Run `llm-conclave --init` to create a config file
 
 **API errors**: Check that your API keys are correctly set in `.env`
 
 **"Unknown model"**: Verify your model names match supported models (see Supported Models section)
 
-**Rate limits**: Add delays between API calls if you hit rate limits (future enhancement)
+**Tool iteration limit**: If agents stop mid-task, they may have hit the 25-iteration tool limit. Break task into smaller steps.
+
+**File encoding issues**: Ensure files are UTF-8 encoded for best results with non-English text
