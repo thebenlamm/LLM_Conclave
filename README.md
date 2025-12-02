@@ -214,6 +214,11 @@ The configuration file (`.llm-conclave.json`) defines:
 - `gemini-1.5-flash`
 - `gemini-2.0-flash-exp`
 
+**Mistral AI (requires `MISTRAL_API_KEY`):**
+- `mistral-large-latest`
+- `mistral-small-latest`
+- `codestral-latest`
+
 ## How It Works
 
 1. **Task Submission**: User provides a task via CLI argument, file, or interactive prompt
@@ -250,6 +255,7 @@ OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 XAI_API_KEY=xai-...
 GEMINI_API_KEY=...
+MISTRAL_API_KEY=...
 ```
 
 You only need API keys for the providers you're using.

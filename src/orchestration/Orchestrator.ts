@@ -224,9 +224,9 @@ export default class Orchestrator {
       iterations++;
 
       // Call agent with tools
-      // Grok uses OpenAI format since it's OpenAI-compatible
+      // Grok and Mistral use OpenAI format since they're OpenAI-compatible
       const providerName = agent.provider.getProviderName();
-      const useOpenAIFormat = providerName === 'OpenAI' || providerName === 'Grok';
+      const useOpenAIFormat = providerName === 'OpenAI' || providerName === 'Grok' || providerName === 'Mistral';
       const response = await agent.provider.chat(
         currentMessages,
         agent.systemPrompt,

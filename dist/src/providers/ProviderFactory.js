@@ -7,6 +7,7 @@ const OpenAIProvider_1 = __importDefault(require("./OpenAIProvider"));
 const ClaudeProvider_1 = __importDefault(require("./ClaudeProvider"));
 const GrokProvider_1 = __importDefault(require("./GrokProvider"));
 const GeminiProvider_1 = __importDefault(require("./GeminiProvider"));
+const MistralProvider_1 = __importDefault(require("./MistralProvider"));
 /**
  * Factory for creating LLM provider instances
  */
@@ -46,7 +47,11 @@ class ProviderFactory {
         if (modelLower.includes('gemini')) {
             return new GeminiProvider_1.default(modelIdentifier);
         }
-        throw new Error(`Unknown model: ${modelIdentifier}. Supported models: GPT (OpenAI), Claude (Anthropic), Grok (xAI), Gemini (Google)`);
+        // Mistral models
+        if (modelLower.includes('mistral') || modelLower.includes('codestral')) {
+            return new MistralProvider_1.default(modelIdentifier);
+        }
+        throw new Error(`Unknown model: ${modelIdentifier}. Supported models: GPT (OpenAI), Claude (Anthropic), Grok (xAI), Gemini (Google), Mistral (Mistral AI)`);
     }
     /**
      * Get a list of supported model patterns
@@ -57,7 +62,8 @@ class ProviderFactory {
             'gpt-4o, gpt-4-turbo, gpt-3.5-turbo (OpenAI)',
             'claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5, sonnet, opus, haiku (Anthropic)',
             'grok-3, grok-vision-3 (xAI)',
-            'gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash-exp (Google)'
+            'gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash-exp (Google)',
+            'mistral-large-latest, mistral-small-latest, codestral-latest (Mistral AI)'
         ];
     }
 }
