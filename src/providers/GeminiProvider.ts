@@ -41,10 +41,10 @@ export default class GeminiProvider extends LLMProvider {
         config.tools = [{ functionDeclarations }];
       }
 
-      // Call generateContent with the new API
-      const generateConfig: any = {
+      const generateConfig = {
         model: this.modelName,
-        contents: contents,
+        contents,
+        ...config,
       };
 
       if (Object.keys(config).length > 0) {
@@ -68,35 +68,46 @@ export default class GeminiProvider extends LLMProvider {
         return { text: fullText || null };
       }
 
-      // Non-streaming mode with token usage tracking
+      // Non-streaming mode with improved token usage tracking
       const result = await this.client.models.generateContent(generateConfig);
-      const response = result.response;
 
-      // Calculate token usage
-      const inputTokenResponse = await this.client.models.countTokens({ ...generateConfig, contents });
-      const outputTokenResponse = await this.client.models.countTokens({ ...generateConfig, contents: response.candidates[0].content });
-
-      const usage = {
-        input_tokens: inputTokenResponse.totalTokens,
-        output_tokens: outputTokenResponse.totalTokens,
-      };
+      let usage = { input_tokens: 0, output_tokens: 0 };
+      // @ts-ignore
+      if (result.usageMetadata) {
+        usage = {
+          // @ts-ignore
+          input_tokens: result.usageMetadata.promptTokenCount || 0,
+          // @ts-ignore
+          output_tokens: result.usageMetadata.candidatesTokenCount || 0,
+        };
+      } else {
+        // Fallback to manual counting, but run in parallel
+        const [inputTokenResponse, outputTokenResponse] = await Promise.all([
+          this.client.models.countTokens({ ...generateConfig, contents }),
+          this.client.models.countTokens({ ...generateConfig, contents: result.response.candidates![0].content })
+        ]);
+        usage = {
+          input_tokens: inputTokenResponse.totalTokens ?? 0,
+          output_tokens: outputTokenResponse.totalTokens ?? 0,
+        };
+      }
 
       // Check for function calls
-      if (response.candidates[0].content.parts.some((p: any) => p.functionCall)) {
+      if (result.response.candidates![0].content.parts.some((p: any) => p.functionCall)) {
         return {
-          tool_calls: response.candidates[0].content.parts
+          tool_calls: result.response.candidates![0].content.parts
             .filter((p: any) => p.functionCall)
             .map((p: any) => ({
               id: p.functionCall.name + '_' + Date.now(), // Gemini doesn't provide IDs
               name: p.functionCall.name,
               input: p.functionCall.args || {}
             })),
-          text: response.candidates[0].content.parts.find((p: any) => p.text)?.text || null,
+          text: result.response.candidates![0].content.parts.find((p: any) => p.text)?.text || null,
           usage
         };
       }
       
-      const text = response.candidates[0].content.parts.map(p => p.text).join('');
+      const text = result.response.candidates![0].content.parts.map((p: any) => p.text).join('');
 
       // Return regular text response
       return { text: text || null, usage };
