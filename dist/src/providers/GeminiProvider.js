@@ -12,7 +12,11 @@ const LLMProvider_1 = __importDefault(require("./LLMProvider"));
 class GeminiProvider extends LLMProvider_1.default {
     constructor(modelName, apiKey) {
         super(modelName);
-        this.client = new generative_ai_1.GoogleGenerativeAI(apiKey || process.env.GEMINI_API_KEY || '');
+        const key = apiKey || process.env.GEMINI_API_KEY;
+        if (!key) {
+            throw new Error('GEMINI_API_KEY is required. Get one at https://aistudio.google.com/app/apikey');
+        }
+        this.client = new generative_ai_1.GoogleGenerativeAI(key);
         // Model will be initialized with system instructions in chat() method
         this.model = this.client.getGenerativeModel({ model: modelName });
     }

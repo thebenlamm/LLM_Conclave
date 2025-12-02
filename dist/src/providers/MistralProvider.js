@@ -13,8 +13,12 @@ const LLMProvider_1 = __importDefault(require("./LLMProvider"));
 class MistralProvider extends LLMProvider_1.default {
     constructor(modelName, apiKey) {
         super(modelName);
+        const key = apiKey || process.env.MISTRAL_API_KEY;
+        if (!key) {
+            throw new Error('MISTRAL_API_KEY is required. Get one at https://console.mistral.ai/');
+        }
         this.client = new openai_1.default({
-            apiKey: apiKey || process.env.MISTRAL_API_KEY,
+            apiKey: key,
             baseURL: 'https://api.mistral.ai/v1'
         });
     }

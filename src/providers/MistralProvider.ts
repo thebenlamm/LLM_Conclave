@@ -12,8 +12,14 @@ export default class MistralProvider extends LLMProvider {
 
   constructor(modelName: string, apiKey?: string) {
     super(modelName);
+    const key = apiKey || process.env.MISTRAL_API_KEY;
+
+    if (!key) {
+      throw new Error('MISTRAL_API_KEY is required. Get one at https://console.mistral.ai/');
+    }
+
     this.client = new OpenAI({
-      apiKey: apiKey || process.env.MISTRAL_API_KEY,
+      apiKey: key,
       baseURL: 'https://api.mistral.ai/v1'
     });
   }

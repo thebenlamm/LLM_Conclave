@@ -12,7 +12,13 @@ export default class GeminiProvider extends LLMProvider {
 
   constructor(modelName: string, apiKey?: string) {
     super(modelName);
-    this.client = new GoogleGenerativeAI(apiKey || process.env.GEMINI_API_KEY || '');
+    const key = apiKey || process.env.GEMINI_API_KEY;
+
+    if (!key) {
+      throw new Error('GEMINI_API_KEY is required. Get one at https://aistudio.google.com/app/apikey');
+    }
+
+    this.client = new GoogleGenerativeAI(key);
 
     // Model will be initialized with system instructions in chat() method
     this.model = this.client.getGenerativeModel({ model: modelName });
