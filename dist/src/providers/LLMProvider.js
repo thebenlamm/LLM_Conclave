@@ -10,7 +10,6 @@ class LLMProvider {
     }
     /**
      * Get the model name
-     * @returns {string}
      */
     getModelName() {
         return this.modelName;

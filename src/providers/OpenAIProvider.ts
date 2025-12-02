@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import LLMProvider from './LLMProvider';
+import { Message, ProviderResponse, ChatOptions, ToolCall } from '../types';
 
 /**
  * OpenAI provider implementation
@@ -15,7 +16,7 @@ export default class OpenAIProvider extends LLMProvider {
     });
   }
 
-  async chat(messages: any[], systemPrompt: string | null = null, options: any = {}): Promise<any> {
+  async chat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
       const { tools = null } = options;
       const messageArray = [...messages];

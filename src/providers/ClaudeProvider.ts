@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import LLMProvider from './LLMProvider';
+import { Message, ProviderResponse, ChatOptions, ToolCall } from '../types';
 
 /**
  * Claude (Anthropic) provider implementation
@@ -15,7 +16,7 @@ export default class ClaudeProvider extends LLMProvider {
     });
   }
 
-  async chat(messages: any[], systemPrompt: string | null = null, options: any = {}): Promise<any> {
+  async chat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
       const { tools = null } = options;
 

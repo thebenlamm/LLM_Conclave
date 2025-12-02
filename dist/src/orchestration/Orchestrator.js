@@ -55,13 +55,13 @@ class Orchestrator {
     }
     /**
      * Execute orchestrated conversation
-     * @param {string} task - The task to accomplish
-     * @param {Object} projectContext - Optional project file context
-     * @param {Object} options - Execution options { quiet: boolean, onStatus: function }
-     * @returns {Object} - Result with final output and metadata
+     * @param task - The task to accomplish
+     * @param projectContext - Optional project file context
+     * @param options - Execution options with quiet mode and status callback
+     * @returns Result with final output and metadata
      */
     async executeTask(task, projectContext = null, options = {}) {
-        const { quiet = false, onStatus = null } = options;
+        const { quiet = false, onStatus = undefined } = options;
         if (!quiet) {
             console.log(`\n${'='.repeat(80)}`);
             console.log(`ORCHESTRATED TASK: ${task}`);
@@ -177,7 +177,7 @@ class Orchestrator {
                         tool: toolCall.name,
                         input: toolCall.input,
                         success: result.success,
-                        summary: result.summary || result.error
+                        summary: result.summary || result.error || 'Tool executed'
                     });
                     if (!quiet) {
                         console.log(`  ✓ ${result.summary || result.error}`);

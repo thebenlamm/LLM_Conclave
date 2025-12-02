@@ -5,12 +5,13 @@
 import * as fs from 'fs/promises';
 import { execSync } from 'child_process';
 import * as path from 'path';
+import { ToolDefinition, ToolExecutionResult, OpenAITool } from '../types';
 
 /**
  * ToolRegistry - Defines and executes tools for agent use
  */
 export default class ToolRegistry {
-  tools: any;
+  tools: Record<string, ToolDefinition>;
 
   constructor() {
     this.tools = this.defineTools();
@@ -19,7 +20,7 @@ export default class ToolRegistry {
   /**
    * Define all available tools
    */
-  defineTools(): any {
+  defineTools(): Record<string, ToolDefinition> {
     return {
       read_file: {
         name: 'read_file',
@@ -113,16 +114,16 @@ export default class ToolRegistry {
   /**
    * Get tool definitions in Anthropic format
    */
-  getAnthropicTools(): any[] {
+  getAnthropicTools(): ToolDefinition[] {
     return Object.values(this.tools);
   }
 
   /**
    * Get tool definitions in OpenAI format
    */
-  getOpenAITools(): any[] {
-    return Object.values(this.tools).map((tool: any) => ({
-      type: 'function',
+  getOpenAITools(): OpenAITool[] {
+    return Object.values(this.tools).map((tool) => ({
+      type: 'function' as const,
       function: {
         name: tool.name,
         description: tool.description,
@@ -133,11 +134,11 @@ export default class ToolRegistry {
 
   /**
    * Execute a tool call
-   * @param {string} toolName - Name of the tool
-   * @param {Object} input - Tool input parameters
-   * @returns {Promise<Object>} - { success: boolean, result: string, error?: string }
+   * @param toolName - Name of the tool
+   * @param input - Tool input parameters
+   * @returns Tool execution result with success status
    */
-  async executeTool(toolName: string, input: any): Promise<{ success: boolean; result?: string; error?: string; summary?: string }> {
+  async executeTool(toolName: string, input: Record<string, any>): Promise<ToolExecutionResult> {
     try {
       switch (toolName) {
         case 'read_file':

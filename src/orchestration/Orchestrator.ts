@@ -15,6 +15,17 @@ import { AGENT_ROLES, requiresValidation } from './AgentRoles';
 import ProviderFactory from '../providers/ProviderFactory';
 import ToolRegistry from '../tools/ToolRegistry';
 import MemoryManager from '../memory/MemoryManager';
+import {
+  Config,
+  Agent,
+  Message,
+  ConversationHistoryEntry,
+  ToolExecution,
+  OrchestratorOptions,
+  OrchestrationResult,
+  Critique,
+  ValidationResult
+} from '../types';
 
 /**
  * Orchestrator - Manages structured multi-agent coordination
@@ -28,14 +39,14 @@ import MemoryManager from '../memory/MemoryManager';
  * 6. Optional consensus detection via ConversationManager
  */
 export default class Orchestrator {
-  config: any;
+  config: Config;
   memoryManager: MemoryManager | null;
-  agents: Record<string, any>;
-  conversationHistory: any[];
+  agents: Record<string, Agent>;
+  conversationHistory: ConversationHistoryEntry[];
   toolRegistry: ToolRegistry;
-  toolExecutions: any[];
+  toolExecutions: ToolExecution[];
 
-  constructor(config: any, memoryManager: MemoryManager | null = null) {
+  constructor(config: Config, memoryManager: MemoryManager | null = null) {
     this.config = config;
     this.memoryManager = memoryManager;
     this.agents = {};
@@ -64,13 +75,13 @@ export default class Orchestrator {
 
   /**
    * Execute orchestrated conversation
-   * @param {string} task - The task to accomplish
-   * @param {Object} projectContext - Optional project file context
-   * @param {Object} options - Execution options { quiet: boolean, onStatus: function }
-   * @returns {Object} - Result with final output and metadata
+   * @param task - The task to accomplish
+   * @param projectContext - Optional project file context
+   * @param options - Execution options with quiet mode and status callback
+   * @returns Result with final output and metadata
    */
-  async executeTask(task: string, projectContext: any = null, options: any = {}): Promise<any> {
-    const { quiet = false, onStatus = null } = options;
+  async executeTask(task: string, projectContext: any = null, options: OrchestratorOptions = {}): Promise<OrchestrationResult> {
+    const { quiet = false, onStatus = undefined } = options;
 
     if (!quiet) {
       console.log(`\n${'='.repeat(80)}`);
@@ -231,7 +242,7 @@ export default class Orchestrator {
             tool: toolCall.name,
             input: toolCall.input,
             success: result.success,
-            summary: result.summary || result.error
+            summary: result.summary || result.error || 'Tool executed'
           });
 
           if (!quiet) {

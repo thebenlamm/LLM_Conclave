@@ -160,9 +160,9 @@ class ToolRegistry {
     }
     /**
      * Execute a tool call
-     * @param {string} toolName - Name of the tool
-     * @param {Object} input - Tool input parameters
-     * @returns {Promise<Object>} - { success: boolean, result: string, error?: string }
+     * @param toolName - Name of the tool
+     * @param input - Tool input parameters
+     * @returns Tool execution result with success status
      */
     async executeTool(toolName, input) {
         try {
