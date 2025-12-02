@@ -82,32 +82,45 @@ export default class GeminiProvider extends LLMProvider {
         };
       } else {
         // Fallback to manual counting, but run in parallel
-        const [inputTokenResponse, outputTokenResponse] = await Promise.all([
-          this.client.models.countTokens({ ...generateConfig, contents }),
-          this.client.models.countTokens({ ...generateConfig, contents: result.response.candidates![0].content })
-        ]);
-        usage = {
-          input_tokens: inputTokenResponse.totalTokens ?? 0,
-          output_tokens: outputTokenResponse.totalTokens ?? 0,
-        };
+        if (result.candidates && result.candidates.length > 0) {
+          const [inputTokenResponse, outputTokenResponse] = await Promise.all([
+            this.client.models.countTokens({ ...generateConfig, contents }),
+            this.client.models.countTokens({ ...generateConfig, contents: result.candidates[0].content })
+          ]);
+          usage = {
+            input_tokens: inputTokenResponse.totalTokens ?? 0,
+            output_tokens: outputTokenResponse.totalTokens ?? 0,
+          };
+        }
+      }
+
+      // Ensure we have a valid response
+      if (!result.candidates || result.candidates.length === 0) {
+        throw new Error('No candidates in Gemini response');
+      }
+
+      // Store the candidate to help TypeScript understand it's not null
+      const candidate = result.candidates[0];
+      if (!candidate.content || !candidate.content.parts) {
+        throw new Error('Invalid candidate structure in Gemini response');
       }
 
       // Check for function calls
-      if (result.response.candidates![0].content.parts.some((p: any) => p.functionCall)) {
+      if (candidate.content.parts.some((p: any) => p.functionCall)) {
         return {
-          tool_calls: result.response.candidates![0].content.parts
+          tool_calls: candidate.content.parts
             .filter((p: any) => p.functionCall)
             .map((p: any) => ({
               id: p.functionCall.name + '_' + Date.now(), // Gemini doesn't provide IDs
               name: p.functionCall.name,
               input: p.functionCall.args || {}
             })),
-          text: result.response.candidates![0].content.parts.find((p: any) => p.text)?.text || null,
+          text: candidate.content.parts.find((p: any) => p.text)?.text || null,
           usage
         };
       }
-      
-      const text = result.response.candidates![0].content.parts.map((p: any) => p.text).join('');
+
+      const text = candidate.content.parts.map((p: any) => p.text).join('');
 
       // Return regular text response
       return { text: text || null, usage };

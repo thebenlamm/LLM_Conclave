@@ -16,7 +16,7 @@ class ClaudeProvider extends LLMProvider_1.default {
             apiKey: apiKey || process.env.ANTHROPIC_API_KEY
         });
     }
-    async chat(messages, systemPrompt = null, options = {}) {
+    async performChat(messages, systemPrompt = null, options = {}) {
         try {
             const { tools = null, stream = false, onToken } = options;
             // Claude API expects messages without system role in the messages array
@@ -79,13 +79,17 @@ class ClaudeProvider extends LLMProvider_1.default {
                 return { text: fullText || null };
             }
             const response = await this.client.messages.create(params);
+            const usage = {
+                input_tokens: response.usage.input_tokens || 0,
+                output_tokens: response.usage.output_tokens || 0,
+            };
             // Validate response structure
             if (!response || !response.content) {
                 throw new Error(`Invalid response structure: ${JSON.stringify(response)}`);
             }
             // Handle empty content array (Claude chose not to respond)
             if (response.content.length === 0) {
-                return { text: "[No response provided - model chose not to contribute]" };
+                return { text: "[No response provided - model chose not to contribute]", usage };
             }
             // Check if response contains tool uses
             const toolUses = response.content.filter(block => block.type === 'tool_use');
@@ -97,7 +101,8 @@ class ClaudeProvider extends LLMProvider_1.default {
                         name: tu.name,
                         input: tu.input
                     })),
-                    text: response.content.find(block => block.type === 'text')?.text || null
+                    text: response.content.find(block => block.type === 'text')?.text || null,
+                    usage,
                 };
             }
             // Claude responses have a 'text' property in content blocks
@@ -105,7 +110,7 @@ class ClaudeProvider extends LLMProvider_1.default {
             if (!textContent || !textContent.text) {
                 throw new Error(`No text content in response: ${JSON.stringify(response.content)}`);
             }
-            return { text: textContent.text };
+            return { text: textContent.text, usage };
         }
         catch (error) {
             throw new Error(`Claude API error: ${error.message}`);

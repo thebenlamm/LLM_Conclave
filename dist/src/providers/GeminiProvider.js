@@ -18,7 +18,7 @@ class GeminiProvider extends LLMProvider_1.default {
         }
         this.client = new genai_1.GoogleGenAI({ apiKey: key });
     }
-    async chat(messages, systemPrompt = null, options = {}) {
+    async performChat(messages, systemPrompt = null, options = {}) {
         try {
             const { tools = null, stream = false, onToken } = options;
             // Convert our tool definitions to Gemini's function declaration format
@@ -33,14 +33,15 @@ class GeminiProvider extends LLMProvider_1.default {
             if (functionDeclarations && functionDeclarations.length > 0) {
                 config.tools = [{ functionDeclarations }];
             }
-            // Call generateContent with the new API
             const generateConfig = {
                 model: this.modelName,
-                contents: contents,
+                contents,
+                ...config,
             };
             if (Object.keys(config).length > 0) {
                 generateConfig.config = config;
             }
+            // Handle streaming mode (no tools support in streaming)
             if (stream && (!config.tools || config.tools.length === 0)) {
                 const streamResp = await this.client.models.generateContentStream(generateConfig);
                 let fullText = '';
@@ -52,22 +53,60 @@ class GeminiProvider extends LLMProvider_1.default {
                             onToken(textPart);
                     }
                 }
+                // Note: Token usage not available in streaming mode
                 return { text: fullText || null };
             }
-            const response = await this.client.models.generateContent(generateConfig);
-            // Check for function calls
-            if (response.functionCalls && response.functionCalls.length > 0) {
-                return {
-                    tool_calls: response.functionCalls.map((fc) => ({
-                        id: fc.name + '_' + Date.now(), // Gemini doesn't provide IDs
-                        name: fc.name,
-                        input: fc.args || {}
-                    })),
-                    text: response.text || null
+            // Non-streaming mode with improved token usage tracking
+            const result = await this.client.models.generateContent(generateConfig);
+            let usage = { input_tokens: 0, output_tokens: 0 };
+            // @ts-ignore
+            if (result.usageMetadata) {
+                usage = {
+                    // @ts-ignore
+                    input_tokens: result.usageMetadata.promptTokenCount || 0,
+                    // @ts-ignore
+                    output_tokens: result.usageMetadata.candidatesTokenCount || 0,
                 };
             }
+            else {
+                // Fallback to manual counting, but run in parallel
+                if (result.candidates && result.candidates.length > 0) {
+                    const [inputTokenResponse, outputTokenResponse] = await Promise.all([
+                        this.client.models.countTokens({ ...generateConfig, contents }),
+                        this.client.models.countTokens({ ...generateConfig, contents: result.candidates[0].content })
+                    ]);
+                    usage = {
+                        input_tokens: inputTokenResponse.totalTokens ?? 0,
+                        output_tokens: outputTokenResponse.totalTokens ?? 0,
+                    };
+                }
+            }
+            // Ensure we have a valid response
+            if (!result.candidates || result.candidates.length === 0) {
+                throw new Error('No candidates in Gemini response');
+            }
+            // Store the candidate to help TypeScript understand it's not null
+            const candidate = result.candidates[0];
+            if (!candidate.content || !candidate.content.parts) {
+                throw new Error('Invalid candidate structure in Gemini response');
+            }
+            // Check for function calls
+            if (candidate.content.parts.some((p) => p.functionCall)) {
+                return {
+                    tool_calls: candidate.content.parts
+                        .filter((p) => p.functionCall)
+                        .map((p) => ({
+                        id: p.functionCall.name + '_' + Date.now(), // Gemini doesn't provide IDs
+                        name: p.functionCall.name,
+                        input: p.functionCall.args || {}
+                    })),
+                    text: candidate.content.parts.find((p) => p.text)?.text || null,
+                    usage
+                };
+            }
+            const text = candidate.content.parts.map((p) => p.text).join('');
             // Return regular text response
-            return { text: response.text || null };
+            return { text: text || null, usage };
         }
         catch (error) {
             throw new Error(`Gemini API error: ${error.message}`);

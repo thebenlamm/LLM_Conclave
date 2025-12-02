@@ -41,6 +41,7 @@ const dotenv = __importStar(require("dotenv"));
 dotenv.config({ override: true });
 const fs = __importStar(require("fs"));
 const readline = __importStar(require("readline"));
+const path = __importStar(require("path"));
 const ConfigLoader_1 = __importDefault(require("./src/core/ConfigLoader"));
 const ConversationManager_1 = __importDefault(require("./src/core/ConversationManager"));
 const OutputHandler_1 = __importDefault(require("./src/core/OutputHandler"));
@@ -53,6 +54,7 @@ const ToolRegistry_1 = __importDefault(require("./src/tools/ToolRegistry"));
 const InteractiveInit_1 = __importDefault(require("./src/init/InteractiveInit"));
 const ConfigWriter_1 = __importDefault(require("./src/init/ConfigWriter"));
 const InteractiveSession_1 = __importDefault(require("./src/interactive/InteractiveSession"));
+const CostTracker_1 = require("./src/core/CostTracker");
 /**
  * Main CLI entry point for LLM Conclave
  */
@@ -294,6 +296,23 @@ async function main() {
             // Print summary
             OutputHandler_1.default.printSummary(result, filePaths);
         }
+        const summary = CostTracker_1.CostTracker.getInstance().getSummary();
+        console.log(`\n${'='.repeat(80)}`);
+        console.log(`SESSION COST & PERFORMANCE`);
+        console.log(`${'='.repeat(80)}\n`);
+        console.log(`Total Cost: $${summary.totalCost.toFixed(6)}`);
+        console.log(`Total Tokens: ${summary.totalTokens.input + summary.totalTokens.output} (Input: ${summary.totalTokens.input}, Output: ${summary.totalTokens.output})`);
+        console.log(`Total Calls: ${summary.totalCalls}`);
+        console.log(`Average Latency: ${summary.averageLatency.toFixed(2)}ms`);
+        const logs = CostTracker_1.CostTracker.getInstance().getLogs();
+        const costLogPath = path.join(process.cwd(), 'cost_log.json');
+        fs.writeFileSync(costLogPath, JSON.stringify({
+            summary: summary,
+            calls: logs,
+            timestamp: new Date().toISOString()
+        }, null, 2));
+        console.log(`\nCost log saved to: ${costLogPath}`);
+        console.log(`\n${'='.repeat(80)}\n`);
     }
     catch (error) {
         console.error(`\n❌ Error: ${error.message}`);

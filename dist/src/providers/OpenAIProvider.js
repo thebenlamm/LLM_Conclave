@@ -16,7 +16,7 @@ class OpenAIProvider extends LLMProvider_1.default {
             apiKey: apiKey || process.env.OPENAI_API_KEY
         });
     }
-    async chat(messages, systemPrompt = null, options = {}) {
+    async performChat(messages, systemPrompt = null, options = {}) {
         try {
             const { tools = null, stream = false, onToken } = options;
             const messageArray = [...messages];
@@ -56,6 +56,10 @@ class OpenAIProvider extends LLMProvider_1.default {
             }
             const response = await this.client.chat.completions.create(params);
             const message = response.choices[0].message;
+            const usage = {
+                input_tokens: response.usage?.prompt_tokens || 0,
+                output_tokens: response.usage?.completion_tokens || 0,
+            };
             // Check if response contains tool calls
             if (message.tool_calls && message.tool_calls.length > 0) {
                 return {
@@ -64,10 +68,11 @@ class OpenAIProvider extends LLMProvider_1.default {
                         name: tc.function.name,
                         input: JSON.parse(tc.function.arguments)
                     })),
-                    text: message.content || null
+                    text: message.content || null,
+                    usage,
                 };
             }
-            return { text: message.content };
+            return { text: message.content, usage };
         }
         catch (error) {
             throw new Error(`OpenAI API error: ${error.message}`);
