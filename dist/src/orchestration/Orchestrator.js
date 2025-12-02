@@ -30,13 +30,14 @@ const ToolRegistry_1 = __importDefault(require("../tools/ToolRegistry"));
  * 6. Optional consensus detection via ConversationManager
  */
 class Orchestrator {
-    constructor(config, memoryManager = null) {
+    constructor(config, memoryManager = null, streamOutput = false) {
         this.config = config;
         this.memoryManager = memoryManager;
         this.agents = {};
         this.conversationHistory = [];
         this.toolRegistry = new ToolRegistry_1.default();
         this.toolExecutions = []; // Track tool executions for output
+        this.streamOutput = streamOutput;
         this.initializeAgents();
     }
     /**
@@ -52,6 +53,14 @@ class Orchestrator {
             };
         }
         console.log(`Initialized ${Object.keys(this.agents).length} agents: ${Object.keys(this.agents).join(', ')}`);
+    }
+    /**
+     * Build chat options with streaming callbacks when enabled
+     */
+    getChatOptions(disableStream = false) {
+        if (disableStream || !this.streamOutput)
+            return {};
+        return { stream: true, onToken: (token) => process.stdout.write(token) };
     }
     /**
      * Execute orchestrated conversation
@@ -168,7 +177,7 @@ class Orchestrator {
             // Grok and Mistral use OpenAI format since they're OpenAI-compatible
             const providerName = agent.provider.getProviderName();
             const useOpenAIFormat = providerName === 'OpenAI' || providerName === 'Grok' || providerName === 'Mistral';
-            const response = await agent.provider.chat(currentMessages, agent.systemPrompt, { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools });
+            const response = await agent.provider.chat(currentMessages, agent.systemPrompt, { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools, ...this.getChatOptions(true) });
             // Check if response has tool calls
             if (response.tool_calls && response.tool_calls.length > 0) {
                 // Add the assistant's message with tool_use blocks first
@@ -274,7 +283,7 @@ As a secondary agent, provide a structured critique:
 Keep your critique constructive and focused.`;
             const messages = [{ role: 'user', content: critiquePrompt }];
             try {
-                const response = await agent.provider.chat(messages, agent.systemPrompt);
+                const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
                 const critique = typeof response === 'string' ? response : response.text;
                 if (!quiet) {
                     console.log(`${agentName} Critique:\n${critique}\n`);
@@ -320,10 +329,15 @@ ${critiquesSummary}
 Based on the feedback above, provide a revised response. Incorporate valid suggestions while maintaining your domain expertise. Be clear about what you changed and why.`;
         const messages = [{ role: 'user', content: revisionPrompt }];
         try {
-            const response = await agent.provider.chat(messages, agent.systemPrompt);
+            const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
             const revision = typeof response === 'string' ? response : response.text;
             if (!quiet) {
-                console.log(`${primaryAgent} Revised Response:\n${revision}\n`);
+                if (this.streamOutput) {
+                    process.stdout.write('\n');
+                }
+                else {
+                    console.log(`${primaryAgent} Revised Response:\n${revision}\n`);
+                }
             }
             this.conversationHistory.push({
                 phase: 'revision',
@@ -367,10 +381,15 @@ As a validator, review the above output for your domain concerns. Provide:
 Be thorough but concise.`;
             const messages = [{ role: 'user', content: validationPrompt }];
             try {
-                const response = await agent.provider.chat(messages, agent.systemPrompt);
+                const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
                 const validation = typeof response === 'string' ? response : response.text;
                 if (!quiet) {
-                    console.log(`${validatorName} Validation:\n${validation}\n`);
+                    if (this.streamOutput) {
+                        process.stdout.write('\n');
+                    }
+                    else {
+                        console.log(`${validatorName} Validation:\n${validation}\n`);
+                    }
                 }
                 const status = this.extractValidationStatus(validation);
                 validationResults.push({

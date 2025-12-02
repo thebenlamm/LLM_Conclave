@@ -81,6 +81,8 @@ export interface ProviderResponse {
 
 export interface ChatOptions {
   tools?: ToolDefinition[] | OpenAITool[];
+  stream?: boolean;
+  onToken?: (token: string) => void;
 }
 
 export interface OpenAITool {

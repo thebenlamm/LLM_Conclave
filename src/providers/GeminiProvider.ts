@@ -22,7 +22,7 @@ export default class GeminiProvider extends LLMProvider {
 
   async chat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
-      const { tools = null } = options;
+      const { tools = null, stream = false, onToken } = options;
 
       // Convert our tool definitions to Gemini's function declaration format
       const functionDeclarations = tools ? this.convertToolsToGeminiFormat(tools) : undefined;
@@ -49,6 +49,21 @@ export default class GeminiProvider extends LLMProvider {
 
       if (Object.keys(config).length > 0) {
         generateConfig.config = config;
+      }
+
+      if (stream && (!config.tools || config.tools.length === 0)) {
+        const streamResp = await this.client.models.generateContentStream(generateConfig as any);
+        let fullText = '';
+
+        for await (const chunk of streamResp as any) {
+          const textPart = (chunk as any).text();
+          if (textPart) {
+            fullText += textPart;
+            if (onToken) onToken(textPart);
+          }
+        }
+
+        return { text: fullText || null };
       }
 
       const response = await this.client.models.generateContent(generateConfig);

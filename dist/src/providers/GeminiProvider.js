@@ -20,7 +20,7 @@ class GeminiProvider extends LLMProvider_1.default {
     }
     async chat(messages, systemPrompt = null, options = {}) {
         try {
-            const { tools = null } = options;
+            const { tools = null, stream = false, onToken } = options;
             // Convert our tool definitions to Gemini's function declaration format
             const functionDeclarations = tools ? this.convertToolsToGeminiFormat(tools) : undefined;
             // Convert messages to Gemini Content format
@@ -40,6 +40,19 @@ class GeminiProvider extends LLMProvider_1.default {
             };
             if (Object.keys(config).length > 0) {
                 generateConfig.config = config;
+            }
+            if (stream && (!config.tools || config.tools.length === 0)) {
+                const streamResp = await this.client.models.generateContentStream(generateConfig);
+                let fullText = '';
+                for await (const chunk of streamResp) {
+                    const textPart = chunk.text();
+                    if (textPart) {
+                        fullText += textPart;
+                        if (onToken)
+                            onToken(textPart);
+                    }
+                }
+                return { text: fullText || null };
             }
             const response = await this.client.models.generateContent(generateConfig);
             // Check for function calls

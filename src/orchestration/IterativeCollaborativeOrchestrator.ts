@@ -25,6 +25,7 @@ export default class IterativeCollaborativeOrchestrator {
   outputDir: string;
   conversationHistory: any[];
   toolExecutions: any[];
+  streamOutput: boolean;
 
   constructor(
     agents: Agent[],
@@ -35,6 +36,7 @@ export default class IterativeCollaborativeOrchestrator {
       maxRoundsPerChunk?: number;
       outputDir?: string;
       sharedOutputFile?: string;
+      streamOutput?: boolean;
     } = {}
   ) {
     this.agents = agents;
@@ -47,6 +49,7 @@ export default class IterativeCollaborativeOrchestrator {
     this.agentStateFiles = new Map();
     this.conversationHistory = [];
     this.toolExecutions = [];
+    this.streamOutput = options.streamOutput || false;
 
     // Ensure output directory exists
     if (!fs.existsSync(this.outputDir)) {
@@ -68,6 +71,14 @@ export default class IterativeCollaborativeOrchestrator {
       // Create initial state file
       fs.writeFileSync(stateFilePath, `# ${agent.name} - Working Notes\n\n`);
     }
+  }
+
+  /**
+   * Build chat options with streaming callbacks when enabled
+   */
+  private getChatOptions(disableStream: boolean = false) {
+    if (disableStream || !this.streamOutput) return {};
+    return { stream: true, onToken: (token: string) => process.stdout.write(token) };
   }
 
   /**
@@ -142,8 +153,13 @@ Return ONLY the JSON array, nothing else.`;
 
     const response = await this.judge.provider.chat(
       [{ role: 'user', content: planningPrompt }],
-      this.judge.systemPrompt
+      this.judge.systemPrompt,
+      this.getChatOptions()
     );
+
+    if (this.streamOutput) {
+      process.stdout.write('\n');
+    }
 
     // Extract JSON from response
     const responseText = response.text || '';
@@ -295,7 +311,7 @@ Collaborate with other agents to complete this chunk. You can read from and writ
       const response = await agent.provider.chat(
         messagesToSend,
         agent.systemPrompt,
-        { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools }
+        { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools, ...this.getChatOptions(true) }
       );
 
       if (response.tool_calls && response.tool_calls.length > 0) {
@@ -358,8 +374,13 @@ CONTINUE: [Brief guidance on what still needs discussion]`;
 
     const response = await this.judge.provider.chat(
       [{ role: 'user', content: evaluationPrompt }],
-      this.judge.systemPrompt
+      this.judge.systemPrompt,
+      this.getChatOptions()
     );
+
+    if (this.streamOutput) {
+      process.stdout.write('\n');
+    }
 
     const responseText = response.text || '';
 
@@ -397,8 +418,13 @@ Synthesize the best result from this discussion:`;
 
     const response = await this.judge.provider.chat(
       [{ role: 'user', content: synthesisPrompt }],
-      this.judge.systemPrompt
+      this.judge.systemPrompt,
+      this.getChatOptions()
     );
+
+    if (this.streamOutput) {
+      process.stdout.write('\n');
+    }
 
     return response.text || 'No result synthesized';
   }

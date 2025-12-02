@@ -216,6 +216,7 @@ async function main() {
         // Check operational mode
         const orchestrated = args.includes('--orchestrated');
         const iterative = args.includes('--iterative');
+        const streamOutput = args.includes('--stream');
         let result;
         if (iterative) {
             // Use iterative collaborative mode
@@ -246,7 +247,8 @@ async function main() {
                 chunkSize,
                 maxRoundsPerChunk,
                 outputDir: './outputs/iterative',
-                sharedOutputFile: 'shared_output.md'
+                sharedOutputFile: 'shared_output.md',
+                streamOutput
             });
             // Run the iterative process
             const contextString = projectContext ? projectContext.formatContext() : undefined;
@@ -266,7 +268,7 @@ async function main() {
         else if (orchestrated) {
             // Use orchestrated mode
             console.log(`Mode: Orchestrated (Primary/Secondary/Validation flow)\n`);
-            const orchestrator = new Orchestrator_1.default(config, memoryManager);
+            const orchestrator = new Orchestrator_1.default(config, memoryManager, streamOutput);
             result = await orchestrator.executeTask(task, projectContext);
             // Save orchestrated results
             const filePaths = saveOrchestratedResults(result);
@@ -283,7 +285,7 @@ async function main() {
                 systemPrompt: config.judge.prompt
             };
             // Create conversation manager with optional memory manager
-            const conversationManager = new ConversationManager_1.default(config, memoryManager);
+            const conversationManager = new ConversationManager_1.default(config, memoryManager, streamOutput);
             // Start the conversation
             console.log(`Starting conversation...\n`);
             result = await conversationManager.startConversation(task, judge, projectContext);
@@ -329,6 +331,7 @@ Options:
   --project <path>    Include file or directory context for analysis
   --orchestrated      Use orchestrated mode (primary/secondary/validation flow)
   --iterative         Use iterative collaborative mode (multi-turn chunk discussion)
+  --stream            Stream agent responses as they are generated
   --chunk-size <n>    Chunk size for iterative mode (default: 3)
   --max-rounds-per-chunk <n>  Max discussion rounds per chunk (default: 5)
 

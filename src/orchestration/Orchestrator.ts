@@ -45,14 +45,16 @@ export default class Orchestrator {
   conversationHistory: ConversationHistoryEntry[];
   toolRegistry: ToolRegistry;
   toolExecutions: ToolExecution[];
+  streamOutput: boolean;
 
-  constructor(config: Config, memoryManager: MemoryManager | null = null) {
+  constructor(config: Config, memoryManager: MemoryManager | null = null, streamOutput: boolean = false) {
     this.config = config;
     this.memoryManager = memoryManager;
     this.agents = {};
     this.conversationHistory = [];
     this.toolRegistry = new ToolRegistry();
     this.toolExecutions = []; // Track tool executions for output
+    this.streamOutput = streamOutput;
 
     this.initializeAgents();
   }
@@ -71,6 +73,14 @@ export default class Orchestrator {
     }
 
     console.log(`Initialized ${Object.keys(this.agents).length} agents: ${Object.keys(this.agents).join(', ')}`);
+  }
+
+  /**
+   * Build chat options with streaming callbacks when enabled
+   */
+  getChatOptions(disableStream: boolean = false) {
+    if (disableStream || !this.streamOutput) return {};
+    return { stream: true, onToken: (token: string) => process.stdout.write(token) };
   }
 
   /**
@@ -230,7 +240,7 @@ export default class Orchestrator {
       const response = await agent.provider.chat(
         currentMessages,
         agent.systemPrompt,
-        { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools }
+        { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools, ...this.getChatOptions(true) }
       );
 
       // Check if response has tool calls
@@ -358,7 +368,7 @@ Keep your critique constructive and focused.`;
       const messages = [{ role: 'user', content: critiquePrompt }];
 
       try {
-        const response = await agent.provider.chat(messages, agent.systemPrompt);
+      const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
         const critique = typeof response === 'string' ? response : response.text;
 
         if (!quiet) {
@@ -414,11 +424,15 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
     const messages = [{ role: 'user', content: revisionPrompt }];
 
     try {
-      const response = await agent.provider.chat(messages, agent.systemPrompt);
+      const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
       const revision = typeof response === 'string' ? response : response.text;
 
       if (!quiet) {
-        console.log(`${primaryAgent} Revised Response:\n${revision}\n`);
+        if (this.streamOutput) {
+          process.stdout.write('\n');
+        } else {
+          console.log(`${primaryAgent} Revised Response:\n${revision}\n`);
+        }
       }
 
       this.conversationHistory.push({
@@ -468,11 +482,15 @@ Be thorough but concise.`;
       const messages = [{ role: 'user', content: validationPrompt }];
 
       try {
-        const response = await agent.provider.chat(messages, agent.systemPrompt);
+        const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
         const validation = typeof response === 'string' ? response : response.text;
 
         if (!quiet) {
-          console.log(`${validatorName} Validation:\n${validation}\n`);
+          if (this.streamOutput) {
+            process.stdout.write('\n');
+          } else {
+            console.log(`${validatorName} Validation:\n${validation}\n`);
+          }
         }
 
         const status = this.extractValidationStatus(validation);

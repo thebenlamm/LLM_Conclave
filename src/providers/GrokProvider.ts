@@ -20,7 +20,7 @@ export default class GrokProvider extends LLMProvider {
 
   async chat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
-      const { tools = null } = options;
+      const { tools = null, stream = false, onToken } = options;
       const messageArray = [...messages];
 
       // Add system prompt if provided
@@ -41,6 +41,24 @@ export default class GrokProvider extends LLMProvider {
       if (tools && tools.length > 0) {
         params.tools = tools;
         params.tool_choice = 'auto';
+      }
+
+      if (stream && !params.tools) {
+        params.stream = true;
+        const streamResp = await this.client.chat.completions.create(params);
+        let fullText = '';
+
+        for await (const chunk of streamResp as any) {
+          const delta = chunk.choices?.[0]?.delta;
+          const contentPiece = delta?.content;
+          if (contentPiece) {
+            const token = Array.isArray(contentPiece) ? contentPiece.join('') : contentPiece;
+            fullText += token;
+            if (onToken) onToken(token);
+          }
+        }
+
+        return { text: fullText };
       }
 
       const response = await this.client.chat.completions.create(params);
