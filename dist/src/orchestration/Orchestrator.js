@@ -160,7 +160,7 @@ class Orchestrator {
         const tools = this.toolRegistry.getAnthropicTools(); // Works for both Anthropic and OpenAI
         let currentMessages = [...messages];
         let finalText = null;
-        const maxIterations = 10; // Prevent infinite loops
+        const maxIterations = 25; // Prevent infinite loops (increased for iterative tasks)
         let iterations = 0;
         while (iterations < maxIterations) {
             iterations++;
