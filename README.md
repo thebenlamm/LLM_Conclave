@@ -226,7 +226,7 @@ The configuration file (`.llm-conclave.json`) defines:
       "prompt": "You are a pragmatic engineer focused on practical, implementable solutions. Balance idealism with real-world constraints."
     },
     "Creative": {
-      "model": "gemini-1.5-pro",
+      "model": "gemini-1.5-pro-latest",
       "prompt": "You are a creative innovator. Think outside the box and propose novel, unconventional approaches."
     },
     "Analyst": {
@@ -254,8 +254,8 @@ The configuration file (`.llm-conclave.json`) defines:
 - `grok-vision-3`
 
 **Google (requires `GEMINI_API_KEY`):**
-- `gemini-1.5-pro`
-- `gemini-1.5-flash`
+- `gemini-1.5-pro-latest` (or shorthand: `gemini-1.5-pro`, `gemini-pro`)
+- `gemini-1.5-flash-latest` (or shorthand: `gemini-1.5-flash`, `gemini-flash`)
 - `gemini-2.0-flash-exp`
 
 **Mistral AI (requires `MISTRAL_API_KEY`):**
