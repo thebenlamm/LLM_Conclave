@@ -209,6 +209,11 @@ The configuration file (`.llm-conclave.json`) defines:
 - `grok-3`
 - `grok-vision-3`
 
+**Google (requires `GEMINI_API_KEY`):**
+- `gemini-1.5-pro`
+- `gemini-1.5-flash`
+- `gemini-2.0-flash-exp`
+
 ## How It Works
 
 1. **Task Submission**: User provides a task via CLI argument, file, or interactive prompt
@@ -244,6 +249,7 @@ Create a `.env` file in the project root:
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 XAI_API_KEY=xai-...
+GEMINI_API_KEY=...
 ```
 
 You only need API keys for the providers you're using.

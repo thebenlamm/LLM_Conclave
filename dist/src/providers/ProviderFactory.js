@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const OpenAIProvider_1 = __importDefault(require("./OpenAIProvider"));
 const ClaudeProvider_1 = __importDefault(require("./ClaudeProvider"));
 const GrokProvider_1 = __importDefault(require("./GrokProvider"));
+const GeminiProvider_1 = __importDefault(require("./GeminiProvider"));
 /**
  * Factory for creating LLM provider instances
  */
@@ -41,7 +42,11 @@ class ProviderFactory {
         if (modelLower.includes('grok')) {
             return new GrokProvider_1.default(modelIdentifier);
         }
-        throw new Error(`Unknown model: ${modelIdentifier}. Supported models: GPT (OpenAI), Claude (Anthropic), Grok (xAI)`);
+        // Gemini models
+        if (modelLower.includes('gemini')) {
+            return new GeminiProvider_1.default(modelIdentifier);
+        }
+        throw new Error(`Unknown model: ${modelIdentifier}. Supported models: GPT (OpenAI), Claude (Anthropic), Grok (xAI), Gemini (Google)`);
     }
     /**
      * Get a list of supported model patterns
@@ -51,7 +56,8 @@ class ProviderFactory {
         return [
             'gpt-4o, gpt-4-turbo, gpt-3.5-turbo (OpenAI)',
             'claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5, sonnet, opus, haiku (Anthropic)',
-            'grok-3, grok-vision-3 (xAI)'
+            'grok-3, grok-vision-3 (xAI)',
+            'gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash-exp (Google)'
         ];
     }
 }
