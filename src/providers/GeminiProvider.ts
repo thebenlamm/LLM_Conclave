@@ -172,12 +172,20 @@ export default class GeminiProvider extends LLMProvider {
         const toolResult = msg as any;
         const functionName = lastToolCallsMap.get(toolResult.tool_use_id) || 'unknown';
 
+        // Parse tool content if it's JSON, otherwise pass as-is
+        let responseContent;
+        try {
+          // Try to parse as JSON to respect the tool's schema
+          responseContent = JSON.parse(toolResult.content);
+        } catch {
+          // If not JSON, wrap in generic result field for compatibility
+          responseContent = { result: toolResult.content };
+        }
+
         pendingFunctionResponses.push({
           functionResponse: {
             name: functionName,
-            response: {
-              result: toolResult.content
-            }
+            response: responseContent
           }
         });
       } else {
@@ -199,15 +207,25 @@ export default class GeminiProvider extends LLMProvider {
               lastToolCallsMap.set(tc.id, tc.name);
             }
 
-            // Convert tool calls to function calls
+            // Build parts array: include both text (if present) and function calls
+            const parts: any[] = [];
+
+            // Add text content if present (preserves reasoning/explanation)
+            if (msg.content && msg.content.trim()) {
+              parts.push({ text: msg.content });
+            }
+
+            // Add function calls
+            parts.push(...assistantMsg.tool_calls.map((tc: any) => ({
+              functionCall: {
+                name: tc.name,
+                args: tc.input
+              }
+            })));
+
             contents.push({
               role: 'model',
-              parts: assistantMsg.tool_calls.map((tc: any) => ({
-                functionCall: {
-                  name: tc.name,
-                  args: tc.input
-                }
-              }))
+              parts: parts
             });
           } else {
             contents.push({
@@ -221,8 +239,12 @@ export default class GeminiProvider extends LLMProvider {
             parts: [{ text: msg.content }]
           });
         } else if (msg.role === 'system') {
-          // System messages are handled via systemInstruction, skip them here
-          continue;
+          // Gemini doesn't support system role in conversation history
+          // Convert to user message with clear prefix to preserve context
+          contents.push({
+            role: 'user',
+            parts: [{ text: `[System instruction]: ${msg.content}` }]
+          });
         }
       }
     }
