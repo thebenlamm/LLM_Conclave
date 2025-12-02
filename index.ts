@@ -321,15 +321,6 @@ async function main() {
     console.log(`Total Tokens: ${summary.totalTokens.input + summary.totalTokens.output} (Input: ${summary.totalTokens.input}, Output: ${summary.totalTokens.output})`);
     console.log(`Total Calls: ${summary.totalCalls}`);
     console.log(`Average Latency: ${summary.averageLatency.toFixed(2)}ms`);
-    
-    const logs = CostTracker.getInstance().getLogs();
-    const costLogPath = path.join(process.cwd(), 'cost_log.json');
-    fs.writeFileSync(costLogPath, JSON.stringify({
-      summary: summary,
-      calls: logs,
-      timestamp: new Date().toISOString()
-    }, null, 2));
-    console.log(`\nCost log saved to: ${costLogPath}`);
     console.log(`\n${'='.repeat(80)}\n`);
 
   } catch (error: any) {

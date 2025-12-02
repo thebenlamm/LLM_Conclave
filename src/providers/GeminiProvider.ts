@@ -72,23 +72,14 @@ export default class GeminiProvider extends LLMProvider {
       const result = await this.client.models.generateContent(generateConfig);
       const response = result.response;
 
-      let usage = { input_tokens: 0, output_tokens: 0 };
-      if (result.usageMetadata) {
-        usage = {
-          input_tokens: result.usageMetadata.promptTokenCount || 0,
-          output_tokens: result.usageMetadata.candidatesTokenCount || 0,
-        };
-      } else {
-        // Fallback to manual counting, but run in parallel
-        const [inputTokenResponse, outputTokenResponse] = await Promise.all([
-          this.client.models.countTokens({ ...generateConfig, contents }),
-          this.client.models.countTokens({ ...generateConfig, contents: response.candidates[0].content })
-        ]);
-        usage = {
-          input_tokens: inputTokenResponse.totalTokens,
-          output_tokens: outputTokenResponse.totalTokens,
-        };
-      }
+      // Calculate token usage
+      const inputTokenResponse = await this.client.models.countTokens({ ...generateConfig, contents });
+      const outputTokenResponse = await this.client.models.countTokens({ ...generateConfig, contents: response.candidates[0].content });
+
+      const usage = {
+        input_tokens: inputTokenResponse.totalTokens,
+        output_tokens: outputTokenResponse.totalTokens,
+      };
 
       // Check for function calls
       if (response.candidates[0].content.parts.some((p: any) => p.functionCall)) {
