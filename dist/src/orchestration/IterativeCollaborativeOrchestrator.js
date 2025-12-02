@@ -58,6 +58,7 @@ class IterativeCollaborativeOrchestrator {
         this.agentStateFiles = new Map();
         this.conversationHistory = [];
         this.toolExecutions = [];
+        this.streamOutput = options.streamOutput || false;
         // Ensure output directory exists
         if (!fs.existsSync(this.outputDir)) {
             fs.mkdirSync(this.outputDir, { recursive: true });
@@ -75,6 +76,14 @@ class IterativeCollaborativeOrchestrator {
             // Create initial state file
             fs.writeFileSync(stateFilePath, `# ${agent.name} - Working Notes\n\n`);
         }
+    }
+    /**
+     * Build chat options with streaming callbacks when enabled
+     */
+    getChatOptions(disableStream = false) {
+        if (disableStream || !this.streamOutput)
+            return {};
+        return { stream: true, onToken: (token) => process.stdout.write(token) };
     }
     /**
      * Main orchestration method - processes task in chunks with multi-turn discussions
@@ -136,7 +145,10 @@ Example format:
 \`\`\`
 
 Return ONLY the JSON array, nothing else.`;
-        const response = await this.judge.provider.chat([{ role: 'user', content: planningPrompt }], this.judge.systemPrompt);
+        const response = await this.judge.provider.chat([{ role: 'user', content: planningPrompt }], this.judge.systemPrompt, this.getChatOptions());
+        if (this.streamOutput) {
+            process.stdout.write('\n');
+        }
         // Extract JSON from response
         const responseText = response.text || '';
         const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/) || responseText.match(/```\n?([\s\S]*?)\n?```/);
@@ -265,7 +277,7 @@ Collaborate with other agents to complete this chunk. You can read from and writ
             const useOpenAIFormat = providerName === 'OpenAI' || providerName === 'Grok' || providerName === 'Mistral';
             // Convert tool_calls to OpenAI format if needed
             const messagesToSend = useOpenAIFormat ? this.convertToolCallsToOpenAIFormat(currentMessages) : currentMessages;
-            const response = await agent.provider.chat(messagesToSend, agent.systemPrompt, { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools });
+            const response = await agent.provider.chat(messagesToSend, agent.systemPrompt, { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools, ...this.getChatOptions(true) });
             if (response.tool_calls && response.tool_calls.length > 0) {
                 currentMessages.push({
                     role: 'assistant',
@@ -315,7 +327,10 @@ COMPLETE: [Final result for this chunk]
 
 If not complete, provide guidance:
 CONTINUE: [Brief guidance on what still needs discussion]`;
-        const response = await this.judge.provider.chat([{ role: 'user', content: evaluationPrompt }], this.judge.systemPrompt);
+        const response = await this.judge.provider.chat([{ role: 'user', content: evaluationPrompt }], this.judge.systemPrompt, this.getChatOptions());
+        if (this.streamOutput) {
+            process.stdout.write('\n');
+        }
         const responseText = response.text || '';
         if (responseText.startsWith('COMPLETE:')) {
             return {
@@ -347,7 +362,10 @@ Discussion:
 ${chunkMessages.map(m => m.content).join('\n\n')}
 
 Synthesize the best result from this discussion:`;
-        const response = await this.judge.provider.chat([{ role: 'user', content: synthesisPrompt }], this.judge.systemPrompt);
+        const response = await this.judge.provider.chat([{ role: 'user', content: synthesisPrompt }], this.judge.systemPrompt, this.getChatOptions());
+        if (this.streamOutput) {
+            process.stdout.write('\n');
+        }
         return response.text || 'No result synthesized';
     }
     /**

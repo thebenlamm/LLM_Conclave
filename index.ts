@@ -211,6 +211,7 @@ async function main() {
     // Check operational mode
     const orchestrated = args.includes('--orchestrated');
     const iterative = args.includes('--iterative');
+    const streamOutput = args.includes('--stream');
 
     let result;
 
@@ -253,7 +254,8 @@ async function main() {
           chunkSize,
           maxRoundsPerChunk,
           outputDir: './outputs/iterative',
-          sharedOutputFile: 'shared_output.md'
+          sharedOutputFile: 'shared_output.md',
+          streamOutput
         }
       );
 
@@ -277,7 +279,7 @@ async function main() {
       // Use orchestrated mode
       console.log(`Mode: Orchestrated (Primary/Secondary/Validation flow)\n`);
 
-      const orchestrator = new Orchestrator(config, memoryManager);
+      const orchestrator = new Orchestrator(config, memoryManager, streamOutput);
       result = await orchestrator.executeTask(task as string, projectContext);
 
       // Save orchestrated results
@@ -297,7 +299,7 @@ async function main() {
       };
 
       // Create conversation manager with optional memory manager
-      const conversationManager = new ConversationManager(config, memoryManager);
+      const conversationManager = new ConversationManager(config, memoryManager, streamOutput);
 
       // Start the conversation
       console.log(`Starting conversation...\n`);
@@ -349,6 +351,7 @@ Options:
   --project <path>    Include file or directory context for analysis
   --orchestrated      Use orchestrated mode (primary/secondary/validation flow)
   --iterative         Use iterative collaborative mode (multi-turn chunk discussion)
+  --stream            Stream agent responses as they are generated
   --chunk-size <n>    Chunk size for iterative mode (default: 3)
   --max-rounds-per-chunk <n>  Max discussion rounds per chunk (default: 5)
 

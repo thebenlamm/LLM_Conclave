@@ -12,7 +12,9 @@ export default class ConversationManager {
   maxRounds: number;
   memoryManager: any;
 
-  constructor(config: any, memoryManager: any = null) {
+  streamOutput: boolean;
+
+  constructor(config: any, memoryManager: any = null, streamOutput: boolean = false) {
     this.config = config;
     this.agents = {};
     this.agentOrder = [];
@@ -20,6 +22,7 @@ export default class ConversationManager {
     this.currentRound = 0;
     this.maxRounds = config.max_rounds || 20;
     this.memoryManager = memoryManager;
+    this.streamOutput = streamOutput;
 
     this.initializeAgents();
   }
@@ -160,20 +163,28 @@ export default class ConversationManager {
     const agent = this.agents[agentName];
 
     console.log(`[${agentName} (${agent.model}) is thinking...]\n`);
+    if (this.streamOutput) {
+      console.log(`${agentName}:`);
+    }
 
     try {
       // Prepare messages for the agent
       const messages = this.prepareMessagesForAgent();
 
       // Get agent's response
-      const response = await agent.provider.chat(messages, agent.systemPrompt);
+      const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
+      const text = typeof response === 'string' ? response : response.text;
 
-      console.log(`${agentName}: ${response}\n`);
+      if (this.streamOutput) {
+        process.stdout.write('\n');
+      } else {
+        console.log(`${agentName}: ${text}\n`);
+      }
 
       // Add to conversation history
       this.conversationHistory.push({
         role: 'assistant',
-        content: response,
+        content: text,
         speaker: agentName,
         model: agent.model
       });
@@ -204,6 +215,15 @@ export default class ConversationManager {
   }
 
   /**
+   * Build chat options with streaming callbacks when enabled
+   */
+  getChatOptions() {
+    return this.streamOutput
+      ? { stream: true, onToken: (token: string) => process.stdout.write(token) }
+      : {};
+  }
+
+  /**
    * Judge evaluates if consensus has been reached
    * @param {Object} judge - Judge instance
    * @returns {Object} - { consensusReached: boolean, solution?: string, guidance?: string }
@@ -231,11 +251,16 @@ If no, provide brief guidance (2-3 sentences) to help the agents converge toward
         }
       ];
 
-      const response = await judge.provider.chat(messages, judge.systemPrompt);
+      const response = await judge.provider.chat(messages, judge.systemPrompt, this.getChatOptions());
+      const text = typeof response === 'string' ? response : response.text || '';
+
+      if (this.streamOutput) {
+        process.stdout.write('\n');
+      }
 
       // Check if consensus reached
-      if (response.includes('CONSENSUS_REACHED')) {
-        const solution = response.replace('CONSENSUS_REACHED', '').trim();
+      if (text.includes('CONSENSUS_REACHED')) {
+        const solution = text.replace('CONSENSUS_REACHED', '').trim();
         return {
           consensusReached: true,
           solution: solution
@@ -244,7 +269,7 @@ If no, provide brief guidance (2-3 sentences) to help the agents converge toward
 
       return {
         consensusReached: false,
-        guidance: response
+        guidance: text
       };
 
     } catch (error: any) {
@@ -282,11 +307,16 @@ As the judge, please analyze all perspectives and synthesize the best solution b
         }
       ];
 
-      const finalDecision = await judge.provider.chat(messages, judge.systemPrompt);
+      const finalDecision = await judge.provider.chat(messages, judge.systemPrompt, this.getChatOptions());
+      const text = typeof finalDecision === 'string' ? finalDecision : finalDecision.text;
 
-      console.log(`\nJudge's Final Decision:\n${finalDecision}\n`);
+      if (this.streamOutput) {
+        process.stdout.write('\n');
+      }
 
-      return finalDecision;
+      console.log(`\nJudge's Final Decision:\n${text}\n`);
+
+      return text;
 
     } catch (error: any) {
       console.error(`Error conducting final vote: ${error.message}`);

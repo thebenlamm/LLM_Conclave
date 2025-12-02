@@ -18,7 +18,7 @@ class ClaudeProvider extends LLMProvider_1.default {
     }
     async chat(messages, systemPrompt = null, options = {}) {
         try {
-            const { tools = null } = options;
+            const { tools = null, stream = false, onToken } = options;
             // Claude API expects messages without system role in the messages array
             // System prompt is passed separately
             const messageArray = messages.map(msg => {
@@ -63,6 +63,20 @@ class ClaudeProvider extends LLMProvider_1.default {
             // Add tools if provided
             if (tools && tools.length > 0) {
                 params.tools = tools;
+            }
+            // Streaming supported only when tools aren't requested to avoid partial tool parsing
+            if (stream && !params.tools) {
+                const streamResp = await this.client.messages.create({ ...params, stream: true });
+                let fullText = '';
+                for await (const event of streamResp) {
+                    const textDelta = event?.delta?.text;
+                    if (textDelta) {
+                        fullText += textDelta;
+                        if (onToken)
+                            onToken(textDelta);
+                    }
+                }
+                return { text: fullText || null };
             }
             const response = await this.client.messages.create(params);
             // Validate response structure
