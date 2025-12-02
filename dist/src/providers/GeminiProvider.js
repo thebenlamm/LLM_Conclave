@@ -85,56 +85,80 @@ class GeminiProvider extends LLMProvider_1.default {
     /**
      * Convert our message format to Gemini's Content format
      * New API expects Content[] with role (user/model) and parts
+     * Gemini requires: all function responses must be grouped together after function calls
      */
     convertMessagesToGeminiFormat(messages) {
         const contents = [];
-        for (const msg of messages) {
+        let pendingFunctionResponses = [];
+        let lastToolCallsMap = new Map(); // Map tool_use_id to function name
+        for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i];
             if (msg.role === 'tool_result') {
-                // Gemini expects tool results as function responses
+                // Collect tool results to be grouped together
                 const toolResult = msg;
-                contents.push({
-                    role: 'function',
-                    parts: [{
-                            functionResponse: {
-                                name: toolResult.tool_use_id || 'unknown',
-                                response: {
-                                    result: toolResult.content
-                                }
-                            }
-                        }]
+                const functionName = lastToolCallsMap.get(toolResult.tool_use_id) || 'unknown';
+                pendingFunctionResponses.push({
+                    functionResponse: {
+                        name: functionName,
+                        response: {
+                            result: toolResult.content
+                        }
+                    }
                 });
             }
-            else if (msg.role === 'assistant') {
-                const assistantMsg = msg;
-                if (assistantMsg.tool_calls) {
-                    // Convert tool calls to function calls
+            else {
+                // If we have pending function responses, add them before this message
+                if (pendingFunctionResponses.length > 0) {
                     contents.push({
-                        role: 'model',
-                        parts: assistantMsg.tool_calls.map((tc) => ({
-                            functionCall: {
-                                name: tc.name,
-                                args: tc.input
-                            }
-                        }))
+                        role: 'function',
+                        parts: pendingFunctionResponses
                     });
+                    pendingFunctionResponses = [];
                 }
-                else {
+                if (msg.role === 'assistant') {
+                    const assistantMsg = msg;
+                    if (assistantMsg.tool_calls) {
+                        // Store tool call IDs and names for later function response matching
+                        lastToolCallsMap.clear();
+                        for (const tc of assistantMsg.tool_calls) {
+                            lastToolCallsMap.set(tc.id, tc.name);
+                        }
+                        // Convert tool calls to function calls
+                        contents.push({
+                            role: 'model',
+                            parts: assistantMsg.tool_calls.map((tc) => ({
+                                functionCall: {
+                                    name: tc.name,
+                                    args: tc.input
+                                }
+                            }))
+                        });
+                    }
+                    else {
+                        contents.push({
+                            role: 'model',
+                            parts: [{ text: msg.content }]
+                        });
+                    }
+                }
+                else if (msg.role === 'user') {
                     contents.push({
-                        role: 'model',
+                        role: 'user',
                         parts: [{ text: msg.content }]
                     });
                 }
+                else if (msg.role === 'system') {
+                    // System messages are handled via systemInstruction, skip them here
+                    continue;
+                }
             }
-            else if (msg.role === 'user') {
-                contents.push({
-                    role: 'user',
-                    parts: [{ text: msg.content }]
-                });
-            }
-            else if (msg.role === 'system') {
-                // System messages are handled via systemInstruction, skip them here
-                continue;
-            }
+        }
+        // Add any remaining function responses
+        if (pendingFunctionResponses.length > 0) {
+            contents.push({
+                role: 'function',
+                parts: pendingFunctionResponses
+            });
         }
         return contents;
     }
