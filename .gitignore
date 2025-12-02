@@ -4,8 +4,9 @@ node_modules/
 # Environment variables
 .env
 
-# Output files
-outputs/
+# Output files (but keep the directory structure)
+outputs/*
+!outputs/.gitkeep
 
 # OS files
 .DS_Store
