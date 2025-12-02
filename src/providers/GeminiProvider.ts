@@ -1,14 +1,13 @@
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import LLMProvider from './LLMProvider';
 import { Message, ProviderResponse, ChatOptions, ToolDefinition } from '../types';
 
 /**
- * Google Gemini provider implementation
- * Supports models like gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash
+ * Google Gemini provider implementation using new @google/genai package
+ * Supports models like gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash-exp
  */
 export default class GeminiProvider extends LLMProvider {
-  client: GoogleGenerativeAI;
-  model: GenerativeModel;
+  client: GoogleGenAI;
 
   constructor(modelName: string, apiKey?: string) {
     super(modelName);
@@ -18,10 +17,7 @@ export default class GeminiProvider extends LLMProvider {
       throw new Error('GEMINI_API_KEY is required. Get one at https://aistudio.google.com/app/apikey');
     }
 
-    this.client = new GoogleGenerativeAI(key);
-
-    // Model will be initialized with system instructions in chat() method
-    this.model = this.client.getGenerativeModel({ model: modelName });
+    this.client = new GoogleGenAI({ apiKey: key });
   }
 
   async chat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
@@ -31,44 +27,46 @@ export default class GeminiProvider extends LLMProvider {
       // Convert our tool definitions to Gemini's function declaration format
       const functionDeclarations = tools ? this.convertToolsToGeminiFormat(tools) : undefined;
 
-      // Create model with system instruction and tools
-      const modelConfig: any = { model: this.modelName };
+      // Convert messages to Gemini Content format
+      const contents = this.convertMessagesToGeminiFormat(messages);
+
+      // Build config object
+      const config: any = {};
+
       if (systemPrompt) {
-        modelConfig.systemInstruction = systemPrompt;
-      }
-      if (functionDeclarations) {
-        modelConfig.tools = [{ functionDeclarations }];
+        config.systemInstruction = systemPrompt;
       }
 
-      this.model = this.client.getGenerativeModel(modelConfig);
+      if (functionDeclarations && functionDeclarations.length > 0) {
+        config.tools = [{ functionDeclarations }];
+      }
 
-      // Convert messages to Gemini format
-      const geminiMessages = this.convertMessagesToGeminiFormat(messages);
+      // Call generateContent with the new API
+      const generateConfig: any = {
+        model: this.modelName,
+        contents: contents,
+      };
 
-      // Start chat with history
-      const chat = this.model.startChat({
-        history: geminiMessages.history,
-      });
+      if (Object.keys(config).length > 0) {
+        generateConfig.config = config;
+      }
 
-      // Send the latest message
-      const result = await chat.sendMessage(geminiMessages.latestMessage);
-      const response = result.response;
+      const response = await this.client.models.generateContent(generateConfig);
 
       // Check for function calls
-      const functionCalls = response.functionCalls();
-      if (functionCalls && functionCalls.length > 0) {
+      if (response.functionCalls && response.functionCalls.length > 0) {
         return {
-          tool_calls: functionCalls.map((fc: any) => ({
+          tool_calls: response.functionCalls.map((fc: any) => ({
             id: fc.name + '_' + Date.now(), // Gemini doesn't provide IDs
             name: fc.name,
-            input: fc.args
+            input: fc.args || {}
           })),
-          text: response.text() || null
+          text: response.text || null
         };
       }
 
       // Return regular text response
-      return { text: response.text() };
+      return { text: response.text || null };
     } catch (error: any) {
       throw new Error(`Gemini API error: ${error.message}`);
     }
@@ -78,7 +76,6 @@ export default class GeminiProvider extends LLMProvider {
    * Convert our tool definitions to Gemini's function declaration format
    */
   convertToolsToGeminiFormat(tools: ToolDefinition[] | any[]): any[] {
-    // Handle both Anthropic format and OpenAI format
     const toolArray = Array.isArray(tools) ? tools : [];
 
     return toolArray.map((tool: any) => {
@@ -87,7 +84,7 @@ export default class GeminiProvider extends LLMProvider {
         return {
           name: tool.function.name,
           description: tool.function.description,
-          parameters: tool.function.parameters
+          parametersJsonSchema: tool.function.parameters
         };
       }
 
@@ -95,26 +92,23 @@ export default class GeminiProvider extends LLMProvider {
       return {
         name: tool.name,
         description: tool.description,
-        parameters: tool.input_schema
+        parametersJsonSchema: tool.input_schema
       };
     });
   }
 
   /**
-   * Convert our message format to Gemini's format
-   * Gemini uses "user" and "model" roles, and requires alternating turns
+   * Convert our message format to Gemini's Content format
+   * New API expects Content[] with role (user/model) and parts
    */
-  convertMessagesToGeminiFormat(messages: Message[]): { history: any[], latestMessage: string } {
-    const history: any[] = [];
-    let currentContent = '';
+  convertMessagesToGeminiFormat(messages: Message[]): any[] {
+    const contents: any[] = [];
 
-    for (let i = 0; i < messages.length - 1; i++) {
-      const msg = messages[i];
-
+    for (const msg of messages) {
       if (msg.role === 'tool_result') {
-        // Gemini expects tool results as function responses in parts
+        // Gemini expects tool results as function responses
         const toolResult = msg as any;
-        history.push({
+        contents.push({
           role: 'function',
           parts: [{
             functionResponse: {
@@ -129,7 +123,7 @@ export default class GeminiProvider extends LLMProvider {
         const assistantMsg = msg as any;
         if (assistantMsg.tool_calls) {
           // Convert tool calls to function calls
-          history.push({
+          contents.push({
             role: 'model',
             parts: assistantMsg.tool_calls.map((tc: any) => ({
               functionCall: {
@@ -139,24 +133,23 @@ export default class GeminiProvider extends LLMProvider {
             }))
           });
         } else {
-          history.push({
+          contents.push({
             role: 'model',
             parts: [{ text: msg.content }]
           });
         }
       } else if (msg.role === 'user') {
-        history.push({
+        contents.push({
           role: 'user',
           parts: [{ text: msg.content }]
         });
+      } else if (msg.role === 'system') {
+        // System messages are handled via systemInstruction, skip them here
+        continue;
       }
     }
 
-    // The last message becomes the current message to send
-    const lastMessage = messages[messages.length - 1];
-    const latestMessage = lastMessage.content;
-
-    return { history, latestMessage };
+    return contents;
   }
 
   getProviderName(): string {
