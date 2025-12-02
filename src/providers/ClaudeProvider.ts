@@ -16,7 +16,7 @@ export default class ClaudeProvider extends LLMProvider {
     });
   }
 
-  async chat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
+  protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
       const { tools = null, stream = false, onToken } = options;
 
@@ -88,6 +88,11 @@ export default class ClaudeProvider extends LLMProvider {
       }
 
       const response = await this.client.messages.create(params);
+      
+      const usage = {
+        input_tokens: response.usage.input_tokens || 0,
+        output_tokens: response.usage.output_tokens || 0,
+      };
 
       // Validate response structure
       if (!response || !response.content) {
@@ -96,7 +101,7 @@ export default class ClaudeProvider extends LLMProvider {
 
       // Handle empty content array (Claude chose not to respond)
       if (response.content.length === 0) {
-        return { text: "[No response provided - model chose not to contribute]" };
+        return { text: "[No response provided - model chose not to contribute]", usage };
       }
 
       // Check if response contains tool uses
@@ -109,7 +114,8 @@ export default class ClaudeProvider extends LLMProvider {
             name: tu.name,
             input: tu.input
           })),
-          text: (response.content.find(block => block.type === 'text') as any)?.text || null
+          text: (response.content.find(block => block.type === 'text') as any)?.text || null,
+          usage,
         };
       }
 
@@ -119,7 +125,7 @@ export default class ClaudeProvider extends LLMProvider {
         throw new Error(`No text content in response: ${JSON.stringify(response.content)}`);
       }
 
-      return { text: textContent.text };
+      return { text: textContent.text, usage };
     } catch (error: any) {
       throw new Error(`Claude API error: ${error.message}`);
     }

@@ -18,6 +18,7 @@ import { Agent } from './src/types';
 import InteractiveInit from './src/init/InteractiveInit';
 import ConfigWriter from './src/init/ConfigWriter';
 import InteractiveSession from './src/interactive/InteractiveSession';
+import { CostTracker } from './src/core/CostTracker';
 
 /**
  * Main CLI entry point for LLM Conclave
@@ -311,6 +312,16 @@ async function main() {
       // Print summary
       OutputHandler.printSummary(result, filePaths);
     }
+
+    const summary = CostTracker.getInstance().getSummary();
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`SESSION COST & PERFORMANCE`);
+    console.log(`${'='.repeat(80)}\n`);
+    console.log(`Total Cost: $${summary.totalCost.toFixed(6)}`);
+    console.log(`Total Tokens: ${summary.totalTokens.input + summary.totalTokens.output} (Input: ${summary.totalTokens.input}, Output: ${summary.totalTokens.output})`);
+    console.log(`Total Calls: ${summary.totalCalls}`);
+    console.log(`Average Latency: ${summary.averageLatency.toFixed(2)}ms`);
+    console.log(`\n${'='.repeat(80)}\n`);
 
   } catch (error: any) {
     console.error(`\n❌ Error: ${error.message}`);

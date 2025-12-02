@@ -18,7 +18,7 @@ export default class GrokProvider extends LLMProvider {
     });
   }
 
-  async chat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
+  protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
       const { tools = null, stream = false, onToken } = options;
       const messageArray = [...messages];
@@ -64,6 +64,10 @@ export default class GrokProvider extends LLMProvider {
       const response = await this.client.chat.completions.create(params);
 
       const message = response.choices[0].message;
+      const usage = {
+        input_tokens: response.usage?.prompt_tokens || 0,
+        output_tokens: response.usage?.completion_tokens || 0,
+      };
 
       // Check if response contains tool calls
       if (message.tool_calls && message.tool_calls.length > 0) {
@@ -73,11 +77,12 @@ export default class GrokProvider extends LLMProvider {
             name: tc.function.name,
             input: JSON.parse(tc.function.arguments)
           })),
-          text: message.content || null
+          text: message.content || null,
+          usage,
         };
       }
 
-      return { text: message.content };
+      return { text: message.content, usage };
     } catch (error: any) {
       throw new Error(`Grok API error: ${error.message}`);
     }

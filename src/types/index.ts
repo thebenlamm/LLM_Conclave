@@ -77,6 +77,10 @@ export interface ToolExecution {
 export interface ProviderResponse {
   text: string | null;
   tool_calls?: ToolCall[];
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+  };
 }
 
 export interface ChatOptions {
