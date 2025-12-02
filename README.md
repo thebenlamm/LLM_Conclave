@@ -6,9 +6,10 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
 
 - **Multi-Agent Collaboration**: Configure multiple LLM agents with different models and personas
 - **5 LLM Providers**: OpenAI GPT, Anthropic Claude, xAI Grok, Google Gemini, and Mistral AI
-- **Two Operational Modes**:
+- **Three Operational Modes**:
   - **Consensus Mode**: Democratic discussion with judge-coordinated consensus
   - **Orchestrated Mode**: Structured workflow with primary/secondary agents and validation
+  - **Iterative Collaborative Mode**: Multi-turn chunk-based discussions where agents respond to each other
 - **Tool Support**: Agents can read/write files, run commands, and perform real file operations
 - **Project Context Analysis**: Point the conclave at any codebase or document directory for analysis
 - **Interactive Init**: AI-powered agent generation based on your project description
@@ -68,12 +69,15 @@ node index.js
 ### Options
 
 ```bash
---help, -h              # Show help information
---init                  # Create AI-generated agent configuration
---config <path>         # Use custom configuration file
---project <path>        # Include file or directory context for analysis
---orchestrated          # Use orchestrated mode (primary/secondary/validation workflow)
---project-id <id>       # Use persistent project memory
+--help, -h                      # Show help information
+--init                          # Create AI-generated agent configuration
+--config <path>                 # Use custom configuration file
+--project <path>                # Include file or directory context for analysis
+--orchestrated                  # Use orchestrated mode (primary/secondary/validation workflow)
+--iterative                     # Use iterative collaborative mode (multi-turn chunk discussion)
+--chunk-size <n>                # Chunk size for iterative mode (default: 3)
+--max-rounds-per-chunk <n>      # Max discussion rounds per chunk (default: 5)
+--project-id <id>               # Use persistent project memory
 ```
 
 ### Operational Modes
@@ -93,6 +97,21 @@ node index.js
 Example:
 ```bash
 llm-conclave --orchestrated "Correct all 10 lines of oz.txt one at a time"
+```
+
+**Iterative Collaborative Mode (`--iterative`):**
+- Work is divided into configurable chunks (e.g., 3 lines at a time)
+- Each chunk has multiple rounds of discussion
+- **Agents can respond to each other** within each chunk (not one-and-done)
+- Each agent maintains their own state/notes file
+- Only judge/coordinator writes to shared output file
+- Shared state builds cumulatively across chunks
+- Best for incremental, collaborative tasks requiring back-and-forth discussion
+
+Example:
+```bash
+llm-conclave --iterative --project oz.txt "Correct all OCR errors line by line"
+llm-conclave --iterative --chunk-size 5 "Review and improve documentation"
 ```
 
 ### Examples
@@ -127,6 +146,15 @@ llm-conclave --project ./docs "Review my technical writing for clarity and compl
 
 # Investigate a bug
 llm-conclave --project ./src "Find why the login feature isn't working on mobile"
+
+# Iterative collaborative mode: OCR correction with multi-turn discussion
+llm-conclave --iterative --project oz.txt "Correct all OCR errors with collaborative discussion"
+
+# Iterative mode: Custom chunk size for larger sections
+llm-conclave --iterative --chunk-size 5 --project ./docs "Review and improve each section"
+
+# Iterative mode: More rounds of discussion per chunk
+llm-conclave --iterative --max-rounds-per-chunk 7 "Iteratively refine the code"
 ```
 
 ## Project Context Analysis
@@ -265,6 +293,8 @@ The configuration file (`.llm-conclave.json`) defines:
 
 ## How It Works
 
+### Consensus Mode (Default)
+
 1. **Task Submission**: User provides a task via CLI argument, file, or interactive prompt
 2. **Agent Initialization**: Each configured agent is initialized with its model and system prompt
 3. **Round-Robin Discussion**:
@@ -281,6 +311,24 @@ The configuration file (`.llm-conclave.json`) defines:
    - Full transcript saved to `outputs/conclave-[timestamp]-transcript.md`
    - Consensus/solution saved to `outputs/conclave-[timestamp]-consensus.md`
    - Complete data saved to `outputs/conclave-[timestamp]-full.json`
+
+### Iterative Collaborative Mode
+
+1. **Task Submission**: User provides task and optional chunk size/max rounds parameters
+2. **Chunk Planning**: Judge breaks down the task into manageable chunks (default: 3 units per chunk)
+3. **For Each Chunk**:
+   - **Round 1**: Each agent provides initial thoughts on the chunk
+   - **Rounds 2-N**: Agents respond to each other's comments and continue discussion
+   - **Agent State**: Each agent updates their own notes file after contributing
+   - **Judge Evaluation**: After each round, judge evaluates if chunk is complete
+   - **Completion**: When consensus reached or max rounds hit, judge writes result to shared output
+4. **Cumulative State**: Shared output builds incrementally as each chunk is completed
+5. **Output Files**:
+   - `outputs/iterative/shared_output.md`: Judge-coordinated cumulative results
+   - `outputs/iterative/[AgentName]_notes.md`: Each agent's working notes and thoughts
+   - Agents can reference each other's notes files for context
+
+**Key Difference**: Unlike other modes where agents speak once per phase, iterative mode enables true multi-turn discussion where agents can respond to each other multiple times within each chunk.
 
 ## Output Files
 

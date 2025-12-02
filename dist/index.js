@@ -48,6 +48,8 @@ const ProviderFactory_1 = __importDefault(require("./src/providers/ProviderFacto
 const ProjectContext_1 = __importDefault(require("./src/utils/ProjectContext"));
 const MemoryManager_1 = __importDefault(require("./src/memory/MemoryManager"));
 const Orchestrator_1 = __importDefault(require("./src/orchestration/Orchestrator"));
+const IterativeCollaborativeOrchestrator_1 = __importDefault(require("./src/orchestration/IterativeCollaborativeOrchestrator"));
+const ToolRegistry_1 = __importDefault(require("./src/tools/ToolRegistry"));
 const InteractiveInit_1 = __importDefault(require("./src/init/InteractiveInit"));
 const ConfigWriter_1 = __importDefault(require("./src/init/ConfigWriter"));
 const InteractiveSession_1 = __importDefault(require("./src/interactive/InteractiveSession"));
@@ -211,10 +213,57 @@ async function main() {
         }
         console.log(`\nTask: ${task}\n`);
         console.log(`Agents: ${Object.keys(config.agents).join(', ')}`);
-        // Check if orchestrated mode is enabled
+        // Check operational mode
         const orchestrated = args.includes('--orchestrated');
+        const iterative = args.includes('--iterative');
         let result;
-        if (orchestrated) {
+        if (iterative) {
+            // Use iterative collaborative mode
+            console.log(`Mode: Iterative Collaborative (Multi-turn chunk-based discussion)\n`);
+            // Parse chunk size and max rounds per chunk
+            const chunkSizeIndex = args.indexOf('--chunk-size');
+            const chunkSize = chunkSizeIndex !== -1 ? parseInt(args[chunkSizeIndex + 1]) : 3;
+            const maxRoundsIndex = args.indexOf('--max-rounds-per-chunk');
+            const maxRoundsPerChunk = maxRoundsIndex !== -1 ? parseInt(args[maxRoundsIndex + 1]) : 5;
+            // Initialize agents
+            const agents = Object.entries(config.agents).map(([name, agentConfig]) => ({
+                name,
+                model: agentConfig.model,
+                provider: ProviderFactory_1.default.createProvider(agentConfig.model),
+                systemPrompt: agentConfig.prompt
+            }));
+            // Initialize judge
+            const judge = {
+                name: 'Judge',
+                model: config.judge.model,
+                provider: ProviderFactory_1.default.createProvider(config.judge.model),
+                systemPrompt: config.judge.prompt
+            };
+            // Initialize tool registry
+            const toolRegistry = new ToolRegistry_1.default();
+            // Create iterative orchestrator
+            const orchestrator = new IterativeCollaborativeOrchestrator_1.default(agents, judge, toolRegistry, {
+                chunkSize,
+                maxRoundsPerChunk,
+                outputDir: './outputs/iterative',
+                sharedOutputFile: 'shared_output.md'
+            });
+            // Run the iterative process
+            const contextString = projectContext ? projectContext.formatContext() : undefined;
+            await orchestrator.run(task, contextString);
+            // Get and print summary
+            const summary = orchestrator.getSummary();
+            console.log(`\n${'='.repeat(80)}`);
+            console.log(`ITERATIVE COLLABORATIVE SESSION COMPLETE`);
+            console.log(`${'='.repeat(80)}\n`);
+            console.log(`Files saved:`);
+            console.log(`  - Shared output: ${summary.sharedOutputFile}`);
+            for (const [agentName, filePath] of Object.entries(summary.agentStateFiles)) {
+                console.log(`  - ${agentName} notes: ${filePath}`);
+            }
+            console.log();
+        }
+        else if (orchestrated) {
             // Use orchestrated mode
             console.log(`Mode: Orchestrated (Primary/Secondary/Validation flow)\n`);
             const orchestrator = new Orchestrator_1.default(config, memoryManager);
@@ -279,6 +328,9 @@ Options:
   --config <path>     Specify a custom configuration file path
   --project <path>    Include file or directory context for analysis
   --orchestrated      Use orchestrated mode (primary/secondary/validation flow)
+  --iterative         Use iterative collaborative mode (multi-turn chunk discussion)
+  --chunk-size <n>    Chunk size for iterative mode (default: 3)
+  --max-rounds-per-chunk <n>  Max discussion rounds per chunk (default: 5)
 
 Init Options:
   --scan              Force project directory scanning
@@ -304,6 +356,14 @@ Modes:
     - Primary agent revises based on feedback
     - Validator agents review final output
     - Best for domain-specific advisory workflows
+
+  Iterative Collaborative Mode (--iterative):
+    - Work is divided into configurable chunks
+    - Each chunk has multi-turn discussion rounds
+    - Agents can respond to each other within each chunk
+    - Each agent maintains their own state/notes file
+    - Only judge writes to shared output file
+    - Best for incremental, collaborative tasks (e.g., OCR correction, line-by-line editing)
 
 Task Input:
   You can provide the task in three ways:
@@ -332,6 +392,11 @@ Examples:
   node index.js task.txt
   node index.js --orchestrated "Name our product"
   node index.js --orchestrated "Plan our launch strategy"
+
+  # Iterative Collaborative Mode
+  node index.js --iterative --project oz.txt "Correct all OCR errors line by line"
+  node index.js --iterative --chunk-size 5 "Review and improve documentation"
+  node index.js --iterative --max-rounds-per-chunk 3 "Edit code incrementally"
 
 Environment Variables:
   OPENAI_API_KEY      - OpenAI API key (for GPT models)
