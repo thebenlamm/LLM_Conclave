@@ -14,6 +14,12 @@ export default class ConversationManager {
 
   streamOutput: boolean;
 
+  // Performance optimizations: message caching
+  private messageCache: any[] = [];
+  private lastCacheUpdateIndex: number = 0;
+  private cachedRecentDiscussion: string = '';
+  private lastJudgeCacheRound: number = 0;
+
   constructor(config: any, memoryManager: any = null, streamOutput: boolean = false) {
     this.config = config;
     this.agents = {};
@@ -205,13 +211,30 @@ export default class ConversationManager {
 
   /**
    * Prepare message array for an agent from conversation history
+   * Uses incremental caching to avoid rebuilding the entire array every turn
    * @returns {Array} - Array of messages in OpenAI format
    */
   prepareMessagesForAgent() {
-    return this.conversationHistory.map(entry => ({
-      role: entry.role === 'user' ? 'user' : 'assistant',
-      content: entry.speaker !== 'System' ? `${entry.speaker}: ${entry.content}` : entry.content
-    }));
+    // If no new messages since last cache update, return cached version
+    if (this.lastCacheUpdateIndex === this.conversationHistory.length) {
+      return this.messageCache;
+    }
+
+    // Process only new messages since last cache update
+    const newMessages = this.conversationHistory
+      .slice(this.lastCacheUpdateIndex)
+      .map(entry => ({
+        role: entry.role === 'user' ? 'user' : 'assistant',
+        content: entry.speaker !== 'System'
+          ? `${entry.speaker}: ${entry.content}`
+          : entry.content
+      }));
+
+    // Append to cache
+    this.messageCache.push(...newMessages);
+    this.lastCacheUpdateIndex = this.conversationHistory.length;
+
+    return this.messageCache;
   }
 
   /**
@@ -225,20 +248,25 @@ export default class ConversationManager {
 
   /**
    * Judge evaluates if consensus has been reached
+   * Uses cached recent discussion to avoid rebuilding every time
    * @param {Object} judge - Judge instance
    * @returns {Object} - { consensusReached: boolean, solution?: string, guidance?: string }
    */
   async judgeEvaluate(judge: any) {
     try {
-      // Prepare context for judge
-      const recentDiscussion = this.conversationHistory
-        .slice(-this.agentOrder.length * 2) // Last 2 rounds
-        .map(entry => `${entry.speaker}: ${entry.content}`)
-        .join('\n\n');
+      // Cache formatted recent discussion instead of rebuilding each time
+      if (!this.cachedRecentDiscussion || this.lastJudgeCacheRound !== this.currentRound) {
+        this.cachedRecentDiscussion = this.conversationHistory
+          .slice(-this.agentOrder.length * 2) // Last 2 rounds
+          .map(entry => `${entry.speaker}: ${entry.content}`)
+          .join('\n\n');
+
+        this.lastJudgeCacheRound = this.currentRound;
+      }
 
       const judgePrompt = `
 Recent discussion:
-${recentDiscussion}
+${this.cachedRecentDiscussion}
 
 Based on the above discussion, have the agents reached sufficient consensus on the task?
 If yes, respond with "CONSENSUS_REACHED" on the first line, followed by a summary of the agreed-upon solution.

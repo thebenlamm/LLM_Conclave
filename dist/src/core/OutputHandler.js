@@ -33,40 +33,44 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-const fs = __importStar(require("fs"));
+const fsPromises = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
 /**
  * Handles output formatting and file writing
  */
 class OutputHandler {
     /**
-     * Save conversation results to files
+     * Save conversation results to files (async with parallel writes)
      * @param {Object} result - Conversation result object
      * @param {string} outputDir - Directory to save files (default: outputs/)
-     * @returns {Object} - Paths to created files
+     * @returns {Object} - Paths to created files and formatted content
      */
-    static saveResults(result, outputDir = 'outputs') {
-        // Create output directory if it doesn't exist
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-        }
+    static async saveResults(result, outputDir = 'outputs') {
+        // Create output directory if it doesn't exist (async)
+        await fsPromises.mkdir(outputDir, { recursive: true });
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
         const baseFilename = `conclave-${timestamp}`;
-        // Save full transcript
-        const transcriptPath = path.join(outputDir, `${baseFilename}-transcript.md`);
+        // Format content ONCE (reuse for console output)
         const transcriptContent = this.formatTranscript(result);
-        fs.writeFileSync(transcriptPath, transcriptContent);
-        // Save consensus/solution
-        const consensusPath = path.join(outputDir, `${baseFilename}-consensus.md`);
         const consensusContent = this.formatConsensus(result);
-        fs.writeFileSync(consensusPath, consensusContent);
-        // Also save as JSON for programmatic access
+        const jsonContent = JSON.stringify(result, null, 2);
+        // Define file paths
+        const transcriptPath = path.join(outputDir, `${baseFilename}-transcript.md`);
+        const consensusPath = path.join(outputDir, `${baseFilename}-consensus.md`);
         const jsonPath = path.join(outputDir, `${baseFilename}-full.json`);
-        fs.writeFileSync(jsonPath, JSON.stringify(result, null, 2));
+        // Write all files in parallel (non-blocking)
+        await Promise.all([
+            fsPromises.writeFile(transcriptPath, transcriptContent),
+            fsPromises.writeFile(consensusPath, consensusContent),
+            fsPromises.writeFile(jsonPath, jsonContent)
+        ]);
         return {
             transcript: transcriptPath,
             consensus: consensusPath,
-            json: jsonPath
+            json: jsonPath,
+            // Return formatted content to avoid duplicate formatting
+            formattedTranscript: transcriptContent,
+            formattedConsensus: consensusContent
         };
     }
     /**

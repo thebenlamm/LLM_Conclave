@@ -306,8 +306,8 @@ async function main() {
       console.log(`Starting conversation...\n`);
       result = await conversationManager.startConversation(task as string, judge, projectContext);
 
-      // Save results
-      const filePaths = OutputHandler.saveResults(result);
+      // Save results (async with parallel writes)
+      const filePaths = await OutputHandler.saveResults(result);
 
       // Print summary
       OutputHandler.printSummary(result, filePaths);
