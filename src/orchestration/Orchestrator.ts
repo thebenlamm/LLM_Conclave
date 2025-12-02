@@ -224,15 +224,26 @@ export default class Orchestrator {
       iterations++;
 
       // Call agent with tools
+      // Grok uses OpenAI format since it's OpenAI-compatible
+      const providerName = agent.provider.getProviderName();
+      const useOpenAIFormat = providerName === 'OpenAI' || providerName === 'Grok';
       const response = await agent.provider.chat(
         currentMessages,
         agent.systemPrompt,
-        { tools: agent.provider.getProviderName() === 'OpenAI' ? this.toolRegistry.getOpenAITools() : tools }
+        { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools }
       );
 
       // Check if response has tool calls
       if (response.tool_calls && response.tool_calls.length > 0) {
-        // Execute each tool
+        // Add the assistant's message with tool_use blocks first
+        // This is required by Claude - tool_result must follow tool_use
+        currentMessages.push({
+          role: 'assistant',
+          content: response.text || '',
+          tool_calls: response.tool_calls
+        });
+
+        // Execute each tool and add results
         for (const toolCall of response.tool_calls) {
           const result = await this.toolRegistry.executeTool(toolCall.name, toolCall.input);
 
@@ -288,7 +299,9 @@ export default class Orchestrator {
 
     const prompt = `${context}Task: ${task}\n\nAs the primary agent for this task, provide your initial response. Be comprehensive but concise.
 
-You have access to tools to read and write files, list files, edit files, and run commands. Use these tools to take concrete actions rather than just discussing what should be done.`;
+You have access to tools to read and write files, list files, edit files, and run commands. Use these tools to take concrete actions rather than just discussing what should be done.
+
+Important: Once you've read a file, you have access to its complete contents in the conversation history. If you need additional context from a file you've already read, refer back to that content rather than requesting more information.`;
 
     const messages = [{ role: 'user', content: prompt }];
 

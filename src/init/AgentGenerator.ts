@@ -32,8 +32,9 @@ export default class AgentGenerator {
       const response = await this.provider.chat(messages, systemPrompt);
 
       // Extract JSON from response (handle markdown code blocks)
-      const jsonMatch = response.match(/```json\n?([\s\S]*?)\n?```/) || response.match(/```\n?([\s\S]*?)\n?```/);
-      const jsonStr = jsonMatch ? jsonMatch[1] : response;
+      const responseText = response.text || '';
+      const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/) || responseText.match(/```\n?([\s\S]*?)\n?```/);
+      const jsonStr = jsonMatch ? jsonMatch[1] : responseText;
 
       const parsed = JSON.parse(jsonStr);
 
@@ -200,8 +201,9 @@ Return ONLY valid JSON:
       const response = await this.provider.chat(messages, systemPrompt);
 
       // Extract JSON
-      const jsonMatch = response.match(/```json\n?([\s\S]*?)\n?```/) || response.match(/```\n?([\s\S]*?)\n?```/);
-      const jsonStr = jsonMatch ? jsonMatch[1] : response;
+      const responseText = response.text || '';
+      const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/) || responseText.match(/```\n?([\s\S]*?)\n?```/);
+      const jsonStr = jsonMatch ? jsonMatch[1] : responseText;
 
       const agent = JSON.parse(jsonStr);
       return this.validateAgent(agent);

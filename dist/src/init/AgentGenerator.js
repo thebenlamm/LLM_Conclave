@@ -28,8 +28,9 @@ class AgentGenerator {
             const systemPrompt = 'You are an expert at designing multi-agent AI collaboration systems. You generate precise, well-structured JSON configurations for specialized AI agents.';
             const response = await this.provider.chat(messages, systemPrompt);
             // Extract JSON from response (handle markdown code blocks)
-            const jsonMatch = response.match(/```json\n?([\s\S]*?)\n?```/) || response.match(/```\n?([\s\S]*?)\n?```/);
-            const jsonStr = jsonMatch ? jsonMatch[1] : response;
+            const responseText = response.text || '';
+            const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/) || responseText.match(/```\n?([\s\S]*?)\n?```/);
+            const jsonStr = jsonMatch ? jsonMatch[1] : responseText;
             const parsed = JSON.parse(jsonStr);
             // Validate structure
             if (!parsed.agents || !Array.isArray(parsed.agents)) {
@@ -176,8 +177,9 @@ Return ONLY valid JSON:
             const systemPrompt = 'You are an expert at designing AI agents. Generate precise JSON configurations.';
             const response = await this.provider.chat(messages, systemPrompt);
             // Extract JSON
-            const jsonMatch = response.match(/```json\n?([\s\S]*?)\n?```/) || response.match(/```\n?([\s\S]*?)\n?```/);
-            const jsonStr = jsonMatch ? jsonMatch[1] : response;
+            const responseText = response.text || '';
+            const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/) || responseText.match(/```\n?([\s\S]*?)\n?```/);
+            const jsonStr = jsonMatch ? jsonMatch[1] : responseText;
             const agent = JSON.parse(jsonStr);
             return this.validateAgent(agent);
         }
