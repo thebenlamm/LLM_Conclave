@@ -46,7 +46,16 @@ class ConfigLoader {
      */
     static load(configPath = null) {
         const defaultPath = path.join(process.cwd(), '.llm-conclave.json');
-        const filePath = configPath || defaultPath;
+        // Resolve configPath relative to current working directory if it's relative
+        let filePath;
+        if (configPath) {
+            filePath = path.isAbsolute(configPath)
+                ? configPath
+                : path.resolve(process.cwd(), configPath);
+        }
+        else {
+            filePath = defaultPath;
+        }
         if (!fs.existsSync(filePath)) {
             throw new Error(`Configuration file not found: ${filePath}`);
         }
