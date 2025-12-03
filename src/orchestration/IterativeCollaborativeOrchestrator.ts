@@ -26,6 +26,7 @@ export default class IterativeCollaborativeOrchestrator {
   conversationHistory: any[];
   toolExecutions: any[];
   streamOutput: boolean;
+  chunkDurations: number[];
 
   constructor(
     agents: Agent[],
@@ -50,6 +51,7 @@ export default class IterativeCollaborativeOrchestrator {
     this.conversationHistory = [];
     this.toolExecutions = [];
     this.streamOutput = options.streamOutput || false;
+    this.chunkDurations = [];
 
     // Ensure output directory exists
     if (!fs.existsSync(this.outputDir)) {
@@ -103,12 +105,25 @@ export default class IterativeCollaborativeOrchestrator {
       const chunk = chunks[i];
       console.log(`\n📦 Processing Chunk ${i + 1}/${chunks.length}: ${chunk.description}`);
 
+      const chunkStart = Date.now();
+
       const chunkResult = await this.discussChunk(chunk, i + 1, projectContext);
 
       // Judge writes result to shared output
       await this.updateSharedOutput(chunkResult, i + 1, chunk.description);
 
+      const elapsedSeconds = (Date.now() - chunkStart) / 1000;
+      this.chunkDurations.push(elapsedSeconds);
+
+      const averageSeconds =
+        this.chunkDurations.reduce((sum, value) => sum + value, 0) / this.chunkDurations.length;
+      const remainingChunks = chunks.length - (i + 1);
+      const estimatedRemainingSeconds = averageSeconds * remainingChunks;
+
       console.log(`✅ Chunk ${i + 1} completed\n`);
+      console.log(
+        `⏱️ Chunk ${i + 1} processing time: ${this.formatDuration(elapsedSeconds)} | Estimated time remaining: ${this.formatDuration(estimatedRemainingSeconds)} (avg/chunk: ${this.formatDuration(averageSeconds)})`
+      );
     }
 
     console.log('\n🎉 All chunks processed successfully!');
@@ -573,5 +588,23 @@ Synthesize the best result from this discussion:`;
       sharedOutputFile: path.join(this.outputDir, this.sharedOutputFile),
       agentStateFiles: Object.fromEntries(this.agentStateFiles)
     };
+  }
+
+  /**
+   * Format seconds into human-readable time (MM:SS or HH:MM:SS)
+   */
+  private formatDuration(totalSeconds: number): string {
+    const roundedSeconds = Math.round(totalSeconds);
+    const hours = Math.floor(roundedSeconds / 3600);
+    const minutes = Math.floor((roundedSeconds % 3600) / 60);
+    const seconds = roundedSeconds % 60;
+
+    const pad = (value: number) => value.toString().padStart(2, '0');
+
+    if (hours > 0) {
+      return `${hours}:${pad(minutes)}:${pad(seconds)}`;
+    }
+
+    return `${minutes}:${pad(seconds)}`;
   }
 }
