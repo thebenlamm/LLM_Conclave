@@ -9,7 +9,7 @@
   "scripts": {
     "start": "ts-node index.ts",
     "dev": "ts-node index.ts",
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/index.js",
     "prepublishOnly": "npm run build",
     "init": "ts-node index.ts --init",
     "help": "ts-node index.ts --help"
