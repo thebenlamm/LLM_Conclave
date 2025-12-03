@@ -12,6 +12,8 @@ class CostTracker {
         // - Mistral: https://mistral.ai/technology/#pricing
         this.pricing = {
             // OpenAI
+            'gpt-4.1': { input: 0.005, output: 0.015 },
+            'gpt-4.1-mini': { input: 0.00015, output: 0.0006 },
             'gpt-4o': { input: 0.005, output: 0.015 },
             'gpt-4-turbo': { input: 0.01, output: 0.03 },
             'gpt-3.5-turbo': { input: 0.0005, output: 0.0015 },
@@ -33,8 +35,11 @@ class CostTracker {
             'gemini-pro': { input: 0.000125, output: 0.000375 },
             'gemini-1.5-pro-latest': { input: 0.0035, output: 0.0105 },
             'gemini-1.5-flash-latest': { input: 0.00035, output: 0.00105 },
-            'gemini-2.0-flash-exp': { input: 0.0, output: 0.0 }, // Free during preview
+            'gemini-2.0-flash': { input: 0.00035, output: 0.00105 }, // Check pricing against current Gemini 2.0 rates
             'gemini-2.5-flash': { input: 0.00035, output: 0.00105 }, // Note: Pricing needs verification
+            'gemini-2.5-pro': { input: 0.0035, output: 0.0105 }, // Pro-tier pricing subject to updates
+            'gemini-2.5-pro-exp': { input: 0.0, output: 0.0 }, // Experimental preview
+            'gemini-3-pro': { input: 0.0, output: 0.0 }, // Pricing not yet published
             'gemini-exp-1206': { input: 0.0, output: 0.0 }, // Free experimental model
             // Mistral
             'mistral-large-latest': { input: 0.008, output: 0.024 },

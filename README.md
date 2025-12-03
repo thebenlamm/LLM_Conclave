@@ -339,7 +339,7 @@ The configuration file (`.llm-conclave.json`) defines:
       "prompt": "You are a pragmatic engineer focused on practical, implementable solutions. Balance idealism with real-world constraints."
     },
     "Creative": {
-      "model": "gemini-2.0-flash-exp",
+      "model": "gemini-2.5-pro",
       "prompt": "You are a creative innovator. Think outside the box and propose novel, unconventional approaches."
     },
     "Analyst": {
@@ -353,6 +353,8 @@ The configuration file (`.llm-conclave.json`) defines:
 ### Supported Models
 
 **OpenAI (requires `OPENAI_API_KEY`):**
+- `gpt-4.1`
+- `gpt-4.1-mini`
 - `gpt-4o`
 - `gpt-4-turbo`
 - `gpt-3.5-turbo`
@@ -367,10 +369,14 @@ The configuration file (`.llm-conclave.json`) defines:
 - `grok-vision-3`
 
 **Google (requires `GEMINI_API_KEY`):**
-- `gemini-2.0-flash-exp` (recommended)
+- `gemini-3-pro`
+- `gemini-2.5-pro`
+- `gemini-2.5-pro-exp`
 - `gemini-2.5-flash`
-- `gemini-flash`, `gemini-pro` (shorthand, maps to `gemini-2.0-flash-exp`)
-- Note: Gemini 1.5 models deprecated - use Gemini 2.x
+- `gemini-2.0-flash`
+- `gemini-flash` (shorthand, maps to `gemini-2.0-flash`)
+- `gemini-pro` (shorthand, maps to `gemini-2.5-pro`)
+- Note: Gemini 1.5 models deprecated - use Gemini 2.x or 3.x
 
 **Mistral AI (requires `MISTRAL_API_KEY`):**
 - `mistral-large-latest`

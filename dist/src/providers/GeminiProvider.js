@@ -7,7 +7,7 @@ const genai_1 = require("@google/genai");
 const LLMProvider_1 = __importDefault(require("./LLMProvider"));
 /**
  * Google Gemini provider implementation using new @google/genai package
- * Supports models like gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash-exp
+ * Supports models like gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash, gemini-2.5-pro, gemini-3-pro
  */
 class GeminiProvider extends LLMProvider_1.default {
     constructor(modelName, apiKey) {
