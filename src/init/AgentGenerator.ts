@@ -20,10 +20,11 @@ export default class AgentGenerator {
    * Generate agent recommendations based on project description
    * @param {string} projectDescription - User's description of their project
    * @param {string|null} scanContext - Optional project scan results
+   * @param {string} operationalMode - Intended operational mode: 'consensus', 'iterative', or 'flexible'
    * @returns {Promise<Object>} { agents: Array, reasoning: string }
    */
-  async generateAgents(projectDescription: string, scanContext: string | null = null): Promise<{ agents: any[]; reasoning: string }> {
-    const prompt = this._buildPrompt(projectDescription, scanContext);
+  async generateAgents(projectDescription: string, scanContext: string | null = null, operationalMode: string = 'consensus'): Promise<{ agents: any[]; reasoning: string }> {
+    const prompt = this._buildPrompt(projectDescription, scanContext, operationalMode);
 
     try {
       const messages = [{ role: 'user', content: prompt }];
@@ -66,13 +67,18 @@ export default class AgentGenerator {
   /**
    * Build the prompt for agent generation
    */
-  _buildPrompt(projectDescription: string, scanContext: string | null): string {
+  _buildPrompt(projectDescription: string, scanContext: string | null, operationalMode: string = 'consensus'): string {
+    const modeGuidance = this._getModeGuidance(operationalMode);
+
     return `You are an expert at designing multi-agent AI collaboration systems. You create CONCISE, FORMAT-FOCUSED agent configurations that produce clean, structured outputs.
 
 PROJECT DESCRIPTION:
 ${projectDescription}
 
 ${scanContext ? `PROJECT ANALYSIS:\n${scanContext}\n` : ''}
+
+OPERATIONAL MODE: ${operationalMode.toUpperCase()}
+${modeGuidance}
 
 CRITICAL DESIGN PRINCIPLES:
 1. **Fewer agents is better** - Use 1-2 agents for simple tasks, 3-4 only for complex multi-domain decisions
@@ -132,6 +138,55 @@ Return ONLY valid JSON in this EXACT format:
 }
 
 Analyze the project and generate appropriate agents NOW:`;
+  }
+
+  /**
+   * Get mode-specific guidance for agent generation
+   */
+  _getModeGuidance(mode: string): string {
+    switch (mode) {
+      case 'iterative':
+        return `The user will use ITERATIVE mode (chunk-by-chunk processing).
+
+OUTPUT FORMAT REQUIREMENTS:
+- Agents process ONE chunk at a time (e.g., one line, one paragraph)
+- Output must be per-chunk: "CORRECTED: [result]" or "Line X: [result]"
+- Judge will extract and write: "Line X: [final result]" to shared output
+- NO full-document processing - focus on individual chunks
+
+EXAMPLE (Iterative OCR):
+Agent: "You are a Hebrew OCR corrector. Fix OCR errors in the line. Output format: 'CORRECTED: [corrected text]'. No explanations."
+Judge: "Extract corrected text. Output format: 'Line X: [text]'. Nothing else."`;
+
+      case 'consensus':
+        return `The user will use CONSENSUS mode (entire task at once).
+
+OUTPUT FORMAT REQUIREMENTS:
+- Agents see and process the ENTIRE task/document
+- Output can be full results: "CORRECTED_TEXT: [full corrected document]"
+- OR structured sections: "Line 1: [...] Line 2: [...]"
+- Judge synthesizes final consensus summary
+
+EXAMPLE (Consensus OCR):
+Agent: "You are a Hebrew OCR corrector. Fix all OCR errors. Output format: 'CORRECTED_TEXT: [full corrected text]'. No explanations."
+Judge: Default judge prompt works well for consensus.`;
+
+      case 'flexible':
+        return `The user hasn't decided on a mode yet.
+
+OUTPUT FORMAT REQUIREMENTS:
+- Create agents that work in BOTH modes
+- Use per-item output: "CORRECTED: [result]" or "Item X: [result]"
+- This format works for both chunk-by-chunk AND full-document processing
+- Judge can aggregate results either way
+
+EXAMPLE (Flexible OCR):
+Agent: "You are a Hebrew OCR corrector. Fix OCR errors. Output each corrected line as: 'Line X: [text]'. No explanations."
+This works for both iterative (one line at a time) and consensus (all lines at once).`;
+
+      default:
+        return '';
+    }
   }
 
   /**

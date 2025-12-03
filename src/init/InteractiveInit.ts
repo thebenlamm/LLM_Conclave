@@ -61,6 +61,9 @@ export default class InteractiveInit {
       this.lastDescription = description;
       this.lastScanContext = null;
 
+      // Step 2.3: Ask about operational mode preference
+      const operationalMode = await this.promptOperationalMode();
+
       // Step 2.5: Optional project scanning
       let scanContext: string | null = null;
       if (!this.options.noScan && !this.options.scan) {
@@ -78,7 +81,7 @@ export default class InteractiveInit {
       PromptBuilder.thinking(`[Generating agents with ${provider.provider}...]`);
 
       const generator = new AgentGenerator(provider.provider, provider.model);
-      const { agents, reasoning } = await generator.generateAgents(description, scanContext);
+      const { agents, reasoning } = await generator.generateAgents(description, scanContext, operationalMode);
 
       // Step 4: Present agents to user
       const finalAgents = await this.presentAgentProposal(agents, reasoning, generator);
@@ -172,6 +175,30 @@ export default class InteractiveInit {
       };
 
       this.rl.on('line', onLine);
+    });
+  }
+
+  /**
+   * Prompt for operational mode preference
+   */
+  async promptOperationalMode(): Promise<string> {
+    console.log('\nWhich operational mode do you plan to use?\n');
+    console.log('  1. Consensus (default) - All agents discuss entire task at once (fastest for most tasks)');
+    console.log('  2. Iterative - Process task in chunks with multi-turn discussions (best for large files)');
+    console.log('  3. Not sure - Generate flexible configuration\n');
+
+    return new Promise((resolve) => {
+      if (!this.rl) return resolve('consensus');
+      this.rl.question('Your choice (1/2/3): ', (answer) => {
+        const choice = answer.trim();
+        if (choice === '2') {
+          resolve('iterative');
+        } else if (choice === '3') {
+          resolve('flexible');
+        } else {
+          resolve('consensus');
+        }
+      });
     });
   }
 
