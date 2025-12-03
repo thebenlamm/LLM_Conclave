@@ -108,6 +108,14 @@ llm-conclave --orchestrated "Correct all 10 lines of oz.txt one at a time"
 - Shared state builds cumulatively across chunks
 - Best for incremental, collaborative tasks requiring back-and-forth discussion
 
+**Output Behavior:**
+- Iterative mode uses a **persistent working directory**: `./outputs/iterative/`
+- Files are **overwritten on each run** (unlike consensus/orchestrated modes which create timestamped directories)
+- This allows iterative sessions to build on previous work in the same location
+- Output files:
+  - `shared_output.md` - Collaborative output document
+  - `{AgentName}_notes.md` - Per-agent working notes (one file per agent)
+
 Example:
 ```bash
 llm-conclave --iterative --project oz.txt "Correct all OCR errors line by line"
