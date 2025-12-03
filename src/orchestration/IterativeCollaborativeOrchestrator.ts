@@ -129,22 +129,24 @@ export default class IterativeCollaborativeOrchestrator {
 
 Task: ${task}
 
-${projectContext ? `Project Context:\n${projectContext}\n` : ''}
+${projectContext ? `The project has ${projectContext.split('\n').length} lines of content available to agents.\n` : ''}
 
-Provide a JSON array of chunks, where each chunk has:
-- description: Brief description of what this chunk involves
-- details: Specific information needed for agents to work on this chunk
+Provide a JSON array of chunks. Each chunk should have:
+- description: Brief description (e.g., "Line 5" or "Lines 10-12")
+- details: Simple instruction (e.g., "Correct OCR errors" or "Review and validate")
+
+IMPORTANT: Keep details SHORT. Do NOT include actual text content - agents can read files themselves.
 
 Example format:
 \`\`\`json
 [
   {
-    "description": "Lines 1-3 of oz.txt",
-    "details": "Correct Hebrew OCR errors in the first 3 lines"
+    "description": "Line 1",
+    "details": "Correct OCR errors"
   },
   {
-    "description": "Lines 4-6 of oz.txt",
-    "details": "Correct Hebrew OCR errors in lines 4-6"
+    "description": "Line 2",
+    "details": "Correct OCR errors"
   }
 ]
 \`\`\`
