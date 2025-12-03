@@ -11,20 +11,17 @@
  */
 
 import TaskClassifier from './TaskClassifier';
-import { AGENT_ROLES, requiresValidation } from './AgentRoles';
+import { requiresValidation } from './AgentRoles';
 import ProviderFactory from '../providers/ProviderFactory';
 import ToolRegistry from '../tools/ToolRegistry';
 import MemoryManager from '../memory/MemoryManager';
 import {
   Config,
   Agent,
-  Message,
   ConversationHistoryEntry,
   ToolExecution,
   OrchestratorOptions,
-  OrchestrationResult,
-  Critique,
-  ValidationResult
+  OrchestrationResult
 } from '../types';
 
 /**

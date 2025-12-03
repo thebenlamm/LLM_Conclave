@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import LLMProvider from './LLMProvider';
-import { Message, ProviderResponse, ChatOptions, ToolCall } from '../types';
+import { Message, ProviderResponse, ChatOptions } from '../types';
 
 /**
  * Claude (Anthropic) provider implementation

@@ -72,7 +72,6 @@ export default class TaskClassifier {
     // Determine task type based on primary agent
     let taskType = 'general';
     if (primaryAgent) {
-      const role = AGENT_ROLES[primaryAgent];
       // Use the first matched keyword as task type
       if (scores[primaryAgent].matchedKeywords.length > 0) {
         taskType = scores[primaryAgent].matchedKeywords[0];

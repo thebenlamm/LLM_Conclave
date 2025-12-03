@@ -265,11 +265,9 @@ Return ONLY the JSON array, nothing else.`;
     let result = '';
     let inString = false;
     let escape = false;
-    let depth = 0; // Track object/array depth
 
     for (let i = 0; i < jsonStr.length; i++) {
       const char = jsonStr[i];
-      const prevChar = i > 0 ? jsonStr[i - 1] : '';
 
       if (escape) {
         // If we're in an escape sequence, just add the character

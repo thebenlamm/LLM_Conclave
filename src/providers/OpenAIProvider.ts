@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import LLMProvider from './LLMProvider';
-import { Message, ProviderResponse, ChatOptions, ToolCall } from '../types';
+import { Message, ProviderResponse, ChatOptions } from '../types';
 
 /**
  * OpenAI provider implementation

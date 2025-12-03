@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 
@@ -58,9 +57,6 @@ export default class OutputHandler {
     output += `**Consensus Reached:** ${result.consensusReached ? 'Yes' : 'No'}\n\n`;
     output += `**Timestamp:** ${new Date().toISOString()}\n\n`;
     output += `---\n\n`;
-
-    let currentRound = 0;
-    let messageCount = 0;
 
     for (const entry of result.conversationHistory) {
       // Detect new rounds (after initial task, every N agent messages)
