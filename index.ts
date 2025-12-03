@@ -227,6 +227,9 @@ async function main() {
       const maxRoundsIndex = args.indexOf('--max-rounds-per-chunk');
       const maxRoundsPerChunk = maxRoundsIndex !== -1 ? parseInt(args[maxRoundsIndex + 1]) : 5;
 
+      const startChunkIndex = args.indexOf('--start-chunk');
+      const startChunk = startChunkIndex !== -1 ? parseInt(args[startChunkIndex + 1]) : 1;
+
       // Initialize agents
       const agents: Agent[] = Object.entries(config.agents).map(([name, agentConfig]: [string, any]) => ({
         name,
@@ -254,6 +257,7 @@ async function main() {
         {
           chunkSize,
           maxRoundsPerChunk,
+          startChunk,
           outputDir: './outputs/iterative',
           sharedOutputFile: 'shared_output.md',
           streamOutput
@@ -374,6 +378,7 @@ Options:
   --stream            Stream agent responses as they are generated
   --chunk-size <n>    Chunk size for iterative mode (default: 3)
   --max-rounds-per-chunk <n>  Max discussion rounds per chunk (default: 5)
+  --start-chunk <n>   Resume from specific chunk number (default: 1)
 
 Init Options:
   --scan              Force project directory scanning

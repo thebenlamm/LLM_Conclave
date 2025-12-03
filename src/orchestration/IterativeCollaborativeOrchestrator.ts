@@ -20,6 +20,7 @@ export default class IterativeCollaborativeOrchestrator {
   toolRegistry: ToolRegistry;
   chunkSize: number;
   maxRoundsPerChunk: number;
+  startChunk: number;
   agentStateFiles: Map<string, string>;
   sharedOutputFile: string;
   outputDir: string;
@@ -35,6 +36,7 @@ export default class IterativeCollaborativeOrchestrator {
     options: {
       chunkSize?: number;
       maxRoundsPerChunk?: number;
+      startChunk?: number;
       outputDir?: string;
       sharedOutputFile?: string;
       streamOutput?: boolean;
@@ -45,6 +47,7 @@ export default class IterativeCollaborativeOrchestrator {
     this.toolRegistry = toolRegistry;
     this.chunkSize = options.chunkSize || 3;
     this.maxRoundsPerChunk = options.maxRoundsPerChunk || 5;
+    this.startChunk = options.startChunk || 1;
     this.outputDir = options.outputDir || './outputs/iterative';
     this.sharedOutputFile = options.sharedOutputFile || 'shared_output.md';
     this.agentStateFiles = new Map();
@@ -70,8 +73,10 @@ export default class IterativeCollaborativeOrchestrator {
       const stateFilePath = path.join(this.outputDir, `${agent.name}_notes.md`);
       this.agentStateFiles.set(agent.name, stateFilePath);
 
-      // Create initial state file
-      fs.writeFileSync(stateFilePath, `# ${agent.name} - Working Notes\n\n`);
+      // Only create new file if starting fresh (startChunk === 1) or file doesn't exist
+      if (this.startChunk === 1 || !fs.existsSync(stateFilePath)) {
+        fs.writeFileSync(stateFilePath, `# ${agent.name} - Working Notes\n\n`);
+      }
     }
   }
 
@@ -90,27 +95,49 @@ export default class IterativeCollaborativeOrchestrator {
     console.log('\n=== Iterative Collaborative Mode ===');
     console.log(`Chunk size: ${this.chunkSize}`);
     console.log(`Max rounds per chunk: ${this.maxRoundsPerChunk}`);
+    if (this.startChunk > 1) {
+      console.log(`🔄 Resuming from chunk: ${this.startChunk}`);
+    }
     console.log(`Agents: ${this.agents.map(a => a.name).join(', ')}`);
     console.log(`Judge: ${this.judge.name}\n`);
 
-    // Initialize shared output file
+    // Initialize or append to shared output file
     const sharedOutputPath = path.join(this.outputDir, this.sharedOutputFile);
-    fs.writeFileSync(sharedOutputPath, `# Collaborative Output\n\nTask: ${task}\n\n---\n\n`);
+    if (this.startChunk === 1) {
+      // Fresh start - create new file
+      fs.writeFileSync(sharedOutputPath, `# Collaborative Output\n\nTask: ${task}\n\n---\n\n`);
+    } else {
+      // Resuming - append resume marker
+      if (fs.existsSync(sharedOutputPath)) {
+        fs.appendFileSync(sharedOutputPath, `\n\n---\n🔄 Resuming from chunk ${this.startChunk}\n---\n\n`);
+      } else {
+        // File doesn't exist, create it anyway
+        fs.writeFileSync(sharedOutputPath, `# Collaborative Output\n\nTask: ${task}\n\n---\n🔄 Resuming from chunk ${this.startChunk}\n---\n\n`);
+      }
+    }
 
     // Ask judge to break down the task into chunks
     const chunks = await this.planChunks(task, projectContext);
 
     // Process each chunk with multi-turn discussion
     for (let i = 0; i < chunks.length; i++) {
+      const chunkNumber = i + 1;
       const chunk = chunks[i];
-      console.log(`\n📦 Processing Chunk ${i + 1}/${chunks.length}: ${chunk.description}`);
+
+      // Skip chunks before startChunk (resume feature)
+      if (chunkNumber < this.startChunk) {
+        console.log(`\n⏭️  Skipping Chunk ${chunkNumber}/${chunks.length}: ${chunk.description} (already completed)`);
+        continue;
+      }
+
+      console.log(`\n📦 Processing Chunk ${chunkNumber}/${chunks.length}: ${chunk.description}`);
 
       const chunkStart = Date.now();
 
-      const chunkResult = await this.discussChunk(chunk, i + 1, projectContext);
+      const chunkResult = await this.discussChunk(chunk, chunkNumber, projectContext);
 
       // Judge writes result to shared output
-      await this.updateSharedOutput(chunkResult, i + 1, chunk.description);
+      await this.updateSharedOutput(chunkResult, chunkNumber, chunk.description);
 
       const elapsedSeconds = (Date.now() - chunkStart) / 1000;
       this.chunkDurations.push(elapsedSeconds);
