@@ -165,23 +165,21 @@ Return ONLY the JSON array, nothing else.`;
     const responseText = response.text || '';
 
     // Try multiple patterns to extract JSON
-    let jsonStr = responseText;
+    let jsonStr = responseText.trim();
 
+    // Try pattern matching first
     // Pattern 1: ```json ... ```
-    const jsonMatch1 = responseText.match(/```json\s*\n?([\s\S]*?)\n?```/);
-    if (jsonMatch1) {
-      jsonStr = jsonMatch1[1];
+    let jsonMatch = jsonStr.match(/```json\s*\n([\s\S]*?)\n```/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1];
     } else {
       // Pattern 2: ``` ... ```
-      const jsonMatch2 = responseText.match(/```\s*\n?([\s\S]*?)\n?```/);
-      if (jsonMatch2) {
-        jsonStr = jsonMatch2[1];
+      jsonMatch = jsonStr.match(/```\s*\n([\s\S]*?)\n```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1];
       } else {
-        // Pattern 3: Look for [ ... ] array
-        const jsonMatch3 = responseText.match(/\[\s*\{[\s\S]*\}\s*\]/);
-        if (jsonMatch3) {
-          jsonStr = jsonMatch3[0];
-        }
+        // Pattern 3: Just strip the markers if present
+        jsonStr = jsonStr.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '');
       }
     }
 
