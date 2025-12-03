@@ -43,11 +43,12 @@ export default class ProviderFactory {
 
     // Gemini models
     if (modelLower.includes('gemini')) {
-      // Map common names to Gemini 2.x models (Gemini 1.5 deprecated in new API)
+      // Map common names to Gemini 2.x/3.x production models
       let fullModelName = modelIdentifier;
-      if (modelLower === 'gemini-flash' || modelLower === 'gemini-pro') {
-        // Default shorthand names to Gemini 2.0
-        fullModelName = 'gemini-2.0-flash-exp';
+      if (modelLower === 'gemini' || modelLower === 'gemini-pro') {
+        fullModelName = 'gemini-2.5-pro';
+      } else if (modelLower === 'gemini-flash') {
+        fullModelName = 'gemini-2.0-flash';
       }
       return new GeminiProvider(fullModelName);
     }
@@ -66,10 +67,10 @@ export default class ProviderFactory {
    */
   static getSupportedModels(): string[] {
     return [
-      'gpt-4o, gpt-4-turbo, gpt-3.5-turbo (OpenAI)',
+      'gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-4-turbo, gpt-3.5-turbo (OpenAI)',
       'claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5, sonnet, opus, haiku (Anthropic)',
       'grok-3, grok-vision-3 (xAI)',
-      'gemini-2.0-flash-exp, gemini-2.5-flash, gemini-flash, gemini-pro (Google - Gemini 2.x)',
+      'gemini-3-pro, gemini-2.5-pro, gemini-2.5-pro-exp, gemini-2.5-flash, gemini-2.0-flash, gemini-flash, gemini-pro (Google - Gemini 2.x/3.x)',
       'mistral-large-latest, mistral-small-latest, codestral-latest (Mistral AI)'
     ];
   }

@@ -75,7 +75,7 @@ llm-conclave --iterative --max-rounds-per-chunk 3 "Task"
 - Tested all model names - all failed with 404
 - User identified: "The latest gemini npm library is https://www.npmjs.com/package/@google/genai. Are we using an outdated one?"
 - **Discovery**: Gemini 1.5 models are DEPRECATED in new API
-- Only Gemini 2.x models work: `gemini-2.0-flash-exp`, `gemini-2.5-flash`
+ - Only Gemini 2.x models work: `gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-2.5-pro`
 
 **Complete Rewrite of `src/providers/GeminiProvider.ts`:**
 
@@ -107,8 +107,10 @@ return { text: response.text }; // Property
 **Model Mappings Updated:**
 ```typescript
 // ProviderFactory.ts
-if (modelLower === 'gemini-flash' || modelLower === 'gemini-pro') {
-  fullModelName = 'gemini-2.0-flash-exp'; // Default to Gemini 2.0
+if (modelLower === 'gemini-flash') {
+  fullModelName = 'gemini-2.0-flash'; // Default to Gemini 2.0 flash
+} else if (modelLower === 'gemini' || modelLower === 'gemini-pro') {
+  fullModelName = 'gemini-2.5-pro'; // Default to Gemini 2.5 pro
 }
 ```
 
@@ -288,7 +290,7 @@ node test-gemini-models.js
 # Results:
 # ❌ gemini-1.5-pro - NOT FOUND (deprecated)
 # ❌ gemini-1.5-flash - NOT FOUND (deprecated)
-# ✅ gemini-2.0-flash-exp - SUCCESS
+# ✅ gemini-2.0-flash - SUCCESS
 # ✅ gemini-2.5-flash - SUCCESS
 ```
 

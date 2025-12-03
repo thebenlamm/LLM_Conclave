@@ -681,7 +681,7 @@ llm-conclave --replay <id>      # Replay session transcript
   "model_aliases": {
     "fast": "gpt-3.5-turbo",
     "smart": "gpt-4o",
-    "creative": "gemini-2.0-flash-exp",
+    "creative": "gemini-2.5-pro",
     "cheap": "mistral-small-latest"
   }
 }

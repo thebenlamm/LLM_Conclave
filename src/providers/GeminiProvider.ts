@@ -4,7 +4,7 @@ import { Message, ProviderResponse, ChatOptions, ToolDefinition } from '../types
 
 /**
  * Google Gemini provider implementation using new @google/genai package
- * Supports models like gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash-exp
+ * Supports models like gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash, gemini-2.5-pro, gemini-3-pro
  */
 export default class GeminiProvider extends LLMProvider {
   client: GoogleGenAI;

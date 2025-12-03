@@ -100,7 +100,9 @@ TASK TYPE GUIDELINES:
 
 MODEL SELECTION:
 - claude-sonnet-4-5: Creative, nuanced reasoning (brand, strategy, writing, Hebrew/language)
-- gpt-4o: Analytical, structured thinking (operations, technical, data, validation)
+- gpt-4.1 or gpt-4o: Analytical, structured thinking (operations, technical, data, validation)
+- gpt-4.1-mini or gpt-4o-mini: Fast/lightweight analyses
+- gemini-2.5-pro: Vision + reasoning blend (creative ideation with up-to-date Gemini models)
 - grok-3: Market/growth focused (marketing, sales, competitive analysis)
 
 PROMPT STRUCTURE (REQUIRED):
@@ -129,7 +131,7 @@ Return ONLY valid JSON in this EXACT format:
       "type": "decision_maker" | "validator",
       "role": "One sentence describing their expertise",
       "domains": ["domain1", "domain2"],
-      "model": "claude-sonnet-4-5" | "gpt-4o" | "grok-3",
+      "model": "claude-sonnet-4-5" | "gpt-4.1" | "gpt-4.1-mini" | "gpt-4o" | "gpt-4o-mini" | "gemini-2.5-pro" | "grok-3",
       "prompt": "CONCISE prompt following the structure above (role + task + format + prohibitions)"
     }
   ],
