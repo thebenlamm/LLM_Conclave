@@ -80,6 +80,7 @@ node index.js
 --iterative                     # Use iterative collaborative mode (multi-turn chunk discussion)
 --chunk-size <n>                # Chunk size for iterative mode (default: 3)
 --max-rounds-per-chunk <n>      # Max discussion rounds per chunk (default: 5)
+--stream                        # Enable real-time streaming of agent responses
 --project-id <id>               # Use persistent project memory
 ```
 
@@ -166,7 +167,77 @@ llm-conclave --iterative --chunk-size 5 --project ./docs "Review and improve eac
 
 # Iterative mode: More rounds of discussion per chunk
 llm-conclave --iterative --max-rounds-per-chunk 7 "Iteratively refine the code"
+
+# Enable streaming for real-time agent responses
+llm-conclave --stream "Design a microservices architecture"
+
+# Streaming with project context
+llm-conclave --stream --project ./src "Review and explain this codebase"
 ```
+
+## Using Streaming and Cost Monitoring
+
+### Streaming Output
+
+Enable real-time streaming of agent responses as they're generated with the `--stream` flag:
+
+```bash
+llm-conclave --stream "Your task here"
+```
+
+**How It Works:**
+- Without `--stream`: Agents complete their full response, then it's displayed all at once
+- With `--stream`: Agent responses appear word-by-word in real-time as they're generated
+- Works with all providers that support streaming (OpenAI, Anthropic, Gemini, Mistral)
+- Provides immediate feedback during long-running conversations
+
+**When to Use:**
+- Long discussions where you want to see progress in real-time
+- Interactive sessions where immediate feedback is valuable
+- Debugging to see how agents are thinking through problems
+
+### Cost & Performance Monitoring
+
+Cost tracking is **automatic** and always enabled. After every session, you'll see:
+
+**Console Output:**
+```
+================================================================================
+SESSION COST & PERFORMANCE
+================================================================================
+
+Total Cost: $0.023450
+Total Tokens: 4523 (Input: 2341, Output: 2182)
+Total Calls: 12
+Average Latency: 1847.33ms
+```
+
+**Saved to `cost_log.json`:**
+```json
+[
+  {
+    "provider": "OpenAI",
+    "model": "gpt-4o",
+    "inputTokens": 234,
+    "outputTokens": 189,
+    "latency": 1542,
+    "success": true,
+    "cost": 0.003885
+  },
+  ...
+]
+```
+
+**What's Tracked:**
+- **Per-call metrics**: Provider, model, token counts, latency, cost
+- **Session totals**: Total cost, token usage, API call count, average latency
+- **Success/failure status**: Track which calls succeeded or failed
+- **All providers**: OpenAI, Anthropic, Gemini, Mistral, Grok
+
+**Pricing Data:**
+- Updated regularly with current API pricing from all providers
+- Grok and experimental models show $0 (pricing not public/free preview)
+- Use cost data to optimize agent configurations and model choices
 
 ## Project Context Analysis
 
@@ -349,31 +420,7 @@ All outputs are saved to the `outputs/` directory with timestamps:
 - **`*-transcript.md`**: Full conversation history with all agent responses
 - **`*-consensus.md`**: Final solution and summary of how it was reached
 - **`*-full.json`**: Complete data in JSON format for programmatic access
-- **`cost_log.json`**: Detailed cost and performance metrics for the session
-
-### Cost & Performance Summary
-
-After each session, LLM Conclave displays and saves detailed cost tracking:
-
-```
-================================================================================
-SESSION COST & PERFORMANCE
-================================================================================
-
-Total Cost: $0.023450
-Total Tokens: 4523 (Input: 2341, Output: 2182)
-Total Calls: 12
-Average Latency: 1847.33ms
-```
-
-The `cost_log.json` file includes per-call details:
-- Provider and model used
-- Input/output token counts
-- Latency per call
-- Cost per call
-- Success/failure status
-
-This helps you monitor API usage and optimize your agent configurations.
+- **`cost_log.json`**: Detailed cost and performance metrics for the session (see [Cost & Performance Monitoring](#cost--performance-monitoring))
 
 ## API Keys
 
