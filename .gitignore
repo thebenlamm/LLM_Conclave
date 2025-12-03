@@ -7,6 +7,8 @@ node_modules/
 # Output files (but keep the directory structure)
 outputs/*
 !outputs/.gitkeep
+cost_log.json
+*_notes.txt
 
 # OS files
 .DS_Store
@@ -22,5 +24,11 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Archives
+*.tar.gz
+*.zip
+
 # Configuration (user-specific)
 .llm-conclave.json
+
+Eybeschutz/

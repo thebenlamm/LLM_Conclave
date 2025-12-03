@@ -18,13 +18,17 @@ class CostTracker {
             'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
             'o1-preview': { input: 0.015, output: 0.06 },
             'o1-mini': { input: 0.003, output: 0.012 },
-            // Anthropic
+            // Anthropic Claude (full API names and shorthand)
             'claude-3-opus-20240229': { input: 0.015, output: 0.075 },
             'claude-3-sonnet-20240229': { input: 0.003, output: 0.015 },
             'claude-3-haiku-20240307': { input: 0.00025, output: 0.00125 },
-            'claude-sonnet-4-5-20250929': { input: 0.003, output: 0.015 }, // Note: Pricing verified
+            'claude-sonnet-4-5-20250929': { input: 0.003, output: 0.015 },
             'claude-3-5-sonnet-20241022': { input: 0.003, output: 0.015 },
             'claude-3-5-haiku-20241022': { input: 0.0008, output: 0.004 },
+            // Shorthand names (mapped by ProviderFactory)
+            'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
+            'claude-opus-4-5': { input: 0.015, output: 0.075 },
+            'claude-haiku-4-5': { input: 0.0008, output: 0.004 },
             // Google
             'gemini-pro': { input: 0.000125, output: 0.000375 },
             'gemini-1.5-pro-latest': { input: 0.0035, output: 0.0105 },

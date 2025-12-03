@@ -124,22 +124,24 @@ class IterativeCollaborativeOrchestrator {
 
 Task: ${task}
 
-${projectContext ? `Project Context:\n${projectContext}\n` : ''}
+${projectContext ? `The project has ${projectContext.split('\n').length} lines of content available to agents.\n` : ''}
 
-Provide a JSON array of chunks, where each chunk has:
-- description: Brief description of what this chunk involves
-- details: Specific information needed for agents to work on this chunk
+Provide a JSON array of chunks. Each chunk should have:
+- description: Brief description (e.g., "Line 5" or "Lines 10-12")
+- details: Simple instruction (e.g., "Correct OCR errors" or "Review and validate")
+
+IMPORTANT: Keep details SHORT. Do NOT include actual text content - agents can read files themselves.
 
 Example format:
 \`\`\`json
 [
   {
-    "description": "Lines 1-3 of oz.txt",
-    "details": "Correct Hebrew OCR errors in the first 3 lines"
+    "description": "Line 1",
+    "details": "Correct OCR errors"
   },
   {
-    "description": "Lines 4-6 of oz.txt",
-    "details": "Correct Hebrew OCR errors in lines 4-6"
+    "description": "Line 2",
+    "details": "Correct OCR errors"
   }
 ]
 \`\`\`
@@ -151,16 +153,114 @@ Return ONLY the JSON array, nothing else.`;
         }
         // Extract JSON from response
         const responseText = response.text || '';
-        const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/) || responseText.match(/```\n?([\s\S]*?)\n?```/);
-        const jsonStr = jsonMatch ? jsonMatch[1] : responseText;
+        // Try multiple patterns to extract JSON
+        let jsonStr = responseText.trim();
+        // Try pattern matching first
+        // Pattern 1: ```json ... ```
+        let jsonMatch = jsonStr.match(/```json\s*\n([\s\S]*?)\n```/);
+        if (jsonMatch) {
+            jsonStr = jsonMatch[1];
+        }
+        else {
+            // Pattern 2: ``` ... ```
+            jsonMatch = jsonStr.match(/```\s*\n([\s\S]*?)\n```/);
+            if (jsonMatch) {
+                jsonStr = jsonMatch[1];
+            }
+            else {
+                // Pattern 3: Just strip the markers if present
+                jsonStr = jsonStr.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '');
+            }
+        }
+        // Clean the JSON string
+        jsonStr = jsonStr.trim();
+        // Remove any trailing commas before closing braces/brackets (common LLM error)
+        jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+        // Fix unescaped quotes within string values (common with Hebrew/special text)
+        // This is a heuristic approach: escape quotes that appear within "details": "..." values
+        jsonStr = this.fixUnescapedQuotesInJson(jsonStr);
         try {
-            const chunks = JSON.parse(jsonStr.trim());
+            const chunks = JSON.parse(jsonStr);
+            if (!Array.isArray(chunks)) {
+                throw new Error('Expected JSON array of chunks');
+            }
             console.log(`  Planned ${chunks.length} chunks\n`);
             return chunks;
         }
         catch (error) {
+            console.error(`\nFailed to parse JSON from judge response.`);
+            console.error(`Error: ${error}`);
+            console.error(`\nReceived JSON string (first 500 chars):`);
+            console.error(jsonStr.substring(0, 500));
+            console.error(`\nFull response text (first 1000 chars):`);
+            console.error(responseText.substring(0, 1000));
             throw new Error(`Failed to parse chunks from judge response: ${error}`);
         }
+    }
+    /**
+     * Fix unescaped quotes within JSON string values
+     * Uses a simple state machine to track when we're inside a string
+     */
+    fixUnescapedQuotesInJson(jsonStr) {
+        let result = '';
+        let inString = false;
+        let escape = false;
+        let depth = 0; // Track object/array depth
+        for (let i = 0; i < jsonStr.length; i++) {
+            const char = jsonStr[i];
+            const prevChar = i > 0 ? jsonStr[i - 1] : '';
+            if (escape) {
+                // If we're in an escape sequence, just add the character
+                result += char;
+                escape = false;
+                continue;
+            }
+            if (char === '\\') {
+                // Start of escape sequence
+                result += char;
+                escape = true;
+                continue;
+            }
+            if (char === '"') {
+                if (!inString) {
+                    // Starting a string
+                    inString = true;
+                    result += char;
+                }
+                else {
+                    // Could be ending a string, or could be an unescaped quote inside
+                    // Check if this is likely a structural quote (followed by : or , or } or ])
+                    const nextNonWhitespace = this.getNextNonWhitespace(jsonStr, i + 1);
+                    if (nextNonWhitespace === ':' || nextNonWhitespace === ',' ||
+                        nextNonWhitespace === '}' || nextNonWhitespace === ']' ||
+                        nextNonWhitespace === null) {
+                        // This is likely a closing quote
+                        inString = false;
+                        result += char;
+                    }
+                    else {
+                        // This is likely an unescaped quote inside the string
+                        result += '\\' + char;
+                    }
+                }
+            }
+            else {
+                result += char;
+            }
+        }
+        return result;
+    }
+    /**
+     * Get the next non-whitespace character
+     */
+    getNextNonWhitespace(str, startIndex) {
+        for (let i = startIndex; i < str.length; i++) {
+            const char = str[i];
+            if (char !== ' ' && char !== '\t' && char !== '\n' && char !== '\r') {
+                return char;
+            }
+        }
+        return null;
     }
     /**
      * Multi-turn discussion for a single chunk
