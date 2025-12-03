@@ -55,15 +55,20 @@ class IterativeCollaborativeOrchestrator {
         this.maxRoundsPerChunk = options.maxRoundsPerChunk || 5;
         this.startChunk = options.startChunk || 1;
         this.outputDir = options.outputDir || './outputs/iterative';
+        this.promptsDir = path.join(this.outputDir, 'prompts');
         this.sharedOutputFile = options.sharedOutputFile || 'shared_output.md';
         this.agentStateFiles = new Map();
         this.conversationHistory = [];
         this.toolExecutions = [];
         this.streamOutput = options.streamOutput || false;
         this.chunkDurations = [];
-        // Ensure output directory exists
+        this.promptCounter = 0;
+        // Ensure output directories exist
         if (!fs.existsSync(this.outputDir)) {
             fs.mkdirSync(this.outputDir, { recursive: true });
+        }
+        if (!fs.existsSync(this.promptsDir)) {
+            fs.mkdirSync(this.promptsDir, { recursive: true });
         }
         // Initialize agent state files
         this.initializeAgentStateFiles();
@@ -180,12 +185,15 @@ Example format:
 \`\`\`
 
 Return ONLY the JSON array, nothing else.`;
-        const response = await this.judge.provider.chat([{ role: 'user', content: planningPrompt }], this.judge.systemPrompt, this.getChatOptions());
+        const messages = [{ role: 'user', content: planningPrompt }];
+        const response = await this.judge.provider.chat(messages, this.judge.systemPrompt, this.getChatOptions());
         if (this.streamOutput) {
             process.stdout.write('\n');
         }
         // Extract JSON from response
         const responseText = response.text || '';
+        // Log the planning prompt and response
+        this.logPrompt(this.judge.name, this.judge.model, messages, this.judge.systemPrompt, responseText, { phase: 'planning' });
         // Try multiple patterns to extract JSON
         let jsonStr = responseText.trim();
         // Try pattern matching first
@@ -332,7 +340,10 @@ Collaborate with other agents to complete this chunk. You can read from and writ
                     });
                 }
                 // Execute agent with tools
-                const response = await this.executeAgentWithTools(agent, agentMessages);
+                const response = await this.executeAgentWithTools(agent, agentMessages, {
+                    chunk: chunkNumber,
+                    round: round
+                });
                 if (response) {
                     // Add agent's response to conversation
                     chunkMessages.push({
@@ -345,7 +356,7 @@ Collaborate with other agents to complete this chunk. You can read from and writ
                 }
             }
             // Judge evaluates if chunk is complete
-            const judgeEvaluation = await this.judgeEvaluateChunk(chunkMessages, chunk);
+            const judgeEvaluation = await this.judgeEvaluateChunk(chunkMessages, chunk, chunkNumber, round);
             if (judgeEvaluation.complete) {
                 console.log(`    ✅ Judge: Chunk consensus reached`);
                 return judgeEvaluation.result || '';
@@ -360,7 +371,7 @@ Collaborate with other agents to complete this chunk. You can read from and writ
         }
         // Max rounds reached - judge synthesizes final result
         console.log(`    ⚠️  Max rounds reached - judge synthesizing result`);
-        const finalResult = await this.judgeSynthesizeResult(chunkMessages, chunk);
+        const finalResult = await this.judgeSynthesizeResult(chunkMessages, chunk, chunkNumber);
         return finalResult;
     }
     /**
@@ -396,7 +407,7 @@ Collaborate with other agents to complete this chunk. You can read from and writ
     /**
      * Execute agent with tool support
      */
-    async executeAgentWithTools(agent, messages) {
+    async executeAgentWithTools(agent, messages, metadata = {}) {
         const tools = this.toolRegistry.getAnthropicTools();
         let currentMessages = [...messages];
         let finalText = null;
@@ -438,12 +449,15 @@ Collaborate with other agents to complete this chunk. You can read from and writ
         if (iterations >= maxIterations) {
             console.warn(`      ⚠️  Tool calling loop exceeded maximum iterations for ${agent.name}`);
         }
+        // Log the full interaction (initial messages + all tool calls + final response)
+        this.logPrompt(agent.name, agent.model, messages, // Original messages (for readability)
+        agent.systemPrompt, finalText || '[No final text - used tools only]', { ...metadata, phase: 'agent' });
         return finalText;
     }
     /**
      * Judge evaluates if chunk discussion is complete
      */
-    async judgeEvaluateChunk(chunkMessages, chunk) {
+    async judgeEvaluateChunk(chunkMessages, chunk, chunkNumber, round) {
         const evaluationPrompt = `You are the judge coordinating this collaborative discussion.
 
 Chunk: ${chunk.description}
@@ -458,11 +472,14 @@ COMPLETE: [Final result for this chunk]
 
 If not complete, provide guidance:
 CONTINUE: [Brief guidance on what still needs discussion]`;
-        const response = await this.judge.provider.chat([{ role: 'user', content: evaluationPrompt }], this.judge.systemPrompt, this.getChatOptions());
+        const messages = [{ role: 'user', content: evaluationPrompt }];
+        const response = await this.judge.provider.chat(messages, this.judge.systemPrompt, this.getChatOptions());
         if (this.streamOutput) {
             process.stdout.write('\n');
         }
         const responseText = response.text || '';
+        // Log the evaluation
+        this.logPrompt(this.judge.name, this.judge.model, messages, this.judge.systemPrompt, responseText, { chunk: chunkNumber, round: round, phase: 'evaluation' });
         if (responseText.startsWith('COMPLETE:')) {
             return {
                 complete: true,
@@ -484,7 +501,7 @@ CONTINUE: [Brief guidance on what still needs discussion]`;
     /**
      * Judge synthesizes final result when max rounds reached
      */
-    async judgeSynthesizeResult(chunkMessages, chunk) {
+    async judgeSynthesizeResult(chunkMessages, chunk, chunkNumber) {
         const synthesisPrompt = `You are the judge. The agents have discussed this chunk for the maximum number of rounds.
 
 Chunk: ${chunk.description}
@@ -493,11 +510,15 @@ Discussion:
 ${chunkMessages.map(m => m.content).join('\n\n')}
 
 Synthesize the best result from this discussion:`;
-        const response = await this.judge.provider.chat([{ role: 'user', content: synthesisPrompt }], this.judge.systemPrompt, this.getChatOptions());
+        const messages = [{ role: 'user', content: synthesisPrompt }];
+        const response = await this.judge.provider.chat(messages, this.judge.systemPrompt, this.getChatOptions());
         if (this.streamOutput) {
             process.stdout.write('\n');
         }
-        return response.text || 'No result synthesized';
+        const responseText = response.text || 'No result synthesized';
+        // Log the synthesis
+        this.logPrompt(this.judge.name, this.judge.model, messages, this.judge.systemPrompt, responseText, { chunk: chunkNumber, phase: 'synthesis' });
+        return responseText;
     }
     /**
      * Update agent's state/notes file
@@ -513,6 +534,70 @@ Synthesize the best result from this discussion:`;
         const sharedOutputPath = path.join(this.outputDir, this.sharedOutputFile);
         const chunkSection = `## Chunk ${chunkNumber}: ${chunkDescription}\n\n${result}\n\n---\n\n`;
         fs.appendFileSync(sharedOutputPath, chunkSection);
+    }
+    /**
+     * Log prompt and response to file for debugging
+     */
+    logPrompt(agentName, model, messages, systemPrompt, response, metadata = {}) {
+        this.promptCounter++;
+        // Create timestamp in sortable format
+        const now = new Date();
+        const timestamp = now.toISOString().replace(/:/g, '-').replace(/\..+/, '');
+        // Build filename
+        const parts = [
+            timestamp,
+            String(this.promptCounter).padStart(4, '0'),
+            metadata.chunk ? `chunk${metadata.chunk}` : null,
+            metadata.round ? `round${metadata.round}` : null,
+            metadata.phase || 'agent',
+            agentName.replace(/\s+/g, '_')
+        ].filter(p => p !== null);
+        const filename = parts.join('_') + '.txt';
+        const filepath = path.join(this.promptsDir, filename);
+        // Format messages for display
+        const formattedMessages = messages.map((msg, idx) => {
+            let content = '';
+            if (typeof msg.content === 'string') {
+                content = msg.content;
+            }
+            else if (Array.isArray(msg.content)) {
+                content = JSON.stringify(msg.content, null, 2);
+            }
+            else {
+                content = JSON.stringify(msg, null, 2);
+            }
+            return `--- Message ${idx + 1} (role: ${msg.role}) ---\n${content}\n`;
+        }).join('\n');
+        // Build file content
+        const fileContent = `${'='.repeat(80)}
+PROMPT LOG
+${'='.repeat(80)}
+
+Agent: ${agentName}
+Model: ${model}
+${metadata.chunk ? `Chunk: ${metadata.chunk}\n` : ''}${metadata.round ? `Round: ${metadata.round}\n` : ''}${metadata.phase ? `Phase: ${metadata.phase}\n` : ''}Timestamp: ${now.toISOString()}
+
+${'='.repeat(80)}
+SYSTEM PROMPT
+${'='.repeat(80)}
+
+${systemPrompt}
+
+${'='.repeat(80)}
+MESSAGES
+${'='.repeat(80)}
+
+${formattedMessages}
+
+${'='.repeat(80)}
+RESPONSE
+${'='.repeat(80)}
+
+${response}
+
+${'='.repeat(80)}
+`;
+        fs.writeFileSync(filepath, fileContent);
     }
     /**
      * Get summary of the orchestration session
