@@ -191,6 +191,10 @@ Return ONLY the JSON array, nothing else.`;
     // Remove any trailing commas before closing braces/brackets (common LLM error)
     jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
 
+    // Fix unescaped quotes within string values (common with Hebrew/special text)
+    // This is a heuristic approach: escape quotes that appear within "details": "..." values
+    jsonStr = this.fixUnescapedQuotesInJson(jsonStr);
+
     try {
       const chunks = JSON.parse(jsonStr);
 
@@ -209,6 +213,76 @@ Return ONLY the JSON array, nothing else.`;
       console.error(responseText.substring(0, 1000));
       throw new Error(`Failed to parse chunks from judge response: ${error}`);
     }
+  }
+
+  /**
+   * Fix unescaped quotes within JSON string values
+   * Uses a simple state machine to track when we're inside a string
+   */
+  private fixUnescapedQuotesInJson(jsonStr: string): string {
+    let result = '';
+    let inString = false;
+    let escape = false;
+    let depth = 0; // Track object/array depth
+
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+      const prevChar = i > 0 ? jsonStr[i - 1] : '';
+
+      if (escape) {
+        // If we're in an escape sequence, just add the character
+        result += char;
+        escape = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        // Start of escape sequence
+        result += char;
+        escape = true;
+        continue;
+      }
+
+      if (char === '"') {
+        if (!inString) {
+          // Starting a string
+          inString = true;
+          result += char;
+        } else {
+          // Could be ending a string, or could be an unescaped quote inside
+          // Check if this is likely a structural quote (followed by : or , or } or ])
+          const nextNonWhitespace = this.getNextNonWhitespace(jsonStr, i + 1);
+
+          if (nextNonWhitespace === ':' || nextNonWhitespace === ',' ||
+              nextNonWhitespace === '}' || nextNonWhitespace === ']' ||
+              nextNonWhitespace === null) {
+            // This is likely a closing quote
+            inString = false;
+            result += char;
+          } else {
+            // This is likely an unescaped quote inside the string
+            result += '\\' + char;
+          }
+        }
+      } else {
+        result += char;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Get the next non-whitespace character
+   */
+  private getNextNonWhitespace(str: string, startIndex: number): string | null {
+    for (let i = startIndex; i < str.length; i++) {
+      const char = str[i];
+      if (char !== ' ' && char !== '\t' && char !== '\n' && char !== '\r') {
+        return char;
+      }
+    }
+    return null;
   }
 
   /**
