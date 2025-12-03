@@ -38,9 +38,14 @@ class AgentGenerator {
             }
             // Validate and sanitize each agent
             const validatedAgents = parsed.agents.map((agent) => this.validateAgent(agent));
+            // Extract judge behavior recommendation if provided
+            const judgeBehavior = parsed.recommended_judge_behavior || 'brief';
+            const reasoningWithJudge = parsed.reasoning
+                ? `${parsed.reasoning}${judgeBehavior === 'detailed' ? ' (Recommend detailed judge summaries)' : ''}`
+                : 'No reasoning provided';
             return {
                 agents: validatedAgents,
-                reasoning: parsed.reasoning || 'No reasoning provided'
+                reasoning: reasoningWithJudge
             };
         }
         catch (error) {
@@ -52,44 +57,71 @@ class AgentGenerator {
      * Build the prompt for agent generation
      */
     _buildPrompt(projectDescription, scanContext) {
-        return `You are an expert at designing multi-agent AI collaboration systems.
+        return `You are an expert at designing multi-agent AI collaboration systems. You create CONCISE, FORMAT-FOCUSED agent configurations that produce clean, structured outputs.
 
 PROJECT DESCRIPTION:
 ${projectDescription}
 
 ${scanContext ? `PROJECT ANALYSIS:\n${scanContext}\n` : ''}
 
-Generate 3-4 specialized AI agents for this project as JSON.
+CRITICAL DESIGN PRINCIPLES:
+1. **Fewer agents is better** - Use 1-2 agents for simple tasks, 3-4 only for complex multi-domain decisions
+2. **Output format enforcement** - Every agent prompt MUST specify exact output format
+3. **Explicit prohibitions** - Tell agents what NOT to do ("No explanations", "No analysis")
+4. **Task-appropriate detail** - Simple transformation tasks need simple prompts
 
-Requirements:
-1. Agent names: PascalCase with underscores (e.g., Brand_Strategist, Tech_Architect)
-2. Each agent should have a distinct, non-overlapping domain
-3. Mix of strategic/decision-making and validation agents if applicable
-4. Specific, actionable expertise areas
-5. Choose appropriate models:
-   - claude-sonnet-4-5: Creative, nuanced reasoning (brand, strategy, writing)
-   - gpt-4o: Analytical, structured thinking (operations, technical, data)
-   - grok-3: Market/growth focused (marketing, sales, competitive analysis)
+TASK TYPE GUIDELINES:
 
-6. Prompts should be detailed and specific, following this structure:
-   "You are a {name} advisor specializing in {domains}. Your expertise includes {specific areas}. When analyzing tasks, focus on {key concerns}. Provide insights on {what you evaluate}. Be {tone/style}."
+**Simple Transformation Tasks** (OCR, formatting, translation, data extraction):
+- Use 1 agent (maybe 2 if validation needed)
+- Prompt structure: "You are a [role]. [Task]. Output format: '[FORMAT]'. No [prohibitions]."
+- Example: "You are a Hebrew OCR corrector. Fix OCR errors and output corrected text. Format: 'CORRECTED: [text]'. No analysis, no explanations, just the corrected text."
 
-Return ONLY valid JSON in this EXACT format (no markdown, no extra text):
+**Complex Decision Tasks** (strategy, design, analysis with trade-offs):
+- Use 2-4 agents with distinct domains
+- Still enforce output formats but allow reasoning
+- Example: "You are a Security Architect. Evaluate security implications. Format your response: 'RISKS: [list]' then 'RECOMMENDATIONS: [list]'. Be concise."
+
+MODEL SELECTION:
+- claude-sonnet-4-5: Creative, nuanced reasoning (brand, strategy, writing, Hebrew/language)
+- gpt-4o: Analytical, structured thinking (operations, technical, data, validation)
+- grok-3: Market/growth focused (marketing, sales, competitive analysis)
+
+PROMPT STRUCTURE (REQUIRED):
+1. **Role** (1 sentence): "You are a [role]"
+2. **Task** (1 sentence): What they should do
+3. **Output Format** (explicit): "Format: '[PATTERN]'" or "Output: [structure]"
+4. **Prohibitions** (if needed): "No [unwanted behaviors]"
+
+BAD EXAMPLE (verbose, no format):
+"You are an OCR_Correction_Engineer advisor specializing in identifying and correcting optical character recognition errors, particularly in Hebrew texts. Your expertise includes analyzing systematic OCR error patterns, character confusion matrices for Hebrew fonts..."
+
+GOOD EXAMPLE (concise, format-enforced):
+"You are a Hebrew OCR corrector. Fix OCR errors in the text. Output format: 'Line X: [corrected text]'. No explanations, no confidence scores - just corrected text."
+
+JUDGE CONFIGURATION:
+The judge prompt is handled separately, but keep in mind:
+- For transformation tasks: Judge should extract clean output (e.g., "Line X: [result]")
+- For decision tasks: Judge summarizes consensus
+- Default judge prompt is already concise and works well for most cases
+
+Return ONLY valid JSON in this EXACT format:
 {
   "agents": [
     {
       "name": "Agent_Name",
       "type": "decision_maker" | "validator",
       "role": "One sentence describing their expertise",
-      "domains": ["domain1", "domain2", "domain3"],
+      "domains": ["domain1", "domain2"],
       "model": "claude-sonnet-4-5" | "gpt-4o" | "grok-3",
-      "prompt": "Detailed system prompt as described above"
+      "prompt": "CONCISE prompt following the structure above (role + task + format + prohibitions)"
     }
   ],
-  "reasoning": "2-3 sentences explaining why these specific agents were chosen for this project"
+  "reasoning": "1-2 sentences explaining agent count and approach",
+  "recommended_judge_behavior": "brief|detailed (brief for transformation tasks, detailed for decision tasks)"
 }
 
-Generate thoughtful, project-specific agents now:`;
+Analyze the project and generate appropriate agents NOW:`;
     }
     /**
      * Validate and sanitize an agent configuration

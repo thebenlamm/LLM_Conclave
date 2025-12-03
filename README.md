@@ -15,7 +15,7 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
 - **Cost & Performance Tracking**: Automatic tracking of token usage, API costs, and latency for all providers
 - **High Performance**: Optimized with async I/O, intelligent caching, and parallel processing (5.3x faster than baseline)
 - **Streaming Output**: Real-time streaming of agent responses as they're generated
-- **Interactive Init**: AI-powered agent generation based on your project description
+- **Smart Agent Generation**: AI creates optimized, concise agents (1-4 based on task complexity) with format-enforced prompts
 - **Flexible Configuration**: Use the same model multiple times with different system prompts
 - **Autonomous Operation**: Runs fully autonomously after task submission
 - **Comprehensive Output**: Saves full transcript, consensus, cost logs, and JSON data
@@ -44,7 +44,10 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
    llm-conclave --init
    # Or without npm link: node index.js --init
    ```
-   This creates `.llm-conclave.json` with AI-generated agents tailored to your project.
+   This creates `.llm-conclave.json` with optimized agents tailored to your project:
+   - **Simple tasks** (OCR, formatting, translation) → 1-2 concise agents
+   - **Complex tasks** (strategy, design, multi-domain decisions) → 2-4 specialized agents
+   - All agents include **format enforcement** and **explicit output requirements**
 
 2. **Edit the configuration** to customize your agents (see Configuration section below)
 
