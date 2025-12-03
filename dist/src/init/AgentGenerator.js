@@ -11,7 +11,7 @@ const ProviderFactory_1 = __importDefault(require("../providers/ProviderFactory"
  * AgentGenerator - Uses LLM to generate agent recommendations
  */
 class AgentGenerator {
-    constructor(provider, model) {
+    constructor(model) {
         this.provider = ProviderFactory_1.default.createProvider(model);
         this.model = model;
     }

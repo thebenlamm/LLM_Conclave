@@ -80,7 +80,7 @@ export default class InteractiveInit {
       // Step 3: Generate agents
       PromptBuilder.thinking(`[Generating agents with ${provider.provider}...]`);
 
-      const generator = new AgentGenerator(provider.provider, provider.model);
+      const generator = new AgentGenerator(provider.model);
       const { agents, reasoning } = await generator.generateAgents(description, scanContext, operationalMode);
 
       // Step 4: Present agents to user

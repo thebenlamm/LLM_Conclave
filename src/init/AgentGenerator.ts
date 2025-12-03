@@ -11,7 +11,7 @@ export default class AgentGenerator {
   provider: any;
   model: string;
 
-  constructor(provider: string, model: string) {
+  constructor(model: string) {
     this.provider = ProviderFactory.createProvider(model);
     this.model = model;
   }

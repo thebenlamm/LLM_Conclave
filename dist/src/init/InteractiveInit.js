@@ -102,7 +102,7 @@ class InteractiveInit {
             this.lastScanContext = scanContext;
             // Step 3: Generate agents
             PromptBuilder_1.default.thinking(`[Generating agents with ${provider.provider}...]`);
-            const generator = new AgentGenerator_1.default(provider.provider, provider.model);
+            const generator = new AgentGenerator_1.default(provider.model);
             const { agents, reasoning } = await generator.generateAgents(description, scanContext, operationalMode);
             // Step 4: Present agents to user
             const finalAgents = await this.presentAgentProposal(agents, reasoning, generator);
