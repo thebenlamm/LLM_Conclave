@@ -163,14 +163,50 @@ Return ONLY the JSON array, nothing else.`;
 
     // Extract JSON from response
     const responseText = response.text || '';
-    const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/) || responseText.match(/```\n?([\s\S]*?)\n?```/);
-    const jsonStr = jsonMatch ? jsonMatch[1] : responseText;
+
+    // Try multiple patterns to extract JSON
+    let jsonStr = responseText;
+
+    // Pattern 1: ```json ... ```
+    const jsonMatch1 = responseText.match(/```json\s*\n?([\s\S]*?)\n?```/);
+    if (jsonMatch1) {
+      jsonStr = jsonMatch1[1];
+    } else {
+      // Pattern 2: ``` ... ```
+      const jsonMatch2 = responseText.match(/```\s*\n?([\s\S]*?)\n?```/);
+      if (jsonMatch2) {
+        jsonStr = jsonMatch2[1];
+      } else {
+        // Pattern 3: Look for [ ... ] array
+        const jsonMatch3 = responseText.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (jsonMatch3) {
+          jsonStr = jsonMatch3[0];
+        }
+      }
+    }
+
+    // Clean the JSON string
+    jsonStr = jsonStr.trim();
+
+    // Remove any trailing commas before closing braces/brackets (common LLM error)
+    jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
 
     try {
-      const chunks = JSON.parse(jsonStr.trim());
+      const chunks = JSON.parse(jsonStr);
+
+      if (!Array.isArray(chunks)) {
+        throw new Error('Expected JSON array of chunks');
+      }
+
       console.log(`  Planned ${chunks.length} chunks\n`);
       return chunks;
     } catch (error) {
+      console.error(`\nFailed to parse JSON from judge response.`);
+      console.error(`Error: ${error}`);
+      console.error(`\nReceived JSON string (first 500 chars):`);
+      console.error(jsonStr.substring(0, 500));
+      console.error(`\nFull response text (first 1000 chars):`);
+      console.error(responseText.substring(0, 1000));
       throw new Error(`Failed to parse chunks from judge response: ${error}`);
     }
   }
