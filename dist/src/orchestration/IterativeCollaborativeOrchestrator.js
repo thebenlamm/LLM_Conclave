@@ -324,8 +324,8 @@ Collaborate with other agents to complete this chunk. You can read from and writ
                             : 'Respond to the other agents\' comments and continue the discussion.'
                     }
                 ];
-                // Add agent's own state for continuity
-                if (round > 1) {
+                // Add agent's own state for continuity across chunks and rounds
+                if (agentStateContent.trim()) {
                     agentMessages.push({
                         role: 'user',
                         content: `Your previous notes:\n${agentStateContent}`
