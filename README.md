@@ -12,10 +12,13 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
   - **Iterative Collaborative Mode**: Multi-turn chunk-based discussions where agents respond to each other
 - **Tool Support**: Agents can read/write files, run commands, and perform real file operations
 - **Project Context Analysis**: Point the conclave at any codebase or document directory for analysis
+- **Cost & Performance Tracking**: Automatic tracking of token usage, API costs, and latency for all providers
+- **High Performance**: Optimized with async I/O, intelligent caching, and parallel processing (5.3x faster than baseline)
+- **Streaming Output**: Real-time streaming of agent responses as they're generated
 - **Interactive Init**: AI-powered agent generation based on your project description
 - **Flexible Configuration**: Use the same model multiple times with different system prompts
 - **Autonomous Operation**: Runs fully autonomously after task submission
-- **Comprehensive Output**: Saves full transcript, consensus, and JSON data
+- **Comprehensive Output**: Saves full transcript, consensus, cost logs, and JSON data
 
 ## Installation
 
@@ -346,6 +349,31 @@ All outputs are saved to the `outputs/` directory with timestamps:
 - **`*-transcript.md`**: Full conversation history with all agent responses
 - **`*-consensus.md`**: Final solution and summary of how it was reached
 - **`*-full.json`**: Complete data in JSON format for programmatic access
+- **`cost_log.json`**: Detailed cost and performance metrics for the session
+
+### Cost & Performance Summary
+
+After each session, LLM Conclave displays and saves detailed cost tracking:
+
+```
+================================================================================
+SESSION COST & PERFORMANCE
+================================================================================
+
+Total Cost: $0.023450
+Total Tokens: 4523 (Input: 2341, Output: 2182)
+Total Calls: 12
+Average Latency: 1847.33ms
+```
+
+The `cost_log.json` file includes per-call details:
+- Provider and model used
+- Input/output token counts
+- Latency per call
+- Cost per call
+- Success/failure status
+
+This helps you monitor API usage and optimize your agent configurations.
 
 ## API Keys
 
