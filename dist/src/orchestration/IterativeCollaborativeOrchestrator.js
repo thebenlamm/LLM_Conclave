@@ -156,10 +156,59 @@ class IterativeCollaborativeOrchestrator {
         }
     }
     /**
+     * Detect if this is a simple line-by-line task that doesn't need LLM planning
+     */
+    isSimpleLineByLineTask(task, projectContext) {
+        if (!projectContext || this.chunkSize !== 1) {
+            return false;
+        }
+        const taskLower = task.toLowerCase();
+        return taskLower.includes('line by line') ||
+            taskLower.includes('each line') ||
+            taskLower.includes('every line') ||
+            (taskLower.includes('line') && taskLower.includes('correct'));
+    }
+    /**
+     * Auto-generate chunks for simple line-by-line processing
+     */
+    autoGenerateLineChunks(task, projectContext) {
+        console.log('  (Auto-generating line-by-line chunks - no LLM needed)');
+        // Extract file content from project context
+        const codeBlockMatch = projectContext.match(/```\n?([\s\S]*?)\n?```/);
+        if (!codeBlockMatch) {
+            throw new Error('Could not extract file content from project context');
+        }
+        const fileContent = codeBlockMatch[1];
+        const lines = fileContent.split('\n').filter(line => line.trim() !== '');
+        // Determine task details from user's task description
+        let taskDetails = 'Process this line';
+        if (task.toLowerCase().includes('correct')) {
+            taskDetails = 'Correct OCR errors';
+        }
+        else if (task.toLowerCase().includes('review')) {
+            taskDetails = 'Review and validate';
+        }
+        else if (task.toLowerCase().includes('translate')) {
+            taskDetails = 'Translate';
+        }
+        // Generate chunks
+        const chunks = lines.map((line, index) => ({
+            description: `Line ${index + 1}`,
+            details: taskDetails
+        }));
+        return chunks;
+    }
+    /**
      * Ask judge to break down task into manageable chunks
      */
     async planChunks(task, projectContext) {
         console.log('🎯 Planning chunks...');
+        // Check if this is a simple line-by-line task
+        if (this.isSimpleLineByLineTask(task, projectContext)) {
+            return this.autoGenerateLineChunks(task, projectContext);
+        }
+        // Otherwise use LLM for intelligent planning
+        console.log('  (Using LLM for intelligent chunk planning)');
         const planningPrompt = `You are coordinating a collaborative task. Break down the following task into ${this.chunkSize}-sized chunks that can be discussed iteratively.
 
 Task: ${task}
