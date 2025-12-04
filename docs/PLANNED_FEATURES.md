@@ -1,61 +1,76 @@
-# LLM Conclave - Planned Features
+# LLM Conclave - Planned Features & Roadmap
 
-This document outlines potential features and enhancements for future development.
+This document outlines potential features and enhancements for future development, combining strategic vision with implementation details.
 
 ## Table of Contents
 
+- [Recently Implemented](#recently-implemented)
 - [High Priority](#high-priority)
 - [User Experience](#user-experience)
+- [Security & Governance](#security--governance)
 - [Advanced Orchestration](#advanced-orchestration)
 - [Performance & Analytics](#performance--analytics)
 - [Developer Tools](#developer-tools)
 - [Quick Wins](#quick-wins)
+- [Roadmap](#roadmap)
 
 ---
 
-## High Priority
+## Recently Implemented
 
-### Cost & Performance Tracking
-
-**Status:** Not Started
+### ✅ Cost & Performance Tracking
+**Status:** Implemented (commit 672180b)
 **Priority:** High
 **Complexity:** Medium
 
 Track API costs, token usage, and performance metrics across all providers.
 
-**Features:**
+**Implementation:** `src/core/CostTracker.ts`
 - Per-provider cost tracking with up-to-date pricing
 - Token usage breakdown (input/output per agent)
-- Session cost summaries and cumulative project costs
+- Session cost summaries
 - Latency and success rate metrics
+- Success/failure tracking
+
+**Future Enhancements:**
 - Budget alerts and spend limits
+- Cumulative project costs
 - Export to CSV/JSON for analysis
-
-**Implementation:**
-```typescript
-interface CostTracker {
-  provider: string;
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  estimatedCost: number;
-  latency: number;
-  timestamp: string;
-}
-
-interface BudgetConfig {
-  maxCostPerSession: number;
-  maxCostPerMonth: number;
-  alertThreshold: number;
-}
-```
-
-**API Changes:**
-- Each provider returns token counts
-- New `CostTracker` service
-- Add `--budget` flag for limits
+- Monthly spend tracking
 
 ---
+
+### ✅ Automatic Retry with Exponential Backoff
+**Status:** Implemented (commit 79b28b4)
+**Priority:** High
+**Complexity:** Low
+
+Automatic retry logic for transient network errors and rate limits.
+
+**Implementation:** `src/providers/LLMProvider.ts`
+- Detects retryable errors (network, 429, 503)
+- Exponential backoff (1s, 2s, 4s)
+- Max 3 attempts
+- User-friendly console feedback
+
+---
+
+### ✅ Iterative Mode Optimizations
+**Status:** Implemented (commit 52fdf4e)
+**Priority:** High
+**Complexity:** Medium
+
+Major performance improvements for iterative collaborative mode.
+
+**Implementation:** `src/orchestration/IterativeCollaborativeOrchestrator.ts`
+- Chunk size batching (84% fewer API calls)
+- Sliding window context (75% token reduction)
+- Optimized agent prompts
+- Auto-planning for line-by-line tasks
+
+---
+
+## High Priority
 
 ### Streaming Output (Real-time)
 
@@ -81,6 +96,8 @@ Display agent responses as they're generated instead of waiting for completion.
 - Tool calling may require buffering
 - Judge evaluation still needs complete responses
 - Terminal UI for streaming chunks
+
+**Related:** Feature brainstorm item D (Streaming Event Channel for UIs & Webhooks)
 
 ---
 
@@ -122,6 +139,64 @@ interface Checkpoint {
 - SQLite database or `.conclave/checkpoints/` directory
 - Compression for large conversations
 - Configurable retention policy
+
+---
+
+### Guided Runbooks & Template Library
+
+**Status:** Not Started
+**Priority:** High
+**Complexity:** Medium
+
+**Problem:** New users need to handcraft prompts and configuration for recurring jobs (e.g., code review, doc rewrite) and may misuse modes.
+
+**Value:** Gives opinionated, low-friction entry points; reduces time-to-first-success for CLI users.
+
+**Pre-configured Templates:**
+```bash
+# Code review with specialized agents
+llm-conclave --template code-review --project ./src
+
+# Architecture design discussion
+llm-conclave --template architecture-design "Design microservices system"
+
+# Bug investigation
+llm-conclave --template bug-investigation --project ./src "Login fails on mobile"
+
+# OCR/transcription correction
+llm-conclave --template ocr-correction --project document.txt
+
+# Security audit
+llm-conclave --template security-audit --project ./app
+
+# Documentation review
+llm-conclave --template doc-review --project ./docs
+```
+
+**Runbook Structure:**
+```typescript
+interface RunbookPreset {
+  name: string;
+  description: string;
+  mode: 'consensus' | 'orchestrated' | 'iterative';
+  taskTemplate: string; // e.g., "Refactor {{path}} with safety checklist"
+  chunkSize?: number;
+  agents: AgentConfig[];
+  judge: JudgeConfig;
+  systemPromptTemplate: string;
+  recommendedModels: Record<string, string>;
+  outputFormat?: 'markdown' | 'diff' | 'json';
+}
+```
+
+**Implementation:**
+- Ship preset runbooks (YAML/JSON) in `.conclave/templates/`
+- Add `--runbook <name>` and `--template <name>` flags
+- Community templates via GitHub
+- `llm-conclave --list-templates`
+- Load presets and pre-wire judge/agent prompts
+
+**Affected modules:** `src/init`, `src/orchestration/Orchestrator.ts`, `src/core/ConversationManager.ts`, CLI entry (`index.ts`)
 
 ---
 
@@ -170,83 +245,156 @@ Browser-based interface for managing and monitoring conversations.
 
 ---
 
-### Interactive Mid-Session Input
+### Interactive Clarification & Mid-Session Input
 
 **Status:** Not Started
 **Priority:** Medium
 **Complexity:** Medium
 
-Allow users to provide guidance during conversation.
+**Problem:** Tasks can be ambiguous; agents may proceed without required constraints, wasting rounds.
 
-**Example:**
-```bash
-llm-conclave --interactive "Design authentication system"
+**Value:** Quick pre-flight checks reduce bad runs and token spend.
 
-[Round 1: Agents discuss various approaches...]
+**Features:**
 
-> You: "Use OAuth 2.0, not custom tokens"
+1. **Pre-flight Questions:**
+   - Judge or dedicated "Clarifier" agent asks 1-3 questions before starting
+   - Users answer interactively or via `--clarifications "..."`
+   - Ensures constraints are understood upfront
 
-[Agents incorporate your guidance...]
+2. **Mid-Session Guidance:**
+   ```bash
+   llm-conclave --interactive "Design authentication system"
 
-> You: "Consider social login too"
+   [Round 1: Agents discuss various approaches...]
 
-[Discussion continues with new constraints...]
-```
+   > You: "Use OAuth 2.0, not custom tokens"
+
+   [Agents incorporate your guidance...]
+
+   > You: "Consider social login too"
+
+   [Discussion continues with new constraints...]
+   ```
+
+**Commands:**
+- `/guide <message>` - Provide guidance to agents
+- `/stop` - Stop session
+- `/checkpoint` - Save checkpoint
+- `/skip` - Skip current round
 
 **Implementation:**
 - CLI prompt after each round in interactive mode
-- Commands: `/guide <message>`, `/stop`, `/checkpoint`, `/skip`
 - Update orchestrators to accept mid-session input
 - Judge incorporates user guidance
+- Integrate with iterative mode to allow `/guide` injections without restarting
+
+**Affected modules:** CLI entry (`index.ts`), `src/init`, `src/core/ConversationManager.ts`, task classifier (`src/orchestration/TaskClassifier.ts`)
 
 ---
 
-### Template Library
+### Structured Artifact Outputs & Rich Transcripts
 
 **Status:** Not Started
 **Priority:** Medium
-**Complexity:** Low
+**Complexity:** Medium
 
-Pre-configured setups for common use cases.
+**Problem:** Outputs are plain text; downstream automation cannot easily consume agent artifacts or rationale.
 
-**Templates:**
+**Value:** Improves interoperability with CI, docs pipelines, or ticketing systems; makes transcripts reviewable.
+
+**Features:**
+- `--output-format json|md|html` for structured transcripts
+- Per-round messages, tool calls, and validations
+- Optional bundle (`.zip`) with artifacts plus signed manifest
+- `--export-transcript` flag to target path
+- Reproducibility via signed hashes
+
+**Implementation:**
 ```bash
-# Code review with specialized agents
-llm-conclave --template code-review --project ./src
-
-# Architecture design discussion
-llm-conclave --template architecture-design "Design microservices system"
-
-# Bug investigation
-llm-conclave --template bug-investigation --project ./src "Login fails on mobile"
-
-# OCR/transcription correction
-llm-conclave --template ocr-correction --project document.txt
-
-# Security audit
-llm-conclave --template security-audit --project ./app
-
-# Documentation review
-llm-conclave --template doc-review --project ./docs
+llm-conclave --output-format json --export-transcript ./output "Task"
+# Generates: output.json, output.transcript.md, output-artifacts.zip
 ```
 
-**Structure:**
+**Affected modules:** `src/core/OutputHandler.ts`, `src/utils`, orchestrators, `outputs/` writers
+
+---
+
+## Security & Governance
+
+### Tool Permission Profiles & Sandboxing
+
+**Status:** Not Started
+**Priority:** High
+**Complexity:** Medium-High
+
+**Problem:** Tools in `ToolRegistry` run with full access; no scoped permissions or audit trail for file/command actions.
+
+**Value:** Safer orchestration in CI or shared environments; clearer governance on what agents may do.
+
+**Features:**
+- `ToolPolicy` objects defining allowed paths, command whitelist, and rate limits per agent
+- Dry-run mode that logs intended tool calls
+- Explicit opt-in flags: `--allow-shell`, `--allow-write`, `--allow-network`
+- Audit log entries for each execution with agent name, args, and result
+- Sandboxed execution environment
+
+**Implementation:**
 ```typescript
-interface Template {
-  name: string;
-  description: string;
-  mode: 'consensus' | 'orchestrated' | 'iterative';
-  agents: AgentConfig[];
-  judge: JudgeConfig;
-  systemPromptTemplate: string;
-  recommendedModels: Record<string, string>;
+interface ToolPolicy {
+  allowedPaths: string[];
+  allowedCommands: string[];
+  rateLimits: {
+    maxCallsPerMinute: number;
+    maxCallsPerSession: number;
+  };
+  requireApproval: boolean;
 }
 ```
 
-**Storage:**
-- `.conclave/templates/` directory
-- Community templates via GitHub
-- `llm-conclave --list-templates`
+**Example:**
+```bash
+llm-conclave --allow-write=/tmp --allow-shell="git,npm" --dry-run "Task"
+# Shows tool calls without executing, requires approval for sensitive operations
+```
+
+**Affected modules:** `src/tools/ToolRegistry.ts`, individual tools under `src/tools`, orchestrators (`src/orchestration/Orchestrator.ts`), CLI flags
+
+---
+
+### Validation & Safety Gates Library
+
+**Status:** Not Started
+**Priority:** Medium
+**Complexity:** Medium-High
+
+**Problem:** Validation in `Orchestrator` is binary and task-driven; no reusable checks (linting, unit tests, security scans).
+
+**Value:** Higher confidence outputs; reusability across tasks and languages.
+
+**Features:**
+- Pluggable validators with descriptors (language, type: lint/test/security)
+- Task classification selects relevant validators
+- Results appended to final output
+- Default validators: JSON schema, Markdown lints, static code scan for JS/TS
+
+**Implementation:**
+```typescript
+interface Validator {
+  name: string;
+  language?: string;
+  type: 'lint' | 'test' | 'security' | 'format';
+  run(artifact: string): Promise<ValidationResult>;
+}
+
+interface ValidationResult {
+  passed: boolean;
+  errors: ValidationError[];
+  warnings: ValidationWarning[];
+}
+```
+
+**Affected modules:** `src/orchestration/Orchestrator.ts`, new validators directory, tool runners
 
 ---
 
@@ -368,44 +516,63 @@ llm-conclave --red-team --project ./auth "Review authentication system"
 
 ## Performance & Analytics
 
-### Agent Memory & Learning
+### Embedding-backed Project Memory & RAG
 
 **Status:** Not Started
 **Priority:** Medium
 **Complexity:** High
 
-Agents remember and learn from past conversations.
+**Problem:** `MemoryManager` currently stores JSON blobs without semantic search; long projects or multiple sessions lack targeted recall. Large codebases cannot fit in context.
+
+**Value:** Agents can fetch relevant history and file summaries, improving response accuracy and reducing token waste. Support projects with thousands of files.
 
 **Features:**
-```typescript
-interface AgentMemory {
-  pastDecisions: Decision[];
-  learnedPatterns: Pattern[];
-  preferences: Preference[];
-  mistakes: Mistake[];
-  successfulStrategies: Strategy[];
-}
+- Automatic file chunking (500-1000 tokens)
+- Vector embeddings (OpenAI, Cohere, local models)
+- Semantic search for relevant code and conversation history
+- Context window optimization
+- Incremental updates
+- Optional vector index (SQLite/pgvector or local HNSW)
+- Cache embeddings to disk
 
-interface Decision {
-  topic: string;
-  context: string;
-  outcome: string;
-  feedback: string;
-  timestamp: string;
-}
+**Workflow:**
+```bash
+# Index codebase
+llm-conclave --index ./large-project
+
+# Query uses RAG automatically
+llm-conclave --project ./large-project "Find authentication bugs"
+# -> Only loads relevant files into context
 ```
 
-**Capabilities:**
-- Remember decisions: "Last time we discussed X, we decided Y"
-- Learn from corrections: "I was wrong about Z before"
-- Build expertise: Pattern recognition over time
-- Cross-session knowledge: Long-term memory
-- Forgetting: Prune old/irrelevant memories
+**Implementation:**
+- ChromaDB or Pinecone for vectors
+- `MemoryRetriever` computes embeddings and returns top-k snippets
+- Gate behind `--embeddings` flag
+- Fall back to current JSON when disabled
+- Rerank results for relevance
 
-**Storage:**
-- Vector database (ChromaDB, Pinecone)
-- Semantic search for relevant memories
-- Per-agent memory stores
+**Affected modules:** `src/memory/MemoryManager.ts`, `src/memory/ProjectMemory.ts`, provider adapters for embedding models, project context loaders in `src/utils`
+
+---
+
+### Multi-Project Knowledge Graph
+
+**Status:** Not Started
+**Priority:** Low
+**Complexity:** High
+
+**Problem:** `ProjectMemory` is isolated per project; cross-project insights (shared libs, repeated issues) are invisible.
+
+**Value:** Lets agents reuse lessons, patterns, and bug fixes across similar repositories; supports governance reporting.
+
+**Features:**
+- Maintain lightweight graph of projects, files, and concepts (tags)
+- When a task references a library already seen elsewhere, surface related summaries and decisions
+- Export/import to keep graph portable
+- Cross-project pattern recognition
+
+**Affected modules:** `src/memory/ProjectMemory.ts`, `src/memory/MemoryManager.ts`, new `src/memory/KnowledgeGraph.ts`
 
 ---
 
@@ -428,11 +595,6 @@ Agent Statistics (Last 30 Days):
 │ Pragmatist │ 38    │ 94%     │ $0.06    │ 4.7/5    │
 └────────────┴───────┴─────────┴──────────┴──────────┘
 
-Top Contributing Agents:
-1. Pragmatist - 94% success, $2.28 total
-2. Architect - 91% success, $5.40 total
-3. Critic - 87% success, $3.60 total
-
 Recommendations:
 • Critic has lower success rate - consider refining prompt
 • Pragmatist is most cost-effective
@@ -447,37 +609,24 @@ Recommendations:
 
 ---
 
-### RAG for Large Codebases
+### Scenario Benchmarking & Model A/B Harness
 
 **Status:** Not Started
 **Priority:** Medium
-**Complexity:** High
+**Complexity:** Medium
 
-Support projects with thousands of files using embeddings.
+**Problem:** Hard to compare providers or prompts across tasks; no automated evaluation loop.
 
-**Features:**
-- Automatic file chunking
-- Vector embeddings (OpenAI, Cohere, local models)
-- Semantic search for relevant code
-- Context window optimization
-- Incremental updates
-
-**Workflow:**
-```bash
-# Index codebase
-llm-conclave --index ./large-project
-
-# Query uses RAG automatically
-llm-conclave --project ./large-project "Find authentication bugs"
-# -> Only loads relevant files into context
-```
+**Value:** Lets maintainers quantify quality/cost/latency changes before shipping; creates regression suite for multi-agent behavior.
 
 **Implementation:**
-- ChromaDB or Pinecone for vectors
-- Chunk size: ~500-1000 tokens
-- Rerank results for relevance
-- Cache embeddings
-- Update on file changes
+- Define benchmark scenarios (input task, expected rubric)
+- Run them against configurable agent presets
+- Collect metrics (tokens, latency, cost, judge outcome)
+- Export to CSV/Markdown
+- Support parallel runs and A/B toggles (e.g., `--model-overrides`)
+
+**Affected modules:** New `scripts/bench/` runner, provider clients in `src/providers`, cost tracking in `src/core/CostTracker.ts`
 
 ---
 
@@ -566,6 +715,29 @@ const response = await ai.models.generateContent({
 
 ---
 
+### Streaming Event Channel for UIs & Webhooks
+
+**Status:** Not Started
+**Priority:** Medium
+**Complexity:** Medium
+
+**Problem:** Streaming is CLI-only; external dashboards cannot subscribe to tokens, tool events, or phase changes.
+
+**Value:** Enables lightweight web UI or third-party integrations to mirror live progress and show cost/latency per phase.
+
+**Features:**
+- Emit structured events (JSON lines or SSE) for:
+  - Token chunks
+  - Round boundaries
+  - Tool executions
+  - Judge decisions
+- Add `--event-stream <file|url>` to write to file or POST to webhook
+- Minimal protocol (event type, timestamp, payload)
+
+**Affected modules:** Streaming hooks in `src/core/ConversationManager.ts` and `src/orchestration/Orchestrator.ts`, potential new `src/utils/EventBus.ts`, CLI options
+
+---
+
 ### Parallel Agent Execution
 
 **Status:** Not Started
@@ -628,26 +800,7 @@ llm-conclave --quiet "Task" # Only outputs final result
 
 ---
 
-### 3. Retry Failed API Calls
-**Complexity:** Low
-**Implementation:** Exponential backoff for transient errors
-
-```typescript
-async function retryWithBackoff(fn: () => Promise<any>, maxRetries = 3) {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (i === maxRetries - 1) throw error;
-      await sleep(Math.pow(2, i) * 1000);
-    }
-  }
-}
-```
-
----
-
-### 4. Colored Output
+### 3. Colored Output
 **Complexity:** Low
 **Implementation:** Use chalk or similar library
 
@@ -660,7 +813,7 @@ console.log(chalk.green(`[Pragmatist]: ${message}`));
 
 ---
 
-### 5. Session History Browser
+### 4. Session History Browser
 **Complexity:** Low
 **Implementation:** Read from `outputs/` directory
 
@@ -672,7 +825,7 @@ llm-conclave --replay <id>      # Replay session transcript
 
 ---
 
-### 6. Model Aliases
+### 5. Model Aliases
 **Complexity:** Low
 **Implementation:** User-defined model shortcuts in config
 
@@ -693,7 +846,7 @@ llm-conclave --agent Architect:fast --agent Critic:smart "Task"
 
 ---
 
-### 7. Dry Run Mode
+### 6. Dry Run Mode
 **Complexity:** Low
 **Implementation:** Show what would happen without API calls
 
@@ -704,7 +857,7 @@ llm-conclave --dry-run "Task"
 
 ---
 
-### 8. Timeout Configuration
+### 7. Timeout Configuration
 **Complexity:** Low
 **Implementation:** Configurable timeouts per agent/round
 
@@ -720,12 +873,45 @@ llm-conclave --dry-run "Task"
 
 ---
 
-## Feature Voting
+## Roadmap
 
-Help prioritize! Vote for features you want:
-- Open an issue on GitHub with title: `Feature Request: [Feature Name]`
-- Upvote existing feature requests with 👍
-- Comment with your use case
+### Phase 1 (Completed) ✅
+- ✅ Multi-provider support (5 providers)
+- ✅ Three operational modes (Consensus, Orchestrated, Iterative)
+- ✅ Tool support (File operations across all providers)
+- ✅ Project context analysis
+- ✅ Iterative collaborative mode
+- ✅ Cost & performance tracking (CostTracker)
+- ✅ Automatic retry logic with exponential backoff
+- ✅ Iterative mode optimizations (84% fewer API calls)
+
+### Phase 2 (Next) - Q1 2026
+**Focus: User experience & reliability**
+- Streaming output
+- Template library & guided runbooks
+- Checkpoint/resume system
+- Quick wins (colored output, quiet mode, JSON format, etc.)
+- Tool permission profiles & sandboxing
+- Budget alerts and spend limits
+
+### Phase 3 (Future) - Q2 2026
+**Focus: Scalability & intelligence**
+- Web UI/Dashboard
+- Embedding-backed memory & RAG for large codebases
+- Interactive clarification & mid-session input
+- Structured artifact outputs
+- Dynamic turn management
+- Extended git integration
+
+### Phase 4 (Advanced) - Q3+ 2026
+**Focus: Advanced features & integrations**
+- MCP (Model Context Protocol) support
+- Parallel agent execution
+- Red team/adversarial mode
+- Agent performance analytics
+- Multi-project knowledge graph
+- Voting mechanisms
+- Scenario benchmarking harness
 
 ---
 
@@ -744,38 +930,13 @@ Want to implement a feature?
 - Update README if user-facing
 - Add to CHANGELOG
 
----
+## Feature Voting
 
-## Roadmap
-
-### Phase 1 (Current)
-- ✅ Multi-provider support (5 providers)
-- ✅ Three operational modes
-- ✅ Tool support
-- ✅ Project context analysis
-- ✅ Iterative collaborative mode
-
-### Phase 2 (Next)
-- Cost tracking
-- Streaming output
-- Template library
-- Checkpoint system
-- Quick wins (colored output, quiet mode, etc.)
-
-### Phase 3 (Future)
-- Web UI
-- Agent memory
-- RAG for large codebases
-- Dynamic turn management
-- Extended git integration
-
-### Phase 4 (Advanced)
-- MCP support
-- Parallel execution
-- Red team mode
-- Advanced analytics
-- Plugin system
+Help prioritize! Vote for features you want:
+- Open an issue on GitHub with title: `Feature Request: [Feature Name]`
+- Upvote existing feature requests with 👍
+- Comment with your use case
 
 ---
 
-*Last Updated: December 2025*
+*Last Updated: December 3, 2025*
