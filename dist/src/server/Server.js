@@ -51,7 +51,7 @@ class Server {
         this.httpServer = http_1.default.createServer(this.app);
         this.io = new socket_io_1.Server(this.httpServer, {
             cors: {
-                origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',') || "http://localhost:3000",
+                origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || "http://localhost:3000",
                 methods: ["GET", "POST"],
                 credentials: true
             }
@@ -67,7 +67,7 @@ class Server {
     }
     setupMiddleware() {
         this.app.use((0, cors_1.default)({
-            origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',') || "http://localhost:3000",
+            origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || "http://localhost:3000",
             credentials: true
         }));
         this.app.use(express_1.default.json());

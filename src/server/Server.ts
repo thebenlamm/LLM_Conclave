@@ -19,7 +19,7 @@ export class Server {
     this.httpServer = http.createServer(this.app);
     this.io = new SocketIOServer(this.httpServer, {
       cors: {
-        origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',') || "http://localhost:3000",
+        origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || "http://localhost:3000",
         methods: ["GET", "POST"],
         credentials: true
       }
@@ -38,7 +38,7 @@ export class Server {
 
   private setupMiddleware() {
     this.app.use(cors({
-      origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',') || "http://localhost:3000",
+      origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || "http://localhost:3000",
       credentials: true
     }));
     this.app.use(express.json());
