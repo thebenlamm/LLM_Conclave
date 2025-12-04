@@ -32,8 +32,8 @@ class CostTracker {
             'claude-3-5-haiku-20241022': { input: 0.0008, output: 0.004 },
             // Shorthand names (mapped by ProviderFactory)
             'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
-            'claude-opus-4-5': { input: 0.015, output: 0.075 },
-            'claude-haiku-4-5': { input: 0.0008, output: 0.004 },
+            'claude-opus-4-5': { input: 0.005, output: 0.025 },
+            'claude-haiku-4-5': { input: 0.001, output: 0.005 },
             // Google
             'gemini-pro': { input: 0.000125, output: 0.000375 },
             'gemini-1.5-pro-latest': { input: 0.0035, output: 0.0105 },

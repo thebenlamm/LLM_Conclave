@@ -47,10 +47,6 @@ export default class GeminiProvider extends LLMProvider {
         ...config,
       };
 
-      if (Object.keys(config).length > 0) {
-        generateConfig.config = config;
-      }
-
       // Handle streaming mode (no tools support in streaming)
       if (stream && (!config.tools || config.tools.length === 0)) {
         const streamResp = await this.client.models.generateContentStream(generateConfig as any);
