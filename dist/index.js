@@ -56,6 +56,7 @@ const ConfigWriter_1 = __importDefault(require("./src/init/ConfigWriter"));
 const InteractiveSession_1 = __importDefault(require("./src/interactive/InteractiveSession"));
 const CostTracker_1 = require("./src/core/CostTracker");
 const TemplateManager_1 = require("./src/core/TemplateManager");
+const Server_1 = require("./src/server/Server");
 /**
  * Main CLI entry point for LLM Conclave
  */
@@ -69,6 +70,15 @@ async function main() {
     try {
         // Parse command line arguments
         const args = process.argv.slice(2);
+        // Handle --server flag
+        if (args.includes('--server')) {
+            const portIndex = args.indexOf('--port');
+            const port = portIndex !== -1 ? parseInt(args[portIndex + 1]) : 3000;
+            console.log(`Starting Web UI Server...`);
+            new Server_1.Server(port);
+            // Keep process alive
+            return;
+        }
         // If no arguments, launch interactive mode
         if (args.length === 0) {
             // Load configuration

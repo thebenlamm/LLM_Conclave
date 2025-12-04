@@ -8,7 +8,7 @@ const ProviderFactory_1 = __importDefault(require("../providers/ProviderFactory"
  * Manages the multi-agent conversation
  */
 class ConversationManager {
-    constructor(config, memoryManager = null, streamOutput = false) {
+    constructor(config, memoryManager = null, streamOutput = false, eventBus) {
         // Performance optimizations: message caching
         this.messageCache = [];
         this.lastCacheUpdateIndex = 0;
@@ -22,6 +22,7 @@ class ConversationManager {
         this.maxRounds = config.max_rounds || 20;
         this.memoryManager = memoryManager;
         this.streamOutput = streamOutput;
+        this.eventBus = eventBus;
         this.initializeAgents();
     }
     /**
@@ -38,6 +39,9 @@ class ConversationManager {
             this.agentOrder.push(name);
         }
         console.log(`Initialized ${this.agentOrder.length} agents: ${this.agentOrder.join(', ')}`);
+        if (this.eventBus) {
+            this.eventBus.emitEvent('status', { message: `Initialized ${this.agentOrder.length} agents` });
+        }
     }
     /**
      * Start the conversation with a given task
@@ -50,6 +54,9 @@ class ConversationManager {
         console.log(`\n${'='.repeat(80)}`);
         console.log(`TASK: ${task}`);
         console.log(`${'='.repeat(80)}\n`);
+        if (this.eventBus) {
+            this.eventBus.emitEvent('run:start', { task, mode: 'consensus' });
+        }
         // Build initial message with optional project memory
         let initialMessage = '';
         // Add project memory context if available
@@ -78,12 +85,18 @@ class ConversationManager {
         while (this.currentRound < this.maxRounds && !consensusReached) {
             this.currentRound++;
             console.log(`\n--- Round ${this.currentRound} ---\n`);
+            if (this.eventBus) {
+                this.eventBus.emitEvent('round:start', { round: this.currentRound });
+            }
             // Each agent takes a turn
             for (const agentName of this.agentOrder) {
                 await this.agentTurn(agentName);
             }
             // Judge evaluates consensus
             console.log(`\n[Judge is evaluating consensus...]\n`);
+            if (this.eventBus) {
+                this.eventBus.emitEvent('agent:thinking', { agent: 'Judge', model: judge.model });
+            }
             const judgeResult = await this.judgeEvaluate(judge);
             if (judgeResult.consensusReached) {
                 consensusReached = true;
@@ -91,16 +104,25 @@ class ConversationManager {
                 console.log(`\n${'='.repeat(80)}`);
                 console.log(`CONSENSUS REACHED after ${this.currentRound} rounds!`);
                 console.log(`${'='.repeat(80)}\n`);
+                if (this.eventBus) {
+                    this.eventBus.emitEvent('status', { message: `Consensus reached after ${this.currentRound} rounds` });
+                }
                 break;
             }
             else {
                 console.log(`Judge: ${judgeResult.guidance}\n`);
+                if (this.eventBus) {
+                    this.eventBus.emitEvent('agent:response', { agent: 'Judge', content: judgeResult.guidance });
+                }
                 // Add judge's guidance to conversation history
                 this.conversationHistory.push({
                     role: 'user',
                     content: `Judge's guidance: ${judgeResult.guidance}`,
                     speaker: 'Judge'
                 });
+            }
+            if (this.eventBus) {
+                this.eventBus.emitEvent('round:complete', { round: this.currentRound });
             }
         }
         // If max rounds reached without consensus, conduct final vote
@@ -109,6 +131,9 @@ class ConversationManager {
             console.log(`Maximum rounds (${this.maxRounds}) reached without consensus.`);
             console.log(`Conducting final vote...`);
             console.log(`${'='.repeat(80)}\n`);
+            if (this.eventBus) {
+                this.eventBus.emitEvent('status', { message: 'Max rounds reached. Conducting final vote.' });
+            }
             finalSolution = await this.conductFinalVote(judge);
         }
         const result = {
@@ -118,6 +143,9 @@ class ConversationManager {
             solution: finalSolution,
             conversationHistory: this.conversationHistory
         };
+        if (this.eventBus) {
+            this.eventBus.emitEvent('run:complete', { result });
+        }
         // Record conversation in project memory if available
         if (this.memoryManager && this.memoryManager.projectMemory) {
             try {
@@ -145,17 +173,23 @@ class ConversationManager {
         if (this.streamOutput) {
             console.log(`${agentName}:`);
         }
+        if (this.eventBus) {
+            this.eventBus.emitEvent('agent:thinking', { agent: agentName, model: agent.model });
+        }
         try {
             // Prepare messages for the agent
             const messages = this.prepareMessagesForAgent();
             // Get agent's response
-            const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
+            const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(agentName));
             const text = typeof response === 'string' ? response : response.text;
             if (this.streamOutput) {
                 process.stdout.write('\n');
             }
             else {
                 console.log(`${agentName}: ${text}\n`);
+            }
+            if (this.eventBus) {
+                this.eventBus.emitEvent('agent:response', { agent: agentName, content: text });
             }
             // Add to conversation history
             this.conversationHistory.push({
@@ -167,6 +201,9 @@ class ConversationManager {
         }
         catch (error) {
             console.error(`Error with agent ${agentName}: ${error.message}`);
+            if (this.eventBus) {
+                this.eventBus.emitEvent('error', { message: `Error with agent ${agentName}: ${error.message}` });
+            }
             // Add error to history
             this.conversationHistory.push({
                 role: 'assistant',
@@ -204,10 +241,20 @@ class ConversationManager {
     /**
      * Build chat options with streaming callbacks when enabled
      */
-    getChatOptions() {
-        return this.streamOutput
-            ? { stream: true, onToken: (token) => process.stdout.write(token) }
-            : {};
+    getChatOptions(agentName) {
+        if (this.streamOutput || this.eventBus) {
+            return {
+                stream: true,
+                onToken: (token) => {
+                    if (this.streamOutput)
+                        process.stdout.write(token);
+                    if (this.eventBus && agentName) {
+                        this.eventBus.emitEvent('token', { agent: agentName, token });
+                    }
+                }
+            };
+        }
+        return {};
     }
     /**
      * Judge evaluates if consensus has been reached
@@ -238,7 +285,7 @@ If no, provide brief guidance (2-3 sentences) to help the agents converge toward
                     content: judgePrompt
                 }
             ];
-            const response = await judge.provider.chat(messages, judge.systemPrompt, this.getChatOptions());
+            const response = await judge.provider.chat(messages, judge.systemPrompt, this.getChatOptions('Judge'));
             const text = typeof response === 'string' ? response : response.text || '';
             if (this.streamOutput) {
                 process.stdout.write('\n');
@@ -287,7 +334,7 @@ As the judge, please analyze all perspectives and synthesize the best solution b
                     content: votePrompt
                 }
             ];
-            const finalDecision = await judge.provider.chat(messages, judge.systemPrompt, this.getChatOptions());
+            const finalDecision = await judge.provider.chat(messages, judge.systemPrompt, this.getChatOptions('Judge'));
             const text = typeof finalDecision === 'string' ? finalDecision : finalDecision.text;
             if (this.streamOutput) {
                 process.stdout.write('\n');

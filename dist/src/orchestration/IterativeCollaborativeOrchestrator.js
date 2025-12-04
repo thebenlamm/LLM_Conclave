@@ -63,6 +63,7 @@ class IterativeCollaborativeOrchestrator {
         this.streamOutput = options.streamOutput || false;
         this.chunkDurations = [];
         this.promptCounter = 0;
+        this.eventBus = options.eventBus;
         // Ensure output directories exist
         if (!fs.existsSync(this.outputDir)) {
             fs.mkdirSync(this.outputDir, { recursive: true });
@@ -89,10 +90,19 @@ class IterativeCollaborativeOrchestrator {
     /**
      * Build chat options with streaming callbacks when enabled
      */
-    getChatOptions(disableStream = false) {
-        if (disableStream || !this.streamOutput)
+    getChatOptions(disableStream = false, agentName) {
+        if (disableStream || (!this.streamOutput && !this.eventBus))
             return {};
-        return { stream: true, onToken: (token) => process.stdout.write(token) };
+        return {
+            stream: true,
+            onToken: (token) => {
+                if (this.streamOutput && !disableStream)
+                    process.stdout.write(token);
+                if (this.eventBus && agentName) {
+                    this.eventBus.emitEvent('token', { agent: agentName, token });
+                }
+            }
+        };
     }
     /**
      * Main orchestration method - processes task in chunks with multi-turn discussions
@@ -106,6 +116,10 @@ class IterativeCollaborativeOrchestrator {
         }
         console.log(`Agents: ${this.agents.map(a => a.name).join(', ')}`);
         console.log(`Judge: ${this.judge.name}\n`);
+        if (this.eventBus) {
+            this.eventBus.emitEvent('run:start', { task, mode: 'iterative' });
+            this.eventBus.emitEvent('status', { message: `Starting Iterative Mode (Chunk Size: ${this.chunkSize})` });
+        }
         // Initialize or append to shared output file
         const sharedOutputPath = path.join(this.outputDir, this.sharedOutputFile);
         if (this.startChunk === 1) {
@@ -136,6 +150,9 @@ class IterativeCollaborativeOrchestrator {
                 continue;
             }
             console.log(`\n📦 Processing Chunk ${chunkNumber}/${chunks.length}: ${chunk.description}`);
+            if (this.eventBus) {
+                this.eventBus.emitEvent('status', { message: `Processing Chunk ${chunkNumber}/${chunks.length}: ${chunk.description}` });
+            }
             const chunkStart = Date.now();
             const chunkResult = await this.discussChunk(chunk, chunkNumber, projectContext);
             // Judge writes result to shared output
@@ -153,6 +170,9 @@ class IterativeCollaborativeOrchestrator {
         console.log(`  Shared output: ${sharedOutputPath}`);
         for (const [agentName, filePath] of this.agentStateFiles) {
             console.log(`  ${agentName} notes: ${filePath}`);
+        }
+        if (this.eventBus) {
+            this.eventBus.emitEvent('run:complete', { result: { outputDir: this.outputDir, sharedOutputFile: sharedOutputPath } });
         }
     }
     /**

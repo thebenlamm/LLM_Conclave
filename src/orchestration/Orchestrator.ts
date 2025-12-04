@@ -15,6 +15,7 @@ import { requiresValidation } from './AgentRoles';
 import ProviderFactory from '../providers/ProviderFactory';
 import ToolRegistry from '../tools/ToolRegistry';
 import MemoryManager from '../memory/MemoryManager';
+import { EventBus } from '../core/EventBus';
 import {
   Config,
   Agent,
@@ -43,8 +44,9 @@ export default class Orchestrator {
   toolRegistry: ToolRegistry;
   toolExecutions: ToolExecution[];
   streamOutput: boolean;
+  eventBus?: EventBus;
 
-  constructor(config: Config, memoryManager: MemoryManager | null = null, streamOutput: boolean = false) {
+  constructor(config: Config, memoryManager: MemoryManager | null = null, streamOutput: boolean = false, eventBus?: EventBus) {
     this.config = config;
     this.memoryManager = memoryManager;
     this.agents = {};
@@ -52,6 +54,7 @@ export default class Orchestrator {
     this.toolRegistry = new ToolRegistry();
     this.toolExecutions = []; // Track tool executions for output
     this.streamOutput = streamOutput;
+    this.eventBus = eventBus;
 
     this.initializeAgents();
   }
@@ -70,14 +73,26 @@ export default class Orchestrator {
     }
 
     console.log(`Initialized ${Object.keys(this.agents).length} agents: ${Object.keys(this.agents).join(', ')}`);
+    if (this.eventBus) {
+        this.eventBus.emitEvent('status', { message: `Initialized ${Object.keys(this.agents).length} agents` });
+    }
   }
 
   /**
    * Build chat options with streaming callbacks when enabled
    */
-  getChatOptions(disableStream: boolean = false) {
-    if (disableStream || !this.streamOutput) return {};
-    return { stream: true, onToken: (token: string) => process.stdout.write(token) };
+  getChatOptions(disableStream: boolean = false, agentName?: string) {
+    if (disableStream || (!this.streamOutput && !this.eventBus)) return {};
+    
+    return { 
+        stream: true, 
+        onToken: (token: string) => {
+            if (this.streamOutput && !disableStream) process.stdout.write(token);
+            if (this.eventBus && agentName) {
+                this.eventBus.emitEvent('token', { agent: agentName, token });
+            }
+        }
+    };
   }
 
   /**
@@ -95,6 +110,10 @@ export default class Orchestrator {
       console.log(`ORCHESTRATED TASK: ${task}`);
       console.log(`${'='.repeat(80)}\n`);
     }
+    
+    if (this.eventBus) {
+        this.eventBus.emitEvent('run:start', { task, mode: 'orchestrated' });
+    }
 
     // Step 1: Classify task and determine primary agent
     const availableAgents = Object.keys(this.agents);
@@ -107,6 +126,10 @@ export default class Orchestrator {
       console.log(`  Confidence: ${(classification.confidence * 100).toFixed(0)}%`);
       console.log(`  Reasoning: ${classification.reasoning}\n`);
     }
+    
+    if (this.eventBus) {
+        this.eventBus.emitEvent('status', { message: `Task classified: ${classification.taskType} (Primary: ${classification.primaryAgent})` });
+    }
 
     // Build initial context
     let initialContext = this.buildInitialContext(task, projectContext);
@@ -114,6 +137,8 @@ export default class Orchestrator {
     // Step 2: Primary agent responds
     if (onStatus) onStatus(1, 4, `${classification.primaryAgent} analyzing...`);
     if (!quiet) console.log(`\n--- Phase 1: Primary Agent Response ---\n`);
+    
+    if (this.eventBus) this.eventBus.emitEvent('round:start', { round: 1, name: 'Primary Response' });
 
     const primaryResponse = await this.getPrimaryResponse(
       classification.primaryAgent,
@@ -125,6 +150,8 @@ export default class Orchestrator {
     // Step 3: Secondary agents critique
     if (onStatus) onStatus(2, 4, 'Collecting critiques...');
     if (!quiet) console.log(`\n--- Phase 2: Secondary Agent Critiques ---\n`);
+    
+    if (this.eventBus) this.eventBus.emitEvent('round:start', { round: 2, name: 'Critiques' });
 
     const critiques = await this.collectCritiques(
       classification.primaryAgent,
@@ -137,6 +164,8 @@ export default class Orchestrator {
     // Step 4: Primary agent revises
     if (onStatus) onStatus(3, 4, 'Refining response...');
     if (!quiet) console.log(`\n--- Phase 3: Primary Agent Revision ---\n`);
+    
+    if (this.eventBus) this.eventBus.emitEvent('round:start', { round: 3, name: 'Revision' });
 
     const revisedResponse = await this.getRevision(
       classification.primaryAgent,
@@ -152,6 +181,8 @@ export default class Orchestrator {
     if (requiresValidation(task)) {
       if (onStatus) onStatus(4, 4, 'Running validation...');
       if (!quiet) console.log(`\n--- Phase 4: Validation Gates ---\n`);
+      
+      if (this.eventBus) this.eventBus.emitEvent('round:start', { round: 4, name: 'Validation' });
 
       const validationResults = await this.runValidation(
         revisedResponse,
@@ -178,8 +209,8 @@ export default class Orchestrator {
     }
 
     const outputContent = typeof finalOutput === 'string' ? finalOutput : finalOutput.content;
-
-    return {
+    
+    const result = {
       task,
       classification,
       primaryResponse,
@@ -191,6 +222,12 @@ export default class Orchestrator {
       conversationHistory: this.conversationHistory,
       toolExecutions: this.toolExecutions // Include tool execution summary
     };
+    
+    if (this.eventBus) {
+        this.eventBus.emitEvent('run:complete', { result });
+    }
+
+    return result;
   }
 
   /**
@@ -237,7 +274,7 @@ export default class Orchestrator {
       const response = await agent.provider.chat(
         currentMessages,
         agent.systemPrompt,
-        { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools, ...this.getChatOptions(true) }
+        { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools, ...this.getChatOptions(true, agent.name) }
       );
 
       // Check if response has tool calls
@@ -252,6 +289,11 @@ export default class Orchestrator {
 
         // Execute each tool and add results
         for (const toolCall of response.tool_calls) {
+          
+          if (this.eventBus) {
+              this.eventBus.emitEvent('tool:call', { agent: agent.name, tool: toolCall.name, input: toolCall.input });
+          }
+          
           const result = await this.toolRegistry.executeTool(toolCall.name, toolCall.input);
 
           // Track tool execution for output
@@ -265,6 +307,10 @@ export default class Orchestrator {
 
           if (!quiet) {
             console.log(`  ✓ ${result.summary || result.error}`);
+          }
+          
+          if (this.eventBus) {
+              this.eventBus.emitEvent('tool:result', { agent: agent.name, tool: toolCall.name, success: result.success, summary: result.summary || result.error });
           }
 
           // Add tool result to messages
@@ -303,6 +349,10 @@ export default class Orchestrator {
     if (!quiet) {
       console.log(`[${agentName} (${agent.model}) is responding...]\n`);
     }
+    
+    if (this.eventBus) {
+        this.eventBus.emitEvent('agent:thinking', { agent: agentName, model: agent.model });
+    }
 
     const prompt = `${context}Task: ${task}\n\nAs the primary agent for this task, provide your initial response. Be comprehensive but concise.
 
@@ -318,6 +368,10 @@ Important: Once you've read a file, you have access to its complete contents in 
       if (!quiet && response) {
         console.log(`${agentName}:\n${response}\n`);
       }
+      
+      if (this.eventBus) {
+          this.eventBus.emitEvent('agent:response', { agent: agentName, content: response || '[Agent used tools only]' });
+      }
 
       this.conversationHistory.push({
         phase: 'primary_response',
@@ -329,6 +383,9 @@ Important: Once you've read a file, you have access to its complete contents in 
       return response || '[Agent completed task using tools]';
     } catch (error: any) {
       console.error(`Error with ${agentName}: ${error.message}`);
+      if (this.eventBus) {
+          this.eventBus.emitEvent('error', { message: `Error with agent ${agentName}: ${error.message}` });
+      }
       return `[Error: Unable to get response from ${agentName}]`;
     }
   }
@@ -348,6 +405,10 @@ Important: Once you've read a file, you have access to its complete contents in 
       if (!quiet) {
         console.log(`[${agentName} (${agent.model}) is critiquing...]\n`);
       }
+      
+      if (this.eventBus) {
+        this.eventBus.emitEvent('agent:thinking', { agent: agentName, model: agent.model });
+      }
 
       const critiquePrompt = `${context}Task: ${task}
 
@@ -365,11 +426,15 @@ Keep your critique constructive and focused.`;
       const messages = [{ role: 'user', content: critiquePrompt }];
 
       try {
-      const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
+        const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(false, agentName));
         const critique = typeof response === 'string' ? response : response.text;
 
         if (!quiet) {
           console.log(`${agentName} Critique:\n${critique}\n`);
+        }
+        
+        if (this.eventBus) {
+            this.eventBus.emitEvent('agent:response', { agent: agentName, content: critique });
         }
 
         critiques.push({
@@ -388,6 +453,9 @@ Keep your critique constructive and focused.`;
         if (!quiet) {
           console.error(`Error with ${agentName}: ${error.message}`);
         }
+        if (this.eventBus) {
+            this.eventBus.emitEvent('error', { message: `Error with agent ${agentName}: ${error.message}` });
+        }
       }
     }
 
@@ -402,6 +470,10 @@ Keep your critique constructive and focused.`;
 
     if (!quiet) {
       console.log(`[${primaryAgent} is revising based on feedback...]\n`);
+    }
+    
+    if (this.eventBus) {
+        this.eventBus.emitEvent('agent:thinking', { agent: primaryAgent, model: agent.model });
     }
 
     const critiquesSummary = critiques
@@ -421,7 +493,7 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
     const messages = [{ role: 'user', content: revisionPrompt }];
 
     try {
-      const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
+      const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(false, primaryAgent));
       const revision = typeof response === 'string' ? response : response.text;
 
       if (!quiet) {
@@ -430,6 +502,10 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
         } else {
           console.log(`${primaryAgent} Revised Response:\n${revision}\n`);
         }
+      }
+      
+      if (this.eventBus) {
+          this.eventBus.emitEvent('agent:response', { agent: primaryAgent, content: revision });
       }
 
       this.conversationHistory.push({
@@ -443,6 +519,9 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
     } catch (error: any) {
       if (!quiet) {
         console.error(`Error with ${primaryAgent}: ${error.message}`);
+      }
+      if (this.eventBus) {
+          this.eventBus.emitEvent('error', { message: `Error with agent ${primaryAgent}: ${error.message}` });
       }
       return originalResponse; // Fallback to original
     }
@@ -463,6 +542,10 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
       if (!quiet) {
         console.log(`[${validatorName} is validating...]\n`);
       }
+      
+      if (this.eventBus) {
+          this.eventBus.emitEvent('agent:thinking', { agent: validatorName, model: agent.model });
+      }
 
       const validationPrompt = `${context}Task: ${task}
 
@@ -479,7 +562,7 @@ Be thorough but concise.`;
       const messages = [{ role: 'user', content: validationPrompt }];
 
       try {
-        const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions());
+        const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(false, validatorName));
         const validation = typeof response === 'string' ? response : response.text;
 
         if (!quiet) {
@@ -488,6 +571,10 @@ Be thorough but concise.`;
           } else {
             console.log(`${validatorName} Validation:\n${validation}\n`);
           }
+        }
+        
+        if (this.eventBus) {
+            this.eventBus.emitEvent('agent:response', { agent: validatorName, content: validation });
         }
 
         const status = this.extractValidationStatus(validation);
@@ -509,6 +596,9 @@ Be thorough but concise.`;
       } catch (error: any) {
         if (!quiet) {
           console.error(`Error with ${validatorName}: ${error.message}`);
+        }
+        if (this.eventBus) {
+            this.eventBus.emitEvent('error', { message: `Error with agent ${validatorName}: ${error.message}` });
         }
       }
     }

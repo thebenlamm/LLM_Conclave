@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Conclave Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { background-color: #111827; color: #e5e7eb; }
+        .terminal { font-family: 'Courier New', monospace; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 p-4 flex justify-between items-center shadow-lg">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight">LLM Conclave</h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <div id="status-indicator" class="flex items-center gap-2 text-sm text-gray-400">
+                <span class="w-2 h-2 rounded-full bg-gray-500"></span>
+                Disconnected
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex overflow-hidden">
+        <!-- Sidebar -->
+        <div class="w-80 bg-gray-900 border-r border-gray-800 flex flex-col">
+            <div class="p-4 border-b border-gray-800">
+                <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">New Task</h2>
+                <form id="start-form" class="space-y-4">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Template</label>
+                        <select id="template-select" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors">
+                            <option value="">Custom (No Template)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Mode</label>
+                        <select id="mode-select" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors">
+                            <option value="consensus">Consensus</option>
+                            <option value="orchestrated">Orchestrated</option>
+                            <option value="iterative">Iterative</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Task</label>
+                        <textarea id="task-input" rows="3" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors" placeholder="Describe your task..."></textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
+                        <span>Start Session</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                    </button>
+                </form>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-4">
+                <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Activity Log</h2>
+                <div id="activity-log" class="space-y-2 text-xs text-gray-500">
+                    <!-- Activity items -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat/Terminal Area -->
+        <div class="flex-1 flex flex-col bg-gray-900">
+            <!-- Agent Status Bar -->
+            <div id="agent-bar" class="h-16 border-b border-gray-800 flex items-center px-6 gap-4 overflow-x-auto">
+                <!-- Agent cards will go here -->
+            </div>
+
+            <!-- Output Stream -->
+            <div class="flex-1 p-6 overflow-y-auto terminal space-y-6" id="output-container">
+                <div class="text-gray-500 italic">Ready to start. Configure a task on the left.</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

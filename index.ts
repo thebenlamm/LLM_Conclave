@@ -20,6 +20,7 @@ import ConfigWriter from './src/init/ConfigWriter';
 import InteractiveSession from './src/interactive/InteractiveSession';
 import { CostTracker } from './src/core/CostTracker';
 import { TemplateManager } from './src/core/TemplateManager';
+import { Server } from './src/server/Server';
 
 /**
  * Main CLI entry point for LLM Conclave
@@ -35,6 +36,16 @@ async function main() {
   try {
     // Parse command line arguments
     const args = process.argv.slice(2);
+
+    // Handle --server flag
+    if (args.includes('--server')) {
+      const portIndex = args.indexOf('--port');
+      const port = portIndex !== -1 ? parseInt(args[portIndex + 1]) : 3000;
+      console.log(`Starting Web UI Server...`);
+      new Server(port);
+      // Keep process alive
+      return;
+    }
 
     // If no arguments, launch interactive mode
     if (args.length === 0) {

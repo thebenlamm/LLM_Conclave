@@ -1,5 +1,6 @@
 import { Agent } from '../types';
 import ToolRegistry from '../tools/ToolRegistry';
+import { EventBus } from '../core/EventBus';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -30,6 +31,7 @@ export default class IterativeCollaborativeOrchestrator {
   streamOutput: boolean;
   chunkDurations: number[];
   promptCounter: number;
+  eventBus?: EventBus;
 
   constructor(
     agents: Agent[],
@@ -42,6 +44,7 @@ export default class IterativeCollaborativeOrchestrator {
       outputDir?: string;
       sharedOutputFile?: string;
       streamOutput?: boolean;
+      eventBus?: EventBus;
     } = {}
   ) {
     this.agents = agents;
@@ -59,6 +62,7 @@ export default class IterativeCollaborativeOrchestrator {
     this.streamOutput = options.streamOutput || false;
     this.chunkDurations = [];
     this.promptCounter = 0;
+    this.eventBus = options.eventBus;
 
     // Ensure output directories exist
     if (!fs.existsSync(this.outputDir)) {
@@ -90,9 +94,18 @@ export default class IterativeCollaborativeOrchestrator {
   /**
    * Build chat options with streaming callbacks when enabled
    */
-  private getChatOptions(disableStream: boolean = false) {
-    if (disableStream || !this.streamOutput) return {};
-    return { stream: true, onToken: (token: string) => process.stdout.write(token) };
+  private getChatOptions(disableStream: boolean = false, agentName?: string) {
+    if (disableStream || (!this.streamOutput && !this.eventBus)) return {};
+    
+    return { 
+        stream: true, 
+        onToken: (token: string) => {
+            if (this.streamOutput && !disableStream) process.stdout.write(token);
+            if (this.eventBus && agentName) {
+                this.eventBus.emitEvent('token', { agent: agentName, token });
+            }
+        }
+    };
   }
 
   /**
@@ -107,6 +120,11 @@ export default class IterativeCollaborativeOrchestrator {
     }
     console.log(`Agents: ${this.agents.map(a => a.name).join(', ')}`);
     console.log(`Judge: ${this.judge.name}\n`);
+    
+    if (this.eventBus) {
+        this.eventBus.emitEvent('run:start', { task, mode: 'iterative' });
+        this.eventBus.emitEvent('status', { message: `Starting Iterative Mode (Chunk Size: ${this.chunkSize})` });
+    }
 
     // Initialize or append to shared output file
     const sharedOutputPath = path.join(this.outputDir, this.sharedOutputFile);
@@ -141,6 +159,10 @@ export default class IterativeCollaborativeOrchestrator {
       }
 
       console.log(`\n📦 Processing Chunk ${chunkNumber}/${chunks.length}: ${chunk.description}`);
+      
+      if (this.eventBus) {
+          this.eventBus.emitEvent('status', { message: `Processing Chunk ${chunkNumber}/${chunks.length}: ${chunk.description}` });
+      }
 
       const chunkStart = Date.now();
 
@@ -168,6 +190,10 @@ export default class IterativeCollaborativeOrchestrator {
     console.log(`  Shared output: ${sharedOutputPath}`);
     for (const [agentName, filePath] of this.agentStateFiles) {
       console.log(`  ${agentName} notes: ${filePath}`);
+    }
+    
+    if (this.eventBus) {
+        this.eventBus.emitEvent('run:complete', { result: { outputDir: this.outputDir, sharedOutputFile: sharedOutputPath } });
     }
   }
 
