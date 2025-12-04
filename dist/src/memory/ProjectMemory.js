@@ -112,17 +112,18 @@ class ProjectMemory {
      * Get decisions by topic or tags
      */
     getDecisions(filter = {}) {
-        let results = this.decisions;
-        if (filter.topic) {
-            results = results.filter(d => d.topic.toLowerCase().includes(filter.topic.toLowerCase()));
-        }
-        if (filter.tags && filter.tags.length > 0) {
-            results = results.filter(d => filter.tags.some((tag) => d.tags.includes(tag)));
-        }
-        if (filter.participant) {
-            results = results.filter(d => d.participants.includes(filter.participant));
-        }
-        return results;
+        const topic = filter.topic ? filter.topic.toLowerCase() : null;
+        const participant = filter.participant;
+        const tags = filter.tags && filter.tags.length > 0 ? new Set(filter.tags) : null;
+        return this.decisions.filter(d => {
+            if (topic && !d.topic.toLowerCase().includes(topic))
+                return false;
+            if (tags && !d.tags.some((tag) => tags.has(tag)))
+                return false;
+            if (participant && !d.participants.includes(participant))
+                return false;
+            return true;
+        });
     }
     /**
      * Get conversations related to a topic

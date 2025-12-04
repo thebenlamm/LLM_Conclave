@@ -55,6 +55,7 @@ const InteractiveInit_1 = __importDefault(require("./src/init/InteractiveInit"))
 const ConfigWriter_1 = __importDefault(require("./src/init/ConfigWriter"));
 const InteractiveSession_1 = __importDefault(require("./src/interactive/InteractiveSession"));
 const CostTracker_1 = require("./src/core/CostTracker");
+const TemplateManager_1 = require("./src/core/TemplateManager");
 /**
  * Main CLI entry point for LLM Conclave
  */
@@ -90,6 +91,16 @@ async function main() {
         // Handle special commands
         if (args.includes('--help') || args.includes('-h')) {
             printHelp();
+            process.exit(0);
+        }
+        if (args.includes('--list-templates')) {
+            const templateManager = new TemplateManager_1.TemplateManager();
+            const templates = templateManager.listTemplates();
+            console.log(`\nAvailable Templates:\n`);
+            templates.forEach(t => {
+                console.log(`  ${t.name.padEnd(20)} - ${t.description} [Mode: ${t.mode}]`);
+            });
+            console.log(`\nUsage: llm-conclave --template <name> [options] "Task"\n`);
             process.exit(0);
         }
         if (args.includes('--init')) {
@@ -138,16 +149,37 @@ async function main() {
             await handleDeleteProject(args);
             process.exit(0);
         }
-        // Load configuration
+        // Load configuration or template
         let config;
         const configIndex = args.indexOf('--config');
         const configPath = configIndex !== -1 ? args[configIndex + 1] : null;
+        const templateIndex = args.indexOf('--template') !== -1 ? args.indexOf('--template') : args.indexOf('--runbook');
+        const templateName = templateIndex !== -1 ? args[templateIndex + 1] : null;
+        let templateMode = null;
+        let templateChunkSize;
         try {
-            config = ConfigLoader_1.default.load(configPath);
+            if (templateName) {
+                console.log(`Loading template: ${templateName}`);
+                const templateManager = new TemplateManager_1.TemplateManager();
+                const template = templateManager.getTemplate(templateName);
+                if (!template) {
+                    throw new Error(`Template '${templateName}' not found. Use --list-templates to see available options.`);
+                }
+                config = templateManager.convertToConfig(template);
+                templateMode = template.mode;
+                templateChunkSize = template.chunkSize;
+                console.log(`✓ Template loaded (Mode: ${template.mode})`);
+            }
+            else {
+                // Load from file
+                config = ConfigLoader_1.default.load(configPath);
+            }
         }
         catch (error) {
             console.error(`\n❌ Configuration Error: ${error.message}\n`);
-            console.log(`Run 'node index.js --init' to create an example configuration file.\n`);
+            if (!templateName) {
+                console.log(`Run 'node index.js --init' to create an example configuration file.\n`);
+            }
             process.exit(1);
         }
         // Check for project memory
@@ -194,9 +226,11 @@ async function main() {
         // Check if task is provided as argument
         const configValue = configIndex !== -1 ? args[configIndex + 1] : null;
         const projectValue = projectIndex !== -1 ? args[projectIndex + 1] : null;
+        const templateValue = templateIndex !== -1 ? args[templateIndex + 1] : null;
         const nonFlagArgs = args.filter(arg => !arg.startsWith('--') &&
             arg !== configValue &&
-            arg !== projectValue);
+            arg !== projectValue &&
+            arg !== templateValue);
         if (nonFlagArgs.length > 0) {
             task = nonFlagArgs.join(' ');
         }
@@ -216,8 +250,8 @@ async function main() {
         console.log(`\nTask: ${task}\n`);
         console.log(`Agents: ${Object.keys(config.agents).join(', ')}`);
         // Check operational mode
-        const orchestrated = args.includes('--orchestrated');
-        const iterative = args.includes('--iterative');
+        const orchestrated = args.includes('--orchestrated') || (!args.includes('--iterative') && templateMode === 'orchestrated');
+        const iterative = args.includes('--iterative') || (!args.includes('--orchestrated') && templateMode === 'iterative');
         const streamOutput = args.includes('--stream');
         let result;
         if (iterative) {
@@ -225,7 +259,7 @@ async function main() {
             console.log(`Mode: Iterative Collaborative (Multi-turn chunk-based discussion)\n`);
             // Parse chunk size and max rounds per chunk
             const chunkSizeIndex = args.indexOf('--chunk-size');
-            const chunkSize = chunkSizeIndex !== -1 ? parseInt(args[chunkSizeIndex + 1]) : 3;
+            const chunkSize = chunkSizeIndex !== -1 ? parseInt(args[chunkSizeIndex + 1]) : (templateChunkSize || 3);
             const maxRoundsIndex = args.indexOf('--max-rounds-per-chunk');
             const maxRoundsPerChunk = maxRoundsIndex !== -1 ? parseInt(args[maxRoundsIndex + 1]) : 5;
             const startChunkIndex = args.indexOf('--start-chunk');
