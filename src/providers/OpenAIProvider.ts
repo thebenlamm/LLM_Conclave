@@ -19,15 +19,9 @@ export default class OpenAIProvider extends LLMProvider {
   protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
       const { tools = null, stream = false, onToken } = options;
-      const messageArray = [...messages];
-
-      // Add system prompt if provided
-      if (systemPrompt) {
-        messageArray.unshift({
-          role: 'system',
-          content: systemPrompt
-        });
-      }
+      const messageArray = systemPrompt
+        ? [{ role: 'system', content: systemPrompt }, ...messages]
+        : messages;
 
       const params: any = {
         model: this.modelName,
