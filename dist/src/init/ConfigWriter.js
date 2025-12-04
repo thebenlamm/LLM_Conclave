@@ -115,7 +115,7 @@ class ConfigWriter {
             max_rounds: options.maxRounds || 10,
             judge: {
                 model: options.judgeModel || 'gpt-4o',
-                prompt: options.judgePrompt || 'You are a neutral judge facilitating multi-agent discussions. Evaluate whether agents have reached consensus. When consensus is reached, respond with \'CONSENSUS_REACHED\' followed by a summary. Otherwise, provide brief guidance to help the agents converge.'
+                prompt: options.judgePrompt || 'You are a neutral judge coordinating multi-agent collaboration. Your role is to evaluate discussions, determine when chunks are complete, and synthesize final results. Always follow the specified output format exactly (COMPLETE: or CONTINUE: for evaluations).'
             },
             agents: agentsConfig
         };

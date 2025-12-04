@@ -124,7 +124,10 @@ export default class IterativeCollaborativeOrchestrator {
     }
 
     // Ask judge to break down the task into chunks
-    const chunks = await this.planChunks(task, projectContext);
+    let chunks = await this.planChunks(task, projectContext);
+
+    // Enrich chunks with actual line content from project context
+    chunks = this.enrichChunksWithLineContent(chunks, projectContext);
 
     // Process each chunk with multi-turn discussion
     for (let i = 0; i < chunks.length; i++) {
@@ -351,13 +354,37 @@ Return ONLY the JSON array, nothing else.`;
     const chunkMessages: any[] = [];
 
     // Initial context message
-    const contextMessage = `Working on chunk ${chunkNumber}: ${chunk.description}
+    let contextMessage = '';
+
+    // If we have extracted line content, provide it explicitly
+    if (chunk.lineContent !== undefined) {
+      contextMessage = `Working on chunk ${chunkNumber}: ${chunk.description}
+
+YOUR TASK: ${chunk.details}
+
+THIS IS THE SPECIFIC TEXT YOU NEED TO WORK ON (and ONLY this text):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${chunk.lineContent}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPORTANT:
+- Work on the text above ONLY. Do not process other lines.
+- Output ONLY your corrected version of this specific text.
+- Do not include explanations or analysis unless requested.
+
+${projectContext ? `Reference Context (for understanding only - DO NOT correct these lines):\n${projectContext}\n` : ''}
+
+Collaborate with other agents to complete this chunk. You can read from and write to your own notes file, but only the judge will write to the shared output.`;
+    } else {
+      // Fallback for chunks without line content
+      contextMessage = `Working on chunk ${chunkNumber}: ${chunk.description}
 
 ${chunk.details}
 
 ${projectContext ? `Project Context:\n${projectContext}\n` : ''}
 
 Collaborate with other agents to complete this chunk. You can read from and write to your own notes file, but only the judge will write to the shared output.`;
+    }
 
     for (let round = 1; round <= this.maxRoundsPerChunk; round++) {
       console.log(`\n  Round ${round}/${this.maxRoundsPerChunk}:`);
@@ -660,6 +687,72 @@ Synthesize the best result from this discussion:`;
     const chunkSection = `## Chunk ${chunkNumber}: ${chunkDescription}\n\n${result}\n\n---\n\n`;
 
     fs.appendFileSync(sharedOutputPath, chunkSection);
+  }
+
+  /**
+   * Extract specific lines from project context
+   * Parses the project context to extract file content and return specific lines
+   */
+  private extractLinesFromContext(projectContext: string | undefined, lineNumbers: number[]): Map<number, string> {
+    const lineMap = new Map<number, string>();
+
+    if (!projectContext) {
+      return lineMap;
+    }
+
+    // Extract the file content from the project context
+    // Format is: # Project Context\n\nFile: filename\n\n```\ncontent\n```
+    const codeBlockMatch = projectContext.match(/```\n?([\s\S]*?)\n?```/);
+
+    if (!codeBlockMatch) {
+      return lineMap;
+    }
+
+    const fileContent = codeBlockMatch[1];
+    const lines = fileContent.split('\n');
+
+    // Extract requested line numbers (1-indexed)
+    for (const lineNum of lineNumbers) {
+      if (lineNum >= 1 && lineNum <= lines.length) {
+        lineMap.set(lineNum, lines[lineNum - 1]);
+      }
+    }
+
+    return lineMap;
+  }
+
+  /**
+   * Enrich chunks with actual line content extracted from project context
+   */
+  private enrichChunksWithLineContent(chunks: any[], projectContext: string | undefined): any[] {
+    // Extract all line numbers from chunk descriptions
+    const lineNumbers: number[] = [];
+    for (const chunk of chunks) {
+      const match = chunk.description.match(/Line (\d+)/i);
+      if (match) {
+        lineNumbers.push(parseInt(match[1], 10));
+      }
+    }
+
+    // Get all lines at once
+    const lineMap = this.extractLinesFromContext(projectContext, lineNumbers);
+
+    // Enrich each chunk with its line content
+    return chunks.map(chunk => {
+      const match = chunk.description.match(/Line (\d+)/i);
+      if (match) {
+        const lineNum = parseInt(match[1], 10);
+        const lineContent = lineMap.get(lineNum);
+        if (lineContent !== undefined) {
+          return {
+            ...chunk,
+            lineNumber: lineNum,
+            lineContent: lineContent
+          };
+        }
+      }
+      return chunk;
+    });
   }
 
   /**
