@@ -16,6 +16,7 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
 - **High Performance**: Optimized with async I/O, intelligent caching, and parallel processing (5.3x faster than baseline)
 - **Streaming Output**: Real-time streaming of agent responses as they're generated
 - **Smart Agent Generation**: AI creates optimized, concise agents (1-4 based on task complexity) with format-enforced prompts
+- **Guided Runbooks & Template Library**: Use predefined templates for common tasks like code review, architecture design, and bug investigation, pre-configuring agents and modes for low-friction setup.
 - **Flexible Configuration**: Use the same model multiple times with different system prompts
 - **Autonomous Operation**: Runs fully autonomously after task submission
 - **Comprehensive Output**: Saves full transcript, consensus, cost logs, and JSON data
@@ -77,6 +78,9 @@ node index.js
 ```bash
 --help, -h                      # Show help information
 --init                          # Create AI-generated agent configuration
+--list-templates                # List available runbook templates
+--template <name>               # Use a predefined runbook template for the task
+--runbook <name>                # Alias for --template
 --config <path>                 # Use custom configuration file
 --project <path>                # Include file or directory context for analysis
 --orchestrated                  # Use orchestrated mode (primary/secondary/validation workflow)
@@ -134,6 +138,15 @@ llm-conclave --iterative --chunk-size 5 "Review and improve documentation"
 ```bash
 # Create initial config with AI-generated agents
 llm-conclave --init
+
+# List available templates/runbooks
+llm-conclave --list-templates
+
+# Run a code review using a predefined template
+llm-conclave --template code-review --project ./src "Review the 'auth' module for security issues"
+
+# Run an architecture design session using a template
+llm-conclave --template architecture-design "Design a new payment gateway"
 
 # Run with inline task (consensus mode)
 llm-conclave "Create a task management application with real-time collaboration"
@@ -482,18 +495,6 @@ The judge's system prompt controls how it evaluates consensus:
   }
 }
 ```
-
-## Future Enhancements
-
-- **Cost tracking**: Monitor API usage and costs across providers
-- **Judge-directed turns**: Judge selects who speaks next based on discussion needs
-- **Streaming output**: Real-time display of agent responses
-- **Voting mechanisms**: Explicit agent voting before final decision
-- **Custom turn management**: More flexible conversation patterns beyond round-robin
-- **Custom file filters**: User-configurable include/exclude patterns for project analysis
-- **Embeddings/RAG**: Support for very large projects using vector search
-- **Agent memory**: Long-term memory for agents across sessions
-- **Parallel execution**: Run independent agent analyses in parallel
 
 ## License
 
