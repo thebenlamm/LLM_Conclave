@@ -175,7 +175,7 @@ export default class IterativeCollaborativeOrchestrator {
    * Detect if this is a simple line-by-line task that doesn't need LLM planning
    */
   private isSimpleLineByLineTask(task: string, projectContext?: string): boolean {
-    if (!projectContext || this.chunkSize !== 1) {
+    if (!projectContext) {
       return false;
     }
 
@@ -188,9 +188,10 @@ export default class IterativeCollaborativeOrchestrator {
 
   /**
    * Auto-generate chunks for simple line-by-line processing
+   * Batches lines together based on chunkSize for efficiency
    */
   private autoGenerateLineChunks(task: string, projectContext: string): any[] {
-    console.log('  (Auto-generating line-by-line chunks - no LLM needed)');
+    console.log(`  (Auto-generating line-by-line chunks with batch size ${this.chunkSize} - no LLM needed)`);
 
     // Extract file content from project context
     const codeBlockMatch = projectContext.match(/```\n?([\s\S]*?)\n?```/);
@@ -211,11 +212,20 @@ export default class IterativeCollaborativeOrchestrator {
       taskDetails = 'Translate';
     }
 
-    // Generate chunks
-    const chunks = lines.map((line, index) => ({
-      description: `Line ${index + 1}`,
-      details: taskDetails
-    }));
+    // Generate chunks with batching
+    const chunks: any[] = [];
+    for (let i = 0; i < lines.length; i += this.chunkSize) {
+      const batchLines = lines.slice(i, Math.min(i + this.chunkSize, lines.length));
+      const startLine = i + 1;
+      const endLine = i + batchLines.length;
+
+      chunks.push({
+        description: startLine === endLine ? `Line ${startLine}` : `Lines ${startLine}-${endLine}`,
+        details: taskDetails,
+        lineNumbers: Array.from({ length: batchLines.length }, (_, idx) => startLine + idx),
+        lineContent: batchLines.join('\n')
+      });
+    }
 
     return chunks;
   }
@@ -415,6 +425,11 @@ Return ONLY the JSON array, nothing else.`;
 
     // If we have extracted line content, provide it explicitly
     if (chunk.lineContent !== undefined) {
+      // Use windowed context instead of full project context for efficiency
+      const windowedContext = chunk.lineNumbers
+        ? this.extractWindowedContext(projectContext, chunk.lineNumbers, 3)
+        : null;
+
       contextMessage = `Working on chunk ${chunkNumber}: ${chunk.description}
 
 YOUR TASK: ${chunk.details}
@@ -429,7 +444,7 @@ IMPORTANT:
 - Output ONLY your corrected version of this specific text.
 - Do not include explanations or analysis unless requested.
 
-${projectContext ? `Reference Context (for understanding only - DO NOT correct these lines):\n${projectContext}\n` : ''}
+${windowedContext ? `Surrounding Context (±3 lines for reference only - DO NOT correct these):\n${windowedContext}\n` : ''}
 
 Collaborate with other agents to complete this chunk. You can read from and write to your own notes file, but only the judge will write to the shared output.`;
     } else {
@@ -776,6 +791,49 @@ Synthesize the best result from this discussion:`;
     }
 
     return lineMap;
+  }
+
+  /**
+   * Extract a window of context lines around the target lines
+   * @param projectContext - The full project context
+   * @param lineNumbers - Array of target line numbers
+   * @param windowSize - Number of lines to show before and after (default: 3)
+   * @returns Formatted string with windowed context
+   */
+  private extractWindowedContext(
+    projectContext: string | undefined,
+    lineNumbers: number[],
+    windowSize: number = 3
+  ): string | null {
+    if (!projectContext || lineNumbers.length === 0) {
+      return null;
+    }
+
+    const codeBlockMatch = projectContext.match(/```\n?([\s\S]*?)\n?```/);
+    if (!codeBlockMatch) {
+      return null;
+    }
+
+    const fileContent = codeBlockMatch[1];
+    const lines = fileContent.split('\n');
+
+    // Find min and max line numbers in the target range
+    const minTarget = Math.min(...lineNumbers);
+    const maxTarget = Math.max(...lineNumbers);
+
+    // Calculate window boundaries
+    const startLine = Math.max(1, minTarget - windowSize);
+    const endLine = Math.min(lines.length, maxTarget + windowSize);
+
+    // Extract windowed lines
+    const windowedLines: string[] = [];
+    for (let i = startLine; i <= endLine; i++) {
+      const line = lines[i - 1]; // Convert to 0-indexed
+      const isTarget = lineNumbers.includes(i);
+      windowedLines.push(`${isTarget ? '>' : ' '} ${i}: ${line}`);
+    }
+
+    return windowedLines.join('\n');
   }
 
   /**
