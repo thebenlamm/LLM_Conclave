@@ -86,13 +86,18 @@ export class CostTracker {
   }
 
   public getSummary(): { totalCost: number; totalCalls: number; totalTokens: { input: number; output: number }, averageLatency: number } {
-    const totalCost = this.logs.reduce((sum, log) => sum + log.cost, 0);
+    let totalCost = 0;
+    let totalLatency = 0;
+    const totalTokens = { input: 0, output: 0 };
+
+    for (const log of this.logs) {
+      totalCost += log.cost;
+      totalLatency += log.latency;
+      totalTokens.input += log.inputTokens;
+      totalTokens.output += log.outputTokens;
+    }
+
     const totalCalls = this.logs.length;
-    const totalTokens = this.logs.reduce((sum, log) => ({
-      input: sum.input + log.inputTokens,
-      output: sum.output + log.outputTokens,
-    }), { input: 0, output: 0 });
-    const totalLatency = this.logs.reduce((sum, log) => sum + log.latency, 0);
     const averageLatency = totalCalls > 0 ? totalLatency / totalCalls : 0;
 
     return { totalCost, totalCalls, totalTokens, averageLatency };
