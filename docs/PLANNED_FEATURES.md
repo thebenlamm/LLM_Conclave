@@ -70,53 +70,65 @@ Major performance improvements for iterative collaborative mode.
 
 ---
 
-## High Priority
-
-### Streaming Output (Real-time)
-
-**Status:** Not Started
+### ✅ Streaming Output (Real-time)
+**Status:** Implemented
 **Priority:** High
 **Complexity:** Medium
 
 Display agent responses as they're generated instead of waiting for completion.
 
-**Benefits:**
-- Better UX for long-running tasks
-- Early detection if agent goes off-track
-- Ability to interrupt/cancel
-- More engaging experience
+**Implementation:** Available across all modes via `--stream` flag
+- All providers support streaming (OpenAI, Claude, Gemini, Grok, Mistral)
+- Implemented in all orchestrators (Consensus, Orchestrated, Iterative)
+- Real-time token-by-token display
+- Works with tool calling (buffered appropriately)
 
-**Implementation:**
-- Use `generateContentStream` methods (already available in most SDKs)
-- Update all providers to support streaming
-- Add `--stream` flag
-- Handle partial responses in orchestrators
+**Usage:**
+```bash
+llm-conclave --stream "Design a microservices architecture"
+llm-conclave --stream --project ./src "Review and explain this codebase"
+```
 
-**Considerations:**
-- Tool calling may require buffering
-- Judge evaluation still needs complete responses
-- Terminal UI for streaming chunks
+**Behavior:**
+- Without `--stream`: Agents complete their full response, then it's displayed all at once
+- With `--stream`: Agent responses appear word-by-word in real-time as they're generated
 
-**Related:** Feature brainstorm item D (Streaming Event Channel for UIs & Webhooks)
+**Future Enhancement:** Streaming Event Channel for external UIs & webhooks (not yet implemented)
 
 ---
 
+## High Priority
+
 ### Resume/Checkpoint System
 
-**Status:** Not Started
+**Status:** Partially Implemented (basic resume only)
 **Priority:** High
 **Complexity:** High
 
 Save conversation state and resume interrupted sessions.
 
-**Features:**
-- Auto-save checkpoints every N rounds
-- Manual checkpoints: `llm-conclave --save-checkpoint`
-- Resume: `llm-conclave --resume <checkpoint-id>`
-- Branching: Try different approaches from same checkpoint
-- Rewind to any point in conversation
+**Currently Implemented:**
+- ✅ Basic resume in iterative mode via `--start-chunk <n>` flag
+- ✅ Skip completed chunks when resuming
+- ✅ Append resume marker to shared output
 
-**Data Structure:**
+**Usage:**
+```bash
+# Resume from chunk 5 after interruption
+llm-conclave --iterative --start-chunk 5 --project oz.txt "Correct OCR errors"
+```
+
+**Still Missing (Full Checkpoint System):**
+- ❌ Auto-save checkpoints every N rounds
+- ❌ Manual checkpoints: `llm-conclave --save-checkpoint`
+- ❌ Resume by checkpoint ID: `llm-conclave --resume <checkpoint-id>`
+- ❌ Conversation history preservation
+- ❌ Agent state restoration
+- ❌ Branching: Try different approaches from same checkpoint
+- ❌ Rewind to any point in conversation
+- ❌ Works in all modes (currently only iterative)
+
+**Full System Data Structure:**
 ```typescript
 interface Checkpoint {
   id: string;
@@ -135,7 +147,7 @@ interface Checkpoint {
 }
 ```
 
-**Storage:**
+**Planned Storage:**
 - SQLite database or `.conclave/checkpoints/` directory
 - Compression for large conversations
 - Configurable retention policy
@@ -884,15 +896,17 @@ llm-conclave --dry-run "Task"
 - ✅ Cost & performance tracking (CostTracker)
 - ✅ Automatic retry logic with exponential backoff
 - ✅ Iterative mode optimizations (84% fewer API calls)
+- ✅ Streaming output (--stream flag)
+- ✅ Basic resume capability (--start-chunk in iterative mode)
 
 ### Phase 2 (Next) - Q1 2026
 **Focus: User experience & reliability**
-- Streaming output
+- Full checkpoint/resume system with history preservation
 - Template library & guided runbooks
-- Checkpoint/resume system
 - Quick wins (colored output, quiet mode, JSON format, etc.)
 - Tool permission profiles & sandboxing
 - Budget alerts and spend limits
+- Streaming event channel for external UIs & webhooks
 
 ### Phase 3 (Future) - Q2 2026
 **Focus: Scalability & intelligence**
