@@ -49,13 +49,13 @@ class TemplateManager {
                     prompt: 'You are a DevOps engineer. Critique designs based on deployability, observability, scalability, and operational costs.'
                 },
                 'ProductOwner': {
-                    model: 'gemini-1.5-pro-latest',
+                    model: 'gemini-2.5-pro',
                     prompt: 'You are a Product Owner. Ensure the technical design meets user needs, is feasible within timeline, and delivers business value.'
                 }
             },
             judge: {
                 model: 'claude-3-5-sonnet-latest',
-                prompt: 'You are the CTO. Evaluate the proposed architecture and the team\'s feedback. specific decision.'
+                prompt: 'You are the CTO. Evaluate the proposed architecture and the team\'s feedback. Synthesize a final recommendation and help the team make a specific decision.'
             }
         });
         // 3. Documentation Review

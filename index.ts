@@ -410,6 +410,8 @@ Options:
   --init [name]       Interactive setup wizard (creates config and project)
   --init --template-only    Create template config without interactive setup
   --config <path>     Specify a custom configuration file path
+  --template <name>   Use a built-in template (alias: --runbook)
+  --list-templates    List all available templates
   --project <path>    Include file or directory context for analysis
   --orchestrated      Use orchestrated mode (primary/secondary/validation flow)
   --iterative         Use iterative collaborative mode (multi-turn chunk discussion)
