@@ -19,8 +19,9 @@ export class Server {
     this.httpServer = http.createServer(this.app);
     this.io = new SocketIOServer(this.httpServer, {
       cors: {
-        origin: "*", // Allow all for now, configure for production
-        methods: ["GET", "POST"]
+        origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',') || "http://localhost:3000",
+        methods: ["GET", "POST"],
+        credentials: true
       }
     });
     this.eventBus = EventBus.getInstance();
@@ -36,7 +37,10 @@ export class Server {
   }
 
   private setupMiddleware() {
-    this.app.use(cors());
+    this.app.use(cors({
+      origin: process.env.WEB_UI_ALLOWED_ORIGINS?.split(',') || "http://localhost:3000",
+      credentials: true
+    }));
     this.app.use(express.json());
     this.app.use(express.static(path.join(process.cwd(), 'public')));
   }
@@ -57,6 +61,8 @@ export class Server {
         // Run asynchronously - don't wait for completion
         this.sessionManager.startTask(options).catch(err => {
             console.error("Background task failed:", err);
+            // Propagate error to client via EventBus
+            this.eventBus.emitEvent('error', { message: err.message });
         });
         res.json({ status: 'started', message: 'Task started successfully' });
       } catch (error: any) {

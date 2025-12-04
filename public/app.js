@@ -41,30 +41,32 @@ async function loadTemplates() {
 
 startForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    
+
     const task = document.getElementById('task-input').value;
     const template = templateSelect.value;
     const mode = document.getElementById('mode-select').value;
-    
+    const projectPath = document.getElementById('project-path-input').value;
+
     if (!task) return;
-    
+
     // Reset UI
     outputContainer.innerHTML = '';
     agentBar.innerHTML = '';
     activityLog.innerHTML = '';
     agents = {};
-    
+
     try {
         await fetch('/api/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                task, 
+            body: JSON.stringify({
+                task,
                 template: template || undefined,
-                mode: template ? undefined : mode // Use selected mode if no template
+                mode: template ? undefined : mode, // Use selected mode if no template
+                projectPath: projectPath || undefined
             })
         });
-        
+
         addSystemMessage('Session started...');
     } catch (err) {
         addSystemMessage(`Error: ${err.message}`, 'text-red-500');
