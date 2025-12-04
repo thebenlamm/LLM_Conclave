@@ -13,43 +13,116 @@ export default abstract class LLMProvider {
   }
 
   /**
+   * Check if an error is retryable (network errors, rate limits)
+   */
+  private isRetryableError(error: any): boolean {
+    const errorMessage = error.message?.toLowerCase() || '';
+
+    // Network errors
+    if (errorMessage.includes('fetch failed') ||
+        errorMessage.includes('network error') ||
+        errorMessage.includes('econnreset') ||
+        errorMessage.includes('etimedout') ||
+        errorMessage.includes('socket hang up')) {
+      return true;
+    }
+
+    // Rate limiting
+    if (errorMessage.includes('rate limit') ||
+        errorMessage.includes('too many requests') ||
+        errorMessage.includes('429')) {
+      return true;
+    }
+
+    // Service unavailable
+    if (errorMessage.includes('503') ||
+        errorMessage.includes('service unavailable')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Sleep for a specified number of milliseconds
+   */
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
    * Send a message to the LLM and get a response.
-   * This method handles the timing and cost tracking for the call.
+   * This method handles the timing, cost tracking, and automatic retries for the call.
    * @param messages - Array of message objects
    * @param systemPrompt - Optional system prompt to guide the LLM
    * @param options - Optional parameters like tools
    * @returns The LLM's response with text and optional tool calls
    */
   async chat(messages: Message[], systemPrompt?: string | null, options?: ChatOptions): Promise<ProviderResponse> {
-    const startTime = Date.now();
-    let success = false;
-    let response: ProviderResponse;
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
+    let lastError: any;
 
-    try {
-      response = await this.performChat(messages, systemPrompt, options);
-      success = true;
-      return response;
-    } catch (error) {
-      // Re-throw the error after logging
-      throw error;
-    } finally {
-      const endTime = Date.now();
-      const latency = endTime - startTime;
-      
-      // @ts-ignore
-      const inputTokens = response?.usage?.input_tokens || 0;
-      // @ts-ignore
-      const outputTokens = response?.usage?.output_tokens || 0;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const startTime = Date.now();
+      let success = false;
+      let response: ProviderResponse | undefined;
 
-      CostTracker.getInstance().logCall({
-        provider: this.getProviderName(),
-        model: this.getModelName(),
-        inputTokens,
-        outputTokens,
-        latency,
-        success,
-      });
+      try {
+        response = await this.performChat(messages, systemPrompt, options);
+        success = true;
+        return response;
+      } catch (error: any) {
+        lastError = error;
+
+        // Log the call with failure
+        const endTime = Date.now();
+        const latency = endTime - startTime;
+        const inputTokens = response?.usage?.input_tokens || 0;
+        const outputTokens = response?.usage?.output_tokens || 0;
+
+        CostTracker.getInstance().logCall({
+          provider: this.getProviderName(),
+          model: this.getModelName(),
+          inputTokens,
+          outputTokens,
+          latency,
+          success: false,
+        });
+
+        // Check if error is retryable
+        if (attempt < maxRetries && this.isRetryableError(error)) {
+          const delay = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff
+          console.log(`      ⚠️  ${this.getProviderName()} error (attempt ${attempt}/${maxRetries}): ${error.message}`);
+          console.log(`      🔄 Retrying in ${delay}ms...`);
+          await this.sleep(delay);
+          continue; // Retry
+        }
+
+        // Non-retryable error or max retries reached
+        throw error;
+      } finally {
+        // Only log successful calls here (failures logged above)
+        if (response) {
+          const endTime = Date.now();
+          const latency = endTime - startTime;
+          const inputTokens = response.usage?.input_tokens || 0;
+          const outputTokens = response.usage?.output_tokens || 0;
+
+          CostTracker.getInstance().logCall({
+            provider: this.getProviderName(),
+            model: this.getModelName(),
+            inputTokens,
+            outputTokens,
+            latency,
+            success: true,
+          });
+        }
+      }
     }
+
+    // If we get here, all retries failed
+    throw lastError;
   }
 
   /**

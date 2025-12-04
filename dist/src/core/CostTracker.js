@@ -4,7 +4,7 @@ exports.CostTracker = void 0;
 class CostTracker {
     constructor() {
         this.logs = [];
-        // Last Updated: 2025-12-02
+        // Last Updated: 2025-12-03
         // Pricing sources:
         // - OpenAI: https://openai.com/api/pricing/
         // - Anthropic: https://www.anthropic.com/pricing
@@ -12,9 +12,12 @@ class CostTracker {
         // - Mistral: https://mistral.ai/technology/#pricing
         this.pricing = {
             // OpenAI
-            'gpt-4.1': { input: 0.005, output: 0.015 },
+            'gpt-5': { input: 0.00125, output: 0.01 },
+            'gpt-5-mini': { input: 0.00025, output: 0.002 },
+            'gpt-5-nano': { input: 0.0001, output: 0.0004 }, // Estimated: reported to scale down further
+            'gpt-4.1': { input: 0.003, output: 0.012 },
             'gpt-4.1-mini': { input: 0.00015, output: 0.0006 },
-            'gpt-4o': { input: 0.005, output: 0.015 },
+            'gpt-4o': { input: 0.0025, output: 0.01 },
             'gpt-4-turbo': { input: 0.01, output: 0.03 },
             'gpt-3.5-turbo': { input: 0.0005, output: 0.0015 },
             'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
