@@ -18,6 +18,7 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
 - **Smart Agent Generation**: AI creates optimized, concise agents (1-4 based on task complexity) with format-enforced prompts
 - **Guided Runbooks & Template Library**: Use predefined templates for common tasks like code review, architecture design, and bug investigation, pre-configuring agents and modes for low-friction setup.
 - **Flexible Configuration**: Use the same model multiple times with different system prompts
+- **Web UI Dashboard**: Real-time browser-based dashboard to manage sessions, view live token streams, and monitor agent activity.
 - **Autonomous Operation**: Runs fully autonomously after task submission
 - **Comprehensive Output**: Saves full transcript, consensus, cost logs, and JSON data
 
@@ -45,17 +46,17 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
    llm-conclave --init
    # Or without npm link: node index.js --init
    ```
-   This creates `.llm-conclave.json` with optimized agents tailored to your project:
-   - **Simple tasks** (OCR, formatting, translation) → 1-2 concise agents
-   - **Complex tasks** (strategy, design, multi-domain decisions) → 2-4 specialized agents
-   - All agents include **format enforcement** and **explicit output requirements**
+   This creates `.llm-conclave.json` with optimized agents tailored to your project.
 
-2. **Edit the configuration** to customize your agents (see Configuration section below)
+2. **Launch the Web UI:**
+   ```bash
+   llm-conclave --server
+   ```
+   Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-3. **Run with a task:**
+3. **Or run via CLI:**
    ```bash
    llm-conclave "Design a social media application"
-   # Or: node index.js "Design a social media application"
    ```
 
 ## Usage
@@ -63,20 +64,22 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
 ### Basic Usage
 
 ```bash
+# Start Web UI (Recommended)
+llm-conclave --server
+
 # Provide task as argument
-node index.js "Your task here"
+llm-conclave "Your task here"
 
 # Read task from file
-node index.js task.txt
-
-# Interactive mode (will prompt for task)
-node index.js
+llm-conclave task.txt
 ```
 
 ### Options
 
 ```bash
 --help, -h                      # Show help information
+--server                        # Start the Web UI server (http://localhost:3000)
+--port <n>                      # Port for Web UI server (default: 3000)
 --init                          # Create AI-generated agent configuration
 --list-templates                # List available runbook templates
 --template <name>               # Use a predefined runbook template for the task
