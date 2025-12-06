@@ -45,6 +45,8 @@ const path = __importStar(require("path"));
 const ConfigLoader_1 = __importDefault(require("./src/core/ConfigLoader"));
 const ConversationManager_1 = __importDefault(require("./src/core/ConversationManager"));
 const OutputHandler_1 = __importDefault(require("./src/core/OutputHandler"));
+const SessionManager_1 = __importDefault(require("./src/core/SessionManager"));
+const ContinuationHandler_1 = __importDefault(require("./src/core/ContinuationHandler"));
 const ProviderFactory_1 = __importDefault(require("./src/providers/ProviderFactory"));
 const ProjectContext_1 = __importDefault(require("./src/utils/ProjectContext"));
 const MemoryManager_1 = __importDefault(require("./src/memory/MemoryManager"));
@@ -157,6 +159,24 @@ async function main() {
         }
         if (args.includes('--delete-project')) {
             await handleDeleteProject(args);
+            process.exit(0);
+        }
+        // Handle session management commands
+        if (args.includes('--list-sessions')) {
+            await handleListSessions(args);
+            process.exit(0);
+        }
+        if (args.includes('--show-session')) {
+            await handleShowSession(args);
+            process.exit(0);
+        }
+        if (args.includes('--delete-session')) {
+            await handleDeleteSession(args);
+            process.exit(0);
+        }
+        // Handle resume/continue
+        if (args.includes('--continue') || args.includes('--resume')) {
+            await handleResumeSession(args);
             process.exit(0);
         }
         // Load configuration or template
@@ -342,6 +362,12 @@ async function main() {
             const filePaths = await OutputHandler_1.default.saveResults(result);
             // Print summary
             OutputHandler_1.default.printSummary(result, filePaths);
+            // Save session for resume/continuation
+            const sessionManager = new SessionManager_1.default();
+            const session = sessionManager.createSessionManifest('consensus', task, Object.values(conversationManager.agents), result.conversationHistory, { ...result, ...filePaths }, judge, projectContext?.formatContext());
+            await sessionManager.saveSession(session);
+            console.log(`\n✓ Session saved: ${session.id}`);
+            console.log(`  Use --continue or --resume ${session.id} to ask follow-up questions\n`);
         }
         const summary = CostTracker_1.CostTracker.getInstance().getSummary();
         console.log(`\n${'='.repeat(80)}`);
@@ -415,6 +441,13 @@ Project Memory Options:
   --list-projects           List all projects
   --project-info <id>       Show information about a project
   --delete-project <id>     Delete a project
+
+Session Management Options:
+  --list-sessions           List all saved conversation sessions
+  --show-session <id>       Show details of a specific session
+  --continue                Continue the most recent session with a follow-up
+  --resume <id>             Resume a specific session by ID
+  --delete-session <id>     Delete a saved session
 
 Modes:
   Standard Mode (default):
@@ -606,6 +639,245 @@ async function handleDeleteProject(args) {
         console.error(`❌ ${error.message}\n`);
         process.exit(1);
     }
+}
+/**
+ * Handle --list-sessions command
+ */
+async function handleListSessions(args) {
+    const sessionManager = new SessionManager_1.default();
+    await sessionManager.initialize();
+    // Parse filters from args
+    const modeIndex = args.indexOf('--mode');
+    const mode = modeIndex !== -1 ? args[modeIndex + 1] : undefined;
+    const limitIndex = args.indexOf('--limit');
+    const limit = limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : 10;
+    try {
+        const sessions = await sessionManager.listSessions({ mode, limit });
+        if (sessions.length === 0) {
+            console.log('\nNo sessions found.\n');
+            console.log('Sessions are automatically saved after each conversation.');
+            console.log('Run a conversation first, then use --list-sessions to see it.\n');
+            return;
+        }
+        console.log(`\nRecent Sessions (showing ${sessions.length}):\n`);
+        sessions.forEach((session, index) => {
+            console.log(sessionManager.formatSessionSummary(session, index + 1));
+            console.log();
+        });
+        console.log(`\nUse --show-session <id> to see full details`);
+        console.log(`Use --continue or --resume <id> to continue a conversation\n`);
+    }
+    catch (error) {
+        console.error(`❌ Error listing sessions: ${error.message}\n`);
+        process.exit(1);
+    }
+}
+/**
+ * Handle --show-session command
+ */
+async function handleShowSession(args) {
+    const sessionManager = new SessionManager_1.default();
+    const continuationHandler = new ContinuationHandler_1.default();
+    const index = args.indexOf('--show-session');
+    const sessionId = args[index + 1];
+    if (!sessionId) {
+        console.error('❌ Please provide a session ID: --show-session <id>\n');
+        console.log('Use --list-sessions to see available sessions\n');
+        process.exit(1);
+    }
+    try {
+        const session = await sessionManager.loadSession(sessionId);
+        if (!session) {
+            console.error(`❌ Session '${sessionId}' not found.\n`);
+            console.log('Use --list-sessions to see available sessions\n');
+            process.exit(1);
+        }
+        console.log('\n' + '='.repeat(80));
+        console.log('SESSION DETAILS');
+        console.log('='.repeat(80) + '\n');
+        console.log(continuationHandler.extractSessionSummary(session));
+        console.log('\n' + '='.repeat(80) + '\n');
+    }
+    catch (error) {
+        console.error(`❌ Error loading session: ${error.message}\n`);
+        process.exit(1);
+    }
+}
+/**
+ * Handle --delete-session command
+ */
+async function handleDeleteSession(args) {
+    const sessionManager = new SessionManager_1.default();
+    const index = args.indexOf('--delete-session');
+    const sessionId = args[index + 1];
+    if (!sessionId) {
+        console.error('❌ Please provide a session ID: --delete-session <id>\n');
+        console.log('Use --list-sessions to see available sessions\n');
+        process.exit(1);
+    }
+    try {
+        const success = await sessionManager.deleteSession(sessionId);
+        if (success) {
+            console.log(`✓ Deleted session: ${sessionId}\n`);
+        }
+        else {
+            console.error(`❌ Failed to delete session: ${sessionId}\n`);
+            process.exit(1);
+        }
+    }
+    catch (error) {
+        console.error(`❌ Error deleting session: ${error.message}\n`);
+        process.exit(1);
+    }
+}
+/**
+ * Handle --continue or --resume command
+ */
+async function handleResumeSession(args) {
+    const sessionManager = new SessionManager_1.default();
+    const continuationHandler = new ContinuationHandler_1.default();
+    // Determine if it's --continue (most recent) or --resume <id>
+    const isContinue = args.includes('--continue');
+    const resumeIndex = args.indexOf('--resume');
+    let sessionId = null;
+    if (isContinue) {
+        // Load most recent session
+        const recentSession = await sessionManager.getMostRecentSession();
+        if (!recentSession) {
+            console.error('❌ No sessions found to continue.\n');
+            console.log('Run a conversation first before using --continue\n');
+            process.exit(1);
+        }
+        sessionId = recentSession.id;
+    }
+    else if (resumeIndex !== -1) {
+        // Load specific session
+        sessionId = args[resumeIndex + 1];
+        if (!sessionId) {
+            console.error('❌ Please provide a session ID: --resume <id>\n');
+            console.log('Use --list-sessions to see available sessions\n');
+            process.exit(1);
+        }
+    }
+    if (!sessionId) {
+        console.error('❌ No session specified\n');
+        process.exit(1);
+    }
+    // Load session
+    const session = await sessionManager.loadSession(sessionId);
+    if (!session) {
+        console.error(`❌ Session '${sessionId}' not found.\n`);
+        console.log('Use --list-sessions to see available sessions\n');
+        process.exit(1);
+    }
+    // Validate resumable
+    const validation = continuationHandler.validateResumable(session);
+    if (!validation.isValid) {
+        console.error(`❌ Cannot resume session:\n`);
+        validation.warnings.forEach(w => console.error(`  - ${w}`));
+        console.error();
+        process.exit(1);
+    }
+    if (validation.warnings.length > 0) {
+        console.log('⚠️  Warnings:');
+        validation.warnings.forEach(w => console.log(`  - ${w}`));
+        console.log();
+    }
+    // Display session info
+    console.log('\n' + '='.repeat(80));
+    console.log('RESUMING SESSION');
+    console.log('='.repeat(80) + '\n');
+    console.log(`Session ID: ${session.id}`);
+    console.log(`Original Task: ${session.task}`);
+    console.log(`Mode: ${session.mode}`);
+    console.log(`Previous Rounds: ${session.currentRound}`);
+    if (session.finalSolution) {
+        const preview = session.finalSolution.substring(0, 150);
+        console.log(`Previous Outcome: ${preview}${session.finalSolution.length > 150 ? '...' : ''}`);
+    }
+    console.log('\n' + '='.repeat(80) + '\n');
+    // Get follow-up task
+    const followUpTaskIndex = args.findIndex(arg => !arg.startsWith('--') && arg !== sessionId);
+    let followUpTask;
+    if (followUpTaskIndex !== -1) {
+        followUpTask = args[followUpTaskIndex];
+    }
+    else {
+        // Prompt for follow-up
+        followUpTask = await promptForFollowUp();
+    }
+    if (!followUpTask || followUpTask.trim() === '') {
+        console.error('❌ No follow-up question provided\n');
+        process.exit(1);
+    }
+    console.log(`Follow-up: ${followUpTask}\n`);
+    // Prepare continuation
+    const prepared = continuationHandler.prepareForContinuation(session, followUpTask);
+    // Load configuration based on session's agents
+    let config;
+    try {
+        config = ConfigLoader_1.default.load();
+    }
+    catch (error) {
+        // Create minimal config from session
+        config = {
+            turn_management: 'consensus',
+            max_rounds: 3,
+            judge: {
+                model: session.judge?.model || 'gpt-4o',
+                prompt: session.judge?.systemPrompt || 'You are the judge. Evaluate consensus.'
+            },
+            agents: {}
+        };
+        session.agents.forEach(agent => {
+            config.agents[agent.name] = {
+                model: agent.model,
+                prompt: agent.systemPrompt
+            };
+        });
+    }
+    // Create conversation manager
+    const conversationManager = new ConversationManager_1.default(config, null, false);
+    // Create judge
+    const judge = {
+        provider: ProviderFactory_1.default.createProvider(session.judge?.model || config.judge.model),
+        systemPrompt: session.judge?.systemPrompt || config.judge.prompt
+    };
+    // Start continuation
+    console.log(`Starting continuation...\n`);
+    const result = await conversationManager.startConversation(prepared.newTask, judge, null);
+    // Save as new session linked to parent
+    const newSession = sessionManager.createSessionManifest(session.mode, prepared.newTask, Object.values(conversationManager.agents), result.conversationHistory, result, judge, session.projectContext);
+    newSession.parentSessionId = session.id;
+    await sessionManager.saveSession(newSession);
+    // Save outputs
+    const filePaths = await OutputHandler_1.default.saveResults(result);
+    OutputHandler_1.default.printSummary(result, filePaths);
+    // Show cost summary
+    const summary = CostTracker_1.CostTracker.getInstance().getSummary();
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`SESSION COST & PERFORMANCE`);
+    console.log(`${'='.repeat(80)}\n`);
+    console.log(`Total Cost: $${summary.totalCost.toFixed(6)}`);
+    console.log(`Total Tokens: ${summary.totalTokens.input + summary.totalTokens.output}`);
+    console.log();
+    console.log(`✓ Continuation saved as session: ${newSession.id}`);
+    console.log(`  (Parent session: ${session.id})\n`);
+}
+/**
+ * Prompt for follow-up question
+ */
+async function promptForFollowUp() {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+    return new Promise((resolve) => {
+        rl.question('Enter your follow-up question or task: ', (answer) => {
+            rl.close();
+            resolve(answer.trim());
+        });
+    });
 }
 /**
  * Save orchestrated conversation results

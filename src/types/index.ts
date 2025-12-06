@@ -270,3 +270,146 @@ export interface ProviderAvailability {
   available: boolean;
   priority: number;
 }
+
+// ============================================================================
+// Session & Resume Types
+// ============================================================================
+
+export interface SessionManifest {
+  // Identity
+  id: string;
+  timestamp: string;
+
+  // Configuration
+  mode: 'consensus' | 'orchestrated' | 'iterative';
+  task: string;
+  agents: SessionAgentConfig[];
+  judge?: SessionAgentConfig;
+
+  // State
+  status: 'in_progress' | 'completed' | 'interrupted' | 'error';
+  currentRound: number;
+  maxRounds?: number;
+
+  // Content
+  conversationHistory: SessionMessage[];
+  projectContext?: string;
+
+  // Mode-specific state
+  iterativeState?: IterativeSessionState;
+  orchestratedState?: OrchestratedSessionState;
+
+  // Results
+  consensusReached?: boolean;
+  finalSolution?: string;
+
+  // Metadata
+  cost: SessionCostInfo;
+
+  // Lineage (for branching/continuation)
+  parentSessionId?: string;
+  branchPoint?: number;
+
+  // File paths
+  outputFiles: SessionOutputFiles;
+}
+
+export interface SessionAgentConfig {
+  name: string;
+  model: string;
+  provider: string;
+  systemPrompt: string;
+}
+
+export interface SessionMessage {
+  role: 'system' | 'user' | 'assistant' | 'judge' | 'tool_result';
+  content: string;
+  speaker?: string;
+  model?: string;
+  timestamp: string;
+  roundNumber: number;
+
+  // Tool usage
+  tool_calls?: ToolCall[];
+
+  // Metadata
+  tokens?: { input: number; output: number };
+  cost?: number;
+  latency?: number;
+
+  // Resume context
+  isContinuation?: boolean;
+  continuationContext?: string;
+  error?: boolean;
+}
+
+export interface IterativeSessionState {
+  currentChunk: number;
+  totalChunks: number;
+  agentNotes: Record<string, string>;
+  sharedOutput: string;
+}
+
+export interface OrchestratedSessionState {
+  toolExecutions: ToolExecution[];
+  fileStates: Record<string, FileSnapshot>;
+}
+
+export interface FileSnapshot {
+  path: string;
+  contentHash: string;
+  timestamp: string;
+}
+
+export interface SessionCostInfo {
+  totalCost: number;
+  totalTokens: { input: number; output: number };
+  totalCalls: number;
+  averageLatency?: number;
+}
+
+export interface SessionOutputFiles {
+  transcript: string;
+  consensus?: string;
+  json: string;
+  agentNotes?: string[];
+  sharedOutput?: string;
+}
+
+export interface SessionSummary {
+  id: string;
+  timestamp: string;
+  mode: string;
+  task: string;
+  status: string;
+  roundCount: number;
+  agentCount: number;
+  cost: number;
+  parentSessionId?: string;
+}
+
+export interface SessionIndexManifest {
+  sessions: SessionSummary[];
+  lastCleanup?: string;
+  totalSessions: number;
+}
+
+export interface ContinuationOptions {
+  resetDiscussion?: boolean;
+  forceConsensus?: boolean;
+  includeFullHistory?: boolean;
+  models?: string[];
+}
+
+export interface ResumableSession {
+  session: SessionManifest;
+  isValid: boolean;
+  warnings: string[];
+}
+
+export interface SessionListFilters {
+  mode?: string;
+  status?: string;
+  since?: Date;
+  limit?: number;
+}
