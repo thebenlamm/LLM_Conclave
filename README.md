@@ -17,6 +17,7 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
 - **Streaming Output**: Real-time streaming of agent responses as they're generated
 - **Smart Agent Generation**: AI creates optimized, concise agents (1-4 based on task complexity) with format-enforced prompts
 - **Guided Runbooks & Template Library**: Use predefined templates for common tasks like code review, architecture design, and bug investigation, pre-configuring agents and modes for low-friction setup.
+- **Session Persistence & Continuation**: Automatically saves all conversations with ability to ask follow-up questions and continue discussions
 - **Flexible Configuration**: Use the same model multiple times with different system prompts
 - **Web UI Dashboard**: Real-time browser-based dashboard to manage sessions, view live token streams, and monitor agent activity.
 - **Autonomous Operation**: Runs fully autonomously after task submission
@@ -92,6 +93,11 @@ llm-conclave task.txt
 --max-rounds-per-chunk <n>      # Max discussion rounds per chunk (default: 5)
 --stream                        # Enable real-time streaming of agent responses
 --project-id <id>               # Use persistent project memory
+--list-sessions                 # List all saved conversation sessions
+--show-session <id>             # Show details of a specific session
+--continue                      # Continue most recent session with a follow-up
+--resume <id>                   # Resume a specific session by ID
+--delete-session <id>           # Delete a saved session
 ```
 
 ### Operational Modes
@@ -193,6 +199,90 @@ llm-conclave --stream "Design a microservices architecture"
 # Streaming with project context
 llm-conclave --stream --project ./src "Review and explain this codebase"
 ```
+
+## Session Management & Continuation
+
+LLM Conclave automatically saves all conversations, allowing you to continue discussions with follow-up questions or resume interrupted sessions.
+
+### Features
+
+- **Automatic Saving**: Every conversation is automatically saved to `~/.llm-conclave/sessions/`
+- **Session History**: List and browse all previous conversations
+- **Continuation**: Ask follow-up questions to any previous conversation
+- **Linked Sessions**: Continuations are linked to their parent sessions
+- **Full Context**: Agents see the complete conversation history when continuing
+
+### Usage
+
+```bash
+# List all saved sessions
+llm-conclave --list-sessions
+
+# List with filters
+llm-conclave --list-sessions --mode consensus --limit 5
+
+# Show details of a specific session
+llm-conclave --show-session session_2025-12-06T20-42-25_a3f2
+
+# Continue the most recent session
+llm-conclave --continue "Can you elaborate on the scalability concerns?"
+
+# Resume a specific session by ID
+llm-conclave --resume session_2025-12-06T20-42-25_a3f2 "What about using a database?"
+
+# Delete a session
+llm-conclave --delete-session session_2025-12-06T20-42-25_a3f2
+```
+
+### Example Workflow
+
+```bash
+# 1. Run initial conversation
+$ llm-conclave "Evaluate my AI brain storage idea"
+# ... conversation happens ...
+✓ Session saved: session_2025-12-06T20-42-25_a3f2
+
+# 2. Later, ask a follow-up question
+$ llm-conclave --continue "Can you elaborate on the indexing strategies?"
+→ Loading session session_2025-12-06T20-42-25_a3f2...
+→ Continuing discussion with 5 agents...
+# ... agents see full context and continue the discussion ...
+✓ Continuation saved as session: session_2025-12-06T21-15-30_b7e9
+  (Parent session: session_2025-12-06T20-42-25_a3f2)
+
+# 3. View session history
+$ llm-conclave --list-sessions
+Recent Sessions (showing 2):
+
+1. [Dec 6, 9:15 PM] "This is a continuation of a previous discussion..."
+   Mode: consensus | Rounds: 1 | Cost: $0.0156 (continuation)
+
+2. [Dec 6, 8:42 PM] "Evaluate my AI brain storage idea"
+   Mode: consensus | Rounds: 1 | Cost: $0.0234
+```
+
+### What Gets Saved
+
+Each session includes:
+- Full conversation history with all agent responses
+- Agent configurations (models, system prompts)
+- Task description and final solution
+- Cost and performance metrics
+- Links to parent sessions (for continuations)
+- Output file paths
+
+### Session Storage
+
+Sessions are stored in `~/.llm-conclave/sessions/` with this structure:
+
+```
+~/.llm-conclave/sessions/
+├── manifest.json                              # Index of all sessions
+└── session_2025-12-06T20-42-25_a3f2/
+    └── session.json                           # Full session data
+```
+
+Sessions persist across projects and directories, making it easy to continue conversations from anywhere.
 
 ## Using Streaming and Cost Monitoring
 
@@ -446,6 +536,13 @@ All outputs are saved to the `outputs/` directory with timestamps:
 - **`*-consensus.md`**: Final solution and summary of how it was reached
 - **`*-full.json`**: Complete data in JSON format for programmatic access
 - **`cost_log.json`**: Detailed cost and performance metrics for the session (see [Cost & Performance Monitoring](#cost--performance-monitoring))
+
+Additionally, sessions are automatically saved for continuation:
+
+- **`~/.llm-conclave/sessions/`**: Persistent session storage across all projects
+  - Each session includes full conversation history, agent configs, costs, and lineage
+  - Use `--list-sessions` to view and `--continue`/`--resume` to continue conversations
+  - See [Session Management & Continuation](#session-management--continuation) for details
 
 ## API Keys
 
