@@ -22,6 +22,7 @@ import { createContinueCommand } from './src/commands/continue';
 import { createServerCommand } from './src/commands/server';
 import { createConfigCommand } from './src/commands/config';
 import { createPersonasCommand } from './src/commands/personas';
+import { createConsultStatsCommand } from './src/commands/consult-stats';
 
 const program = new Command();
 
@@ -247,6 +248,7 @@ program.addCommand(createDiscussCommand());
 program.addCommand(createReviewCommand());
 program.addCommand(createIterateCommand());
 program.addCommand(createConsultCommand());
+program.addCommand(createConsultStatsCommand());
 program.addCommand(createTemplateCommand());
 program.addCommand(createInitCommand());
 program.addCommand(createTemplatesCommand());

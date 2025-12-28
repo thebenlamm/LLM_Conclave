@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import ConsultOrchestrator from '../orchestration/ConsultOrchestrator';
 import ProjectContext from '../utils/ProjectContext';
+import ConsultLogger from '../utils/ConsultLogger';
 import { ConsultationResult } from '../types';
 
 /**
@@ -42,6 +43,11 @@ export function createConsultCommand(): Command {
 
         // Execute consultation
         const result = await orchestrator.consult(question, context);
+
+        // Persist consultation for analytics
+        const logger = new ConsultLogger();
+        const logPaths = await logger.log(result);
+        console.log(chalk.gray(`Logs saved to ${logPaths.jsonPath}`));
 
         // Format and display output
         displayOutput(result, options.format);
