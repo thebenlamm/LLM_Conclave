@@ -43,6 +43,7 @@ const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const ConsultOrchestrator_1 = __importDefault(require("../orchestration/ConsultOrchestrator"));
 const ProjectContext_1 = __importDefault(require("../utils/ProjectContext"));
+const ConsultLogger_1 = __importDefault(require("../utils/ConsultLogger"));
 /**
  * Consult command - Fast multi-model consultation
  * Get quick consensus from Security Expert, Architect, and Pragmatist
@@ -73,6 +74,10 @@ function createConsultCommand() {
             });
             // Execute consultation
             const result = await orchestrator.consult(question, context);
+            // Persist consultation for analytics
+            const logger = new ConsultLogger_1.default();
+            const logPaths = await logger.log(result);
+            console.log(chalk_1.default.gray(`Logs saved to ${logPaths.jsonPath}`));
             // Format and display output
             displayOutput(result, options.format);
         }

@@ -57,6 +57,7 @@ const continue_1 = require("./src/commands/continue");
 const server_1 = require("./src/commands/server");
 const config_1 = require("./src/commands/config");
 const personas_1 = require("./src/commands/personas");
+const consult_stats_1 = require("./src/commands/consult-stats");
 const program = new commander_1.Command();
 // Banner
 console.log(chalk_1.default.cyan(`
@@ -239,6 +240,7 @@ program.addCommand((0, discuss_1.createDiscussCommand)());
 program.addCommand((0, review_1.createReviewCommand)());
 program.addCommand((0, iterate_1.createIterateCommand)());
 program.addCommand((0, consult_1.createConsultCommand)());
+program.addCommand((0, consult_stats_1.createConsultStatsCommand)());
 program.addCommand((0, template_1.createTemplateCommand)());
 program.addCommand((0, init_1.createInitCommand)());
 program.addCommand((0, templates_1.createTemplatesCommand)());
