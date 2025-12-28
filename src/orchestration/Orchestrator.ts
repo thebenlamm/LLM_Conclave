@@ -16,6 +16,7 @@ import ProviderFactory from '../providers/ProviderFactory';
 import ToolRegistry from '../tools/ToolRegistry';
 import MemoryManager from '../memory/MemoryManager';
 import { EventBus } from '../core/EventBus';
+import TokenCounter from '../utils/TokenCounter';
 import {
   Config,
   Agent,
@@ -267,6 +268,31 @@ export default class Orchestrator {
     while (iterations < maxIterations) {
       iterations++;
 
+      // Check token limits before making API call
+      const tokenCheck = TokenCounter.checkLimits(
+        currentMessages,
+        agent.systemPrompt,
+        agent.model
+      );
+
+      if (!quiet && !tokenCheck.safe) {
+        console.log(`      ⚠️  Warning: ${tokenCheck.warning}`);
+        console.log(`      📊 Current: ${tokenCheck.currentTokens} tokens (${tokenCheck.percentUsed}% of limit)`);
+      }
+
+      // If we're WAY over the limit, truncate messages
+      if (tokenCheck.currentTokens > tokenCheck.maxTokens * 0.9) {
+        const safeLimit = Math.floor(tokenCheck.maxTokens * 0.7); // Use 70% of limit
+        const truncateResult = TokenCounter.truncateMessages(currentMessages, agent.systemPrompt, safeLimit);
+
+        if (truncateResult.truncated) {
+          currentMessages = truncateResult.messages;
+          if (!quiet) {
+            console.log(`      ✂️  Truncated conversation history to fit within token limits`);
+          }
+        }
+      }
+
       // Call agent with tools
       // Grok and Mistral use OpenAI format since they're OpenAI-compatible
       const providerName = agent.provider.getProviderName();
@@ -349,7 +375,7 @@ export default class Orchestrator {
     if (!quiet) {
       console.log(`[${agentName} (${agent.model}) is responding...]\n`);
     }
-    
+
     if (this.eventBus) {
         this.eventBus.emitEvent('agent:thinking', { agent: agentName, model: agent.model });
     }
@@ -361,6 +387,19 @@ You have access to tools to read and write files, list files, edit files, and ru
 Important: Once you've read a file, you have access to its complete contents in the conversation history. If you need additional context from a file you've already read, refer back to that content rather than requesting more information.`;
 
     const messages = [{ role: 'user', content: prompt }];
+
+    // DEBUG: Log token counts
+    console.log('\n🔍 DEBUG TOKEN ANALYSIS:');
+    console.log(`   System prompt length: ${agent.systemPrompt.length} chars (${Math.ceil(agent.systemPrompt.length/4)} tokens est.)`);
+    console.log(`   Context length: ${context.length} chars (${Math.ceil(context.length/4)} tokens est.)`);
+    console.log(`   Task length: ${task.length} chars (${Math.ceil(task.length/4)} tokens est.)`);
+    console.log(`   Full prompt length: ${prompt.length} chars (${Math.ceil(prompt.length/4)} tokens est.)`);
+    console.log(`   TOTAL ESTIMATED: ${Math.ceil((agent.systemPrompt.length + prompt.length)/4)} tokens`);
+    if (context.length > 1000) {
+      console.log(`\n   ⚠️  WARNING: Context is ${context.length} chars! First 500 chars:`);
+      console.log(`   ${context.substring(0, 500)}...`);
+    }
+    console.log('');
 
     try {
       const response = await this.executeAgentWithTools(agent, messages, quiet);
