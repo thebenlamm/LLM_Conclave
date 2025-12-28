@@ -40,65 +40,140 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
    npm link
    ```
 
-## Quick Start
+## Quick Start (v2 - New Interface! 🎉)
 
-1. **Initialize configuration:**
-   ```bash
-   llm-conclave --init
-   # Or without npm link: node index.js --init
-   ```
-   This creates `.llm-conclave.json` with optimized agents tailored to your project.
-
-2. **Launch the Web UI:**
-   ```bash
-   llm-conclave --server
-   ```
-   Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-3. **Or run via CLI:**
-   ```bash
-   llm-conclave "Design a social media application"
-   ```
-
-## Usage
-
-### Basic Usage
+**Zero-config mode** - works immediately without setup:
 
 ```bash
-# Start Web UI (Recommended)
-llm-conclave --server
+# Just run it! No configuration needed.
+llm-conclave "Review my authentication code"
 
-# Provide task as argument
+# Uses smart defaults:
+# - Auto-detects best mode (consensus/orchestrated/iterative)
+# - 3 expert agents (Claude Sonnet 4.5, GPT-4o, Gemini Pro)
+# - Judge: GPT-4o
+```
+
+**Or use expert personas:**
+
+```bash
+# Specify which experts you want
+llm-conclave --with security,performance "Review this API"
+
+# Available personas:
+# security, performance, architecture, creative, skeptic,
+# pragmatic, testing, devops, accessibility, documentation
+```
+
+**Or launch the Web UI:**
+
+```bash
+llm-conclave server
+```
+
+**Optional: Initialize custom config:**
+
+```bash
+llm-conclave init
+# Creates .llm-conclave.json with AI-generated agents
+```
+
+## Usage (v2 CLI)
+
+### Command Structure
+
+LLM Conclave v2 uses **Git-style subcommands** for better organization:
+
+```bash
+llm-conclave <subcommand> [options] "task"
+```
+
+### Core Commands
+
+#### Smart Mode (Auto-detection)
+```bash
+# Analyzes your task and picks the best mode automatically
 llm-conclave "Your task here"
-
-# Read task from file
-llm-conclave task.txt
+llm-conclave -p ./src "Review this codebase"
 ```
 
-### Options
+#### Explicit Modes
 
 ```bash
---help, -h                      # Show help information
---server                        # Start the Web UI server (http://localhost:3000)
---port <n>                      # Port for Web UI server (default: 3000)
---init                          # Create AI-generated agent configuration
---list-templates                # List available runbook templates
---template <name>               # Use a predefined runbook template for the task
---runbook <name>                # Alias for --template
---config <path>                 # Use custom configuration file
---project <path>                # Include file or directory context for analysis
---orchestrated                  # Use orchestrated mode (primary/secondary/validation workflow)
---iterative                     # Use iterative collaborative mode (multi-turn chunk discussion)
---chunk-size <n>                # Chunk size for iterative mode (default: 3)
---max-rounds-per-chunk <n>      # Max discussion rounds per chunk (default: 5)
---stream                        # Enable real-time streaming of agent responses
---project-id <id>               # Use persistent project memory
---list-sessions                 # List all saved conversation sessions
---show-session <id>             # Show details of a specific session
---continue                      # Continue most recent session with a follow-up
---resume <id>                   # Resume a specific session by ID
---delete-session <id>           # Delete a saved session
+# Democratic discussion (consensus mode)
+llm-conclave discuss "Design a payment system"
+
+# Structured review (orchestrated mode)
+llm-conclave review -p ./src/auth "Audit security"
+
+# Chunk-based iteration (iterative mode)
+llm-conclave iterate --deep "Fix bugs line by line"
 ```
+
+#### Templates
+
+```bash
+# Use predefined workflows
+llm-conclave templates              # List available
+llm-conclave template code-review "Review API"
+```
+
+#### Personas
+
+```bash
+# Use expert roles
+llm-conclave personas               # List available
+llm-conclave --with security,performance "Review code"
+```
+
+#### Session Management
+
+```bash
+llm-conclave sessions               # List all sessions
+llm-conclave continue "Follow-up question"
+llm-conclave continue <id> "Another question"
+```
+
+#### Configuration
+
+```bash
+llm-conclave init                   # Interactive setup
+llm-conclave config show            # View current config
+llm-conclave config set judge.model gpt-4o
+```
+
+#### Web UI
+
+```bash
+llm-conclave server                 # Start on port 3000
+llm-conclave server -p 8080         # Custom port
+```
+
+### Common Options
+
+```bash
+-p, --project <path>        # Project context (file or directory)
+-c, --config <path>         # Custom config file
+--with <personas>           # Comma-separated expert personas
+--quick                     # Quick mode (fewer rounds)
+--deep                      # Deep mode (more thorough)
+--thorough                  # Maximum thoroughness
+--stream / --no-stream      # Enable/disable streaming
+-h, --help                  # Show help
+```
+
+### v1 Commands (Still Supported)
+
+Old commands still work with deprecation warnings:
+
+```bash
+llm-conclave --orchestrated "task"  # Use: llm-conclave review "task"
+llm-conclave --iterative "task"     # Use: llm-conclave iterate "task"
+llm-conclave --init                 # Use: llm-conclave init
+llm-conclave --list-templates       # Use: llm-conclave templates
+```
+
+See **[MIGRATION_GUIDE_V2.md](./MIGRATION_GUIDE_V2.md)** for full migration details.
 
 ### Operational Modes
 
