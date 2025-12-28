@@ -413,3 +413,79 @@ export interface SessionListFilters {
   since?: Date;
   limit?: number;
 }
+
+// ============================================================================
+// Consult Mode Types
+// ============================================================================
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  total: number;
+}
+
+export interface AgentResponse {
+  agentName: string;
+  model: string;
+  content: string;
+  tokens: TokenUsage;
+  duration_ms: number;
+  error?: string;
+}
+
+export interface AgentPerspective {
+  agent: string;
+  model: string;
+  opinion: string;
+}
+
+export interface ConsensusSynthesis {
+  consensus: string;
+  confidence: number;
+  recommendation: string;
+  reasoning: Record<string, string>;
+  concerns: string[];
+  dissent: string[];
+  perspectives: AgentPerspective[];
+  tokens: TokenUsage;
+}
+
+export interface CostSummary {
+  tokens: TokenUsage;
+  usd: number;
+}
+
+export interface ConsultationResult {
+  consultation_id: string;
+  timestamp: string;
+  question: string;
+  context: string;
+  agents: { name: string; model: string }[];
+  rounds: number;
+  responses: {
+    round1: AgentResponse[];
+    round2: AgentResponse[];
+  };
+  consensus: string;
+  confidence: number;
+  recommendation: string;
+  reasoning: Record<string, string>;
+  concerns: string[];
+  dissent: string[];
+  perspectives: AgentPerspective[];
+  cost: CostSummary;
+  duration_ms: number;
+}
+
+export interface ConsultOrchestratorOptions {
+  maxRounds?: number;
+  verbose?: boolean;
+}
+
+export interface ConsultOptions {
+  context?: string;
+  project?: string;
+  format: 'markdown' | 'json' | 'both';
+  quick: boolean;
+  verbose: boolean;
+}
