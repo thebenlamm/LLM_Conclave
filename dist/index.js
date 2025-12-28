@@ -48,6 +48,7 @@ const ModeDetector_1 = require("./src/cli/ModeDetector");
 const discuss_1 = require("./src/commands/discuss");
 const review_1 = require("./src/commands/review");
 const iterate_1 = require("./src/commands/iterate");
+const consult_1 = require("./src/commands/consult");
 const template_1 = require("./src/commands/template");
 const init_1 = require("./src/commands/init");
 const templates_1 = require("./src/commands/templates");
@@ -237,6 +238,7 @@ async function runIterativeMode(task, options) {
 program.addCommand((0, discuss_1.createDiscussCommand)());
 program.addCommand((0, review_1.createReviewCommand)());
 program.addCommand((0, iterate_1.createIterateCommand)());
+program.addCommand((0, consult_1.createConsultCommand)());
 program.addCommand((0, template_1.createTemplateCommand)());
 program.addCommand((0, init_1.createInitCommand)());
 program.addCommand((0, templates_1.createTemplatesCommand)());

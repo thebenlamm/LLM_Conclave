@@ -13,6 +13,7 @@ import { ModeDetector } from './src/cli/ModeDetector';
 import { createDiscussCommand } from './src/commands/discuss';
 import { createReviewCommand } from './src/commands/review';
 import { createIterateCommand } from './src/commands/iterate';
+import { createConsultCommand } from './src/commands/consult';
 import { createTemplateCommand } from './src/commands/template';
 import { createInitCommand } from './src/commands/init';
 import { createTemplatesCommand } from './src/commands/templates';
@@ -245,6 +246,7 @@ async function runIterativeMode(task: string, options: any) {
 program.addCommand(createDiscussCommand());
 program.addCommand(createReviewCommand());
 program.addCommand(createIterateCommand());
+program.addCommand(createConsultCommand());
 program.addCommand(createTemplateCommand());
 program.addCommand(createInitCommand());
 program.addCommand(createTemplatesCommand());
