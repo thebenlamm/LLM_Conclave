@@ -29,11 +29,15 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.1",
     "@google/genai": "^1.30.0",
+    "chalk": "^4.1.2",
+    "commander": "^14.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "glob": "^13.0.0",
+    "inquirer": "^9.3.8",
     "openai": "^6.9.1",
+    "ora": "^5.4.1",
     "socket.io": "^4.8.1"
   },
   "engines": {
@@ -43,6 +47,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/glob": "^8.1.0",
+    "@types/inquirer": "^9.0.9",
     "@types/node": "^24.10.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
