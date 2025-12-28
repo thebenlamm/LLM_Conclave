@@ -1,0 +1,4 @@
+prefix_rule(pattern=["curl", "-sL", "https://duckduckgo.com/html/?q=oclif%20create%20command"], decision="allow")
+prefix_rule(pattern=["curl", "-sL", "https://r.jina.ai/http://https://www.bing.com/search?q=oclif%20create%20command"], decision="allow")
+prefix_rule(pattern=["curl", "-sL", "https://r.jina.ai/http://www.bing.com/search?q=oclif%20create%20command"], decision="allow")
+prefix_rule(pattern=["curl", "-sL", "https://r.jina.ai/http://oclif.io/docs/introduction"], decision="allow")
