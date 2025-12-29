@@ -65,6 +65,20 @@ export class ProviderHealthMonitor {
   }
 
   /**
+   * Check if at least one check has completed for any provider
+   * (Used to avoid false alarms on startup)
+   */
+  public hasCompletedFirstCheck(): boolean {
+    for (const id of this.monitoredProviders) {
+      const health = this.healthStatus.get(id);
+      if (health && health.lastChecked.getTime() > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Check if at least one provider is healthy
    */
   public hasHealthyProviders(): boolean {
@@ -108,18 +122,19 @@ export class ProviderHealthMonitor {
     try {
       const provider = ProviderFactory.createProvider(providerId);
       
+      // Enforce 10s timeout (Fix for High Priority Issue)
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Health check timed out')), HEALTH_CHECK_CONFIG.TIMEOUT_MS);
+      });
+
       // Use the provider's health check method
       // This allows specific providers to optimize checks (e.g. specialized endpoints)
       // while falling back to "ping" chat for others via base class
-      if (typeof provider.healthCheck === 'function') {
-         await provider.healthCheck();
-      } else {
-         // Fallback if provider doesn't inherit LLMProvider properly (shouldn't happen in our codebase)
-         await provider.chat(
-           [{ role: 'user', content: 'ping' }],
-           'Reply with "pong" only.'
-         );
-      }
+      const checkPromise = (typeof provider.healthCheck === 'function')
+         ? provider.healthCheck()
+         : provider.chat([{ role: 'user', content: 'ping' }], 'Reply with "pong" only.');
+
+      await Promise.race([checkPromise, timeoutPromise]);
       
       latency = Date.now() - startTime;
       success = true;

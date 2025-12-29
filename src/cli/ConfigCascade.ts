@@ -9,7 +9,7 @@ import ConfigLoader from '../core/ConfigLoader';
  * 1. CLI flags
  * 2. Environment variables (CONCLAVE_*)
  * 3. Project config (.llm-conclave.json)
- * 4. Global config (~/.config/llm-conclave/config.json)
+ * 4. Global config (~/.llm-conclave/config.json)
  * 5. Smart defaults (built-in)
  */
 export class ConfigCascade {
@@ -79,7 +79,7 @@ export class ConfigCascade {
    * Load global configuration from user's home directory
    */
   private static loadGlobalConfig(): any {
-    const globalConfigPath = path.join(os.homedir(), '.config', 'llm-conclave', 'config.json');
+    const globalConfigPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
 
     if (!fs.existsSync(globalConfigPath)) {
       return {};
@@ -185,7 +185,7 @@ export class ConfigCascade {
    */
   static shouldUseZeroConfig(): boolean {
     const projectConfigExists = fs.existsSync('.llm-conclave.json');
-    const globalConfigPath = path.join(os.homedir(), '.config', 'llm-conclave', 'config.json');
+    const globalConfigPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
     const globalConfigExists = fs.existsSync(globalConfigPath);
 
     return !projectConfigExists && !globalConfigExists;

@@ -25,7 +25,7 @@ describe('CostGate', () => {
       totalTokens: 9234,
       estimatedCostUsd: 0.45
     };
-    configPath = path.join(os.homedir(), '.config', 'llm-conclave', 'config.json');
+    configPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
 
     // Clear mocks
     mockPrompt.mockClear();

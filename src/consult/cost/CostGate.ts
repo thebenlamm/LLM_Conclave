@@ -100,7 +100,7 @@ export class CostGate {
    * @param amount - USD threshold amount
    */
   async saveAutoApproveThreshold(amount: number): Promise<void> {
-    const configPath = path.join(os.homedir(), '.config', 'llm-conclave', 'config.json');
+    const configPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
 
     // Ensure directory exists
     const configDir = path.dirname(configPath);
