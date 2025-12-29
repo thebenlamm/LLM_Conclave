@@ -58,9 +58,10 @@ export class ConsultationFileLogger {
     // Convert to snake_case JSON using ArtifactTransformer
     const jsonResult = ArtifactTransformer.consultationResultToJSON(result);
 
-    // Add schema_version
+    // Add schema_version and status
     const logData = {
       ...jsonResult,
+      status: result.status || 'complete',
       schema_version: '1.0'
     };
 
