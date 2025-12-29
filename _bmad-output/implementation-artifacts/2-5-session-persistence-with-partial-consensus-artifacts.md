@@ -1,6 +1,6 @@
 # Story 2.5: Session Persistence with Partial Consensus Artifacts
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -122,6 +122,12 @@ So that I can resume work after interruptions or inspect incomplete results when
   - [x] Test partial save on user cancellation (mocked pulse)
   - [x] Test partial save on provider error
   - [x] Test analytics indexing of partial sessions
+
+### Review Follow-ups (AI)
+
+- [ ] [AI-Review][Medium] Improve `ConsultOrchestratorPersistence.test.ts` to verify `saveCheckpoint` calls using mocks [src/orchestration/__tests__/ConsultOrchestratorPersistence.test.ts]
+- [ ] [AI-Review][Low] Add schema validation to `PartialResultManager.loadPartialResults` instead of unsafe casting [src/consult/persistence/PartialResultManager.ts]
+- [ ] [AI-Review][Low] Refactor hardcoded "1.0" schema versions to a constant in `ConsultOrchestrator.ts`
 
 ## Dev Notes
 

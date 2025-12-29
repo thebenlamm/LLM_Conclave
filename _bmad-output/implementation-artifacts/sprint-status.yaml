@@ -58,7 +58,7 @@ development_status:
   2-2-provider-health-monitoring-system: review
   2-3-hedged-requests-with-provider-substitution: review
   2-4-60-second-interactive-pulse-with-soft-timeouts: review
-  2-5-session-persistence-with-partial-consensus-artifacts: review
+  2-5-session-persistence-with-partial-consensus-artifacts: done
   2-6-token-efficient-debate-with-artifact-filtering: ready-for-dev
   epic-2-retrospective: optional
 
