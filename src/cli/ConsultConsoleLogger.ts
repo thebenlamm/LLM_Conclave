@@ -18,32 +18,37 @@ export class ConsultConsoleLogger {
    */
   public start(): void {
     // Consultation Started
-    this.eventBus.on('consultation:started', (payload: any) => {
+    this.eventBus.on('consultation:started', (event: any) => {
+      const payload = event?.payload ?? event;
       console.log(chalk.bold.blue(`
 🔍 Starting consultation with ${payload.agents.length} experts...`));
     });
 
     // Cost Estimated
-    this.eventBus.on('consultation:cost_estimated', (payload: any) => {
-       console.log(chalk.cyan(`💰 Estimated Cost: $${payload.estimated_cost.toFixed(4)}`));
-       console.log(chalk.gray(`   (Input: ${payload.input_tokens}, Expected Output: ${payload.expected_output_tokens})`));
+    this.eventBus.on('consultation:cost_estimated', (event: any) => {
+      const payload = event?.payload ?? event;
+      console.log(chalk.cyan(`💰 Estimated Cost: $${payload.estimated_cost.toFixed(4)}`));
+      console.log(chalk.gray(`   (Input: ${payload.input_tokens}, Expected Output: ${payload.expected_output_tokens})`));
     });
 
     // User Consent
-    this.eventBus.on('consultation:user_consent', (payload: any) => {
+    this.eventBus.on('consultation:user_consent', (event: any) => {
+      const payload = event?.payload ?? event;
       if (payload.approved) {
         console.log(chalk.green(`✅ Approved. Starting execution...`));
       }
     });
 
     // Agent Thinking
-    this.eventBus.on('agent:thinking', (payload: any) => {
+    this.eventBus.on('agent:thinking', (event: any) => {
+      const payload = event?.payload ?? event;
       const spinner = ora(chalk.yellow(`⚡ ${payload.agent_name} thinking...`)).start();
       this.spinners.set(payload.agent_name, spinner);
     });
 
     // Agent Completed
-    this.eventBus.on('agent:completed', (payload: any) => {
+    this.eventBus.on('agent:completed', (event: any) => {
+      const payload = event?.payload ?? event;
       const spinner = this.spinners.get(payload.agent_name);
       if (spinner) {
         spinner.succeed(chalk.green(`✅ ${payload.agent_name} completed (${(payload.duration_ms / 1000).toFixed(1)}s)`));
@@ -54,14 +59,16 @@ export class ConsultConsoleLogger {
     });
 
     // Round Completed
-    this.eventBus.on('round:completed', (payload: any) => {
+    this.eventBus.on('round:completed', (event: any) => {
+      const payload = event?.payload ?? event;
       console.log(chalk.bold.white(`
 📋 Round ${payload.round_number} complete
 `));
     });
 
     // Consultation Completed
-    this.eventBus.on('consultation:completed', (payload: any) => {
+    this.eventBus.on('consultation:completed', (event: any) => {
+      const payload = event?.payload ?? event;
       console.log(chalk.bold.magenta(`
 ✨ Consultation complete
 `));

@@ -86,7 +86,7 @@ export class SynthesisSchema {
       throw new Error(`Consensus point at index ${index} must have 'supportingAgents' string array`);
     }
     if (typeof cp.confidence !== 'number' || cp.confidence < 0 || cp.confidence > 1) {
-      throw new Error(`Consensus point at index ${index} must have 'confidence' between 0 and 1`);
+      throw new Error('ConsensusPoint.confidence must be a number between 0 and 1');
     }
   }
 
@@ -96,6 +96,9 @@ export class SynthesisSchema {
     }
     if (!Array.isArray(t.viewpoints)) {
       throw new Error(`Tension at index ${index} must have 'viewpoints' array`);
+    }
+    if (t.viewpoints.length < 2) {
+      throw new Error('Tension must have at least 2 viewpoints');
     }
     t.viewpoints.forEach((vp: any, vpIndex: number) => {
       if (typeof vp.agent !== 'string' || typeof vp.viewpoint !== 'string') {
