@@ -56,9 +56,9 @@ development_status:
   epic-2: in-progress
   2-1-user-consent-flow-with-cost-gate: review
   2-2-provider-health-monitoring-system: review
-  2-3-hedged-requests-with-provider-substitution: backlog
+  2-3-hedged-requests-with-provider-substitution: review
   2-4-60-second-interactive-pulse-with-soft-timeouts: ready-for-dev
-  2-5-session-persistence-with-partial-consensus-artifacts: backlog
+  2-5-session-persistence-with-partial-consensus-artifacts: ready-for-dev
   2-6-token-efficient-debate-with-artifact-filtering: backlog
   epic-2-retrospective: optional
 

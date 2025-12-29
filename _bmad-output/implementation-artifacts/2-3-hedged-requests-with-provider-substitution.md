@@ -1,6 +1,6 @@
 # Story 2.3: Hedged Requests with Provider Substitution
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -85,41 +85,41 @@ Switch to xAI (Grok) for this agent? [Y/n/Fail]
 
 ## Tasks / Subtasks
 
-- [ ] Create `src/consult/health/ProviderTiers.ts` (AC: #2)
-  - [ ] Define `ProviderTier` enum (Tier1, Tier2, Tier3)
-  - [ ] Create `PROVIDER_TIER_MAP` mapping provider names to tiers
-  - [ ] Create `getProvidersInTier(tier)` function
-  - [ ] Create `getBackupProvider(primary, healthStatus)` function
+- [x] Create `src/consult/health/ProviderTiers.ts` (AC: #2)
+  - [x] Define `ProviderTier` enum (Tier1, Tier2, Tier3)
+  - [x] Create `PROVIDER_TIER_MAP` mapping provider names to tiers
+  - [x] Create `getProvidersInTier(tier)` function
+  - [x] Create `getBackupProvider(primary, healthStatus)` function
 
-- [ ] Create `src/consult/health/HedgedRequestManager.ts` (AC: #1, #2, #3, #4, #5)
-  - [ ] Implement `executeAgentWithHedging(agent, prompt, healthMonitor)`
-  - [ ] Implement `raceWithTimeout(primaryPromise, backupPromise, timeout)`
-  - [ ] Implement `promptUserForSubstitution(provider, error)`
-  - [ ] Integrate with `ProviderHealthMonitor` for health checks
-  - [ ] Integrate with `EventBus` for substitution events
+- [x] Create `src/consult/health/HedgedRequestManager.ts` (AC: #1, #2, #3, #4, #5)
+  - [x] Implement `executeAgentWithHedging(agent, prompt, healthMonitor)`
+  - [x] Implement `raceWithTimeout(primaryPromise, backupPromise, timeout)`
+  - [x] Implement `promptUserForSubstitution(provider, error)`
+  - [x] Integrate with `ProviderHealthMonitor` for health checks
+  - [x] Integrate with `EventBus` for substitution events
 
-- [ ] Update `src/orchestration/ConsultOrchestrator.ts` (AC: #1, #3, #4)
-  - [ ] Replace direct agent execution with `HedgedRequestManager.executeAgentWithHedging()`
-  - [ ] Pass `ProviderHealthMonitor` instance to hedged manager
-  - [ ] Handle substitution prompts in consultation flow
-  - [ ] Update Round 1 (Independent) to use hedged requests
-  - [ ] Update Round 3 (CrossExam) to use hedged requests
-  - [ ] Update Round 4 (Verdict) to use hedged requests for judge
+- [x] Update `src/orchestration/ConsultOrchestrator.ts` (AC: #1, #3, #4)
+  - [x] Replace direct agent execution with `HedgedRequestManager.executeAgentWithHedging()`
+  - [x] Pass `ProviderHealthMonitor` instance to hedged manager
+  - [x] Handle substitution prompts in consultation flow
+  - [x] Update Round 1 (Independent) to use hedged requests
+  - [x] Update Round 3 (CrossExam) to use hedged requests
+  - [ ] Update Round 4 (Verdict) to use hedged requests for judge (SKIPPED: Per Dev Notes warning) (SKIPPED: Per Dev Notes warning "DO NOT implement hedging for ... verdict")
 
-- [ ] Update `src/core/EventBus.ts` (AC: #4)
-  - [ ] Add `consultation:provider_substituted` to EventType enum
+- [x] Update `src/core/EventBus.ts` (AC: #4)
+  - [x] Add `consultation:provider_substituted` to EventType enum
 
-- [ ] Update `src/types/consult.ts` (AC: #4, #5)
-  - [ ] Add `ProviderSubstitution` interface
-  - [ ] Add `substitutions[]` field to `ConsultationResult`
-  - [ ] Add `provider_error` field to `AgentResponse`
+- [x] Update `src/types/consult.ts` (AC: #4, #5)
+  - [x] Add `ProviderSubstitution` interface
+  - [x] Add `substitutions[]` field to `ConsultationResult`
+  - [x] Add `provider_error` field to `AgentResponse`
 
-- [ ] Add Unit Tests
-  - [ ] `src/consult/health/__tests__/ProviderTiers.test.ts`
-  - [ ] `src/consult/health/__tests__/HedgedRequestManager.test.ts`
+- [x] Add Unit Tests
+  - [x] `src/consult/health/__tests__/ProviderTiers.test.ts`
+  - [x] `src/consult/health/__tests__/HedgedRequestManager.test.ts`
 
-- [ ] Add Integration Tests
-  - [ ] `src/orchestration/__tests__/ConsultOrchestratorHedging.test.ts`
+- [x] Add Integration Tests
+  - [x] `src/orchestration/__tests__/ConsultOrchestratorHedging.test.ts`
 
 ## Dev Notes
 
@@ -394,14 +394,15 @@ _To be filled by dev agent_
 
 ### File List
 
-**Files to Create:**
+**Files Created:**
 - `src/consult/health/ProviderTiers.ts`
 - `src/consult/health/HedgedRequestManager.ts`
 - `src/consult/health/__tests__/ProviderTiers.test.ts`
 - `src/consult/health/__tests__/HedgedRequestManager.test.ts`
 - `src/orchestration/__tests__/ConsultOrchestratorHedging.test.ts`
 
-**Files to Modify:**
+**Files Modified:**
 - `src/orchestration/ConsultOrchestrator.ts`
 - `src/core/EventBus.ts`
 - `src/types/consult.ts`
+- `src/consult/cost/CostGate.ts` (ESM fix)
