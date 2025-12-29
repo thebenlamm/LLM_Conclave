@@ -2,7 +2,7 @@
  * Cross-Examination Schema (Round 3)
  *
  * Validates artifacts from Round 3: Cross-Examination phase where
- * agents challenge each other's positions and provide rebuttals.
+ * the Judge agent synthesizes challenges and rebuttals.
  */
 
 import { CrossExamArtifact, Challenge, Rebuttal } from '../../../types/consult';
@@ -44,78 +44,61 @@ export class CrossExamSchema {
       throw new Error('roundNumber must be 3 for CrossExam artifacts');
     }
 
-    // Validate challenges
+    // Validate Challenges
     if (!Array.isArray(artifact.challenges)) {
       throw new Error('challenges must be an array');
     }
+    artifact.challenges.forEach((c: any, index: number) => {
+      this.validateChallenge(c, index);
+    });
 
-    for (const challenge of artifact.challenges) {
-      this.validateChallenge(challenge);
-    }
-
-    // Validate rebuttals
+    // Validate Rebuttals
     if (!Array.isArray(artifact.rebuttals)) {
       throw new Error('rebuttals must be an array');
     }
+    artifact.rebuttals.forEach((r: any, index: number) => {
+      this.validateRebuttal(r, index);
+    });
 
-    for (const rebuttal of artifact.rebuttals) {
-      this.validateRebuttal(rebuttal);
-    }
-
-    // Validate unresolved
+    // Validate Unresolved
     if (!Array.isArray(artifact.unresolved)) {
       throw new Error('unresolved must be an array');
     }
-
-    if (!artifact.unresolved.every((item: any) => typeof item === 'string')) {
+    if (!artifact.unresolved.every((u: any) => typeof u === 'string')) {
       throw new Error('All unresolved items must be strings');
     }
 
-    // Validate createdAt
     if (typeof artifact.createdAt !== 'string') {
       throw new Error('createdAt must be an ISO 8601 timestamp string');
     }
 
+    // Validate timestamp format (basic check)
     if (!this.isValidISO8601(artifact.createdAt)) {
       throw new Error('createdAt must be a valid ISO 8601 timestamp');
     }
   }
 
-  /**
-   * Validate a Challenge
-   */
-  private static validateChallenge(challenge: any): void {
-    if (typeof challenge.challenger !== 'string' || challenge.challenger.length === 0) {
-      throw new Error('Challenge.challenger must be a non-empty string');
+  private static validateChallenge(c: any, index: number): void {
+    if (typeof c.challenger !== 'string' || c.challenger.length === 0) {
+      throw new Error(`Challenge at index ${index} missing valid 'challenger' string`);
     }
-
-    if (typeof challenge.targetAgent !== 'string' || challenge.targetAgent.length === 0) {
-      throw new Error('Challenge.targetAgent must be a non-empty string');
+    if (typeof c.targetAgent !== 'string' || c.targetAgent.length === 0) {
+      throw new Error(`Challenge at index ${index} missing valid 'targetAgent' string`);
     }
-
-    if (typeof challenge.challenge !== 'string' || challenge.challenge.length === 0) {
-      throw new Error('Challenge.challenge must be a non-empty string');
+    if (typeof c.challenge !== 'string' || c.challenge.length === 0) {
+      throw new Error(`Challenge at index ${index} missing valid 'challenge' string`);
     }
-
-    if (!Array.isArray(challenge.evidence)) {
-      throw new Error('Challenge.evidence must be an array');
-    }
-
-    if (!challenge.evidence.every((e: any) => typeof e === 'string')) {
-      throw new Error('All challenge.evidence items must be strings');
+    if (!Array.isArray(c.evidence) || !c.evidence.every((e: any) => typeof e === 'string')) {
+      throw new Error(`Challenge at index ${index} must have 'evidence' string array`);
     }
   }
 
-  /**
-   * Validate a Rebuttal
-   */
-  private static validateRebuttal(rebuttal: any): void {
-    if (typeof rebuttal.agent !== 'string' || rebuttal.agent.length === 0) {
-      throw new Error('Rebuttal.agent must be a non-empty string');
+  private static validateRebuttal(r: any, index: number): void {
+    if (typeof r.agent !== 'string' || r.agent.length === 0) {
+      throw new Error(`Rebuttal at index ${index} missing valid 'agent' string`);
     }
-
-    if (typeof rebuttal.rebuttal !== 'string' || rebuttal.rebuttal.length === 0) {
-      throw new Error('Rebuttal.rebuttal must be a non-empty string');
+    if (typeof r.rebuttal !== 'string' || r.rebuttal.length === 0) {
+      throw new Error(`Rebuttal at index ${index} missing valid 'rebuttal' string`);
     }
   }
 

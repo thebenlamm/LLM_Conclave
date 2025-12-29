@@ -1,8 +1,8 @@
 /**
  * Verdict Schema (Round 4)
  *
- * Validates artifacts from Round 4: Verdict phase where the judge
- * produces the final recommendation with confidence and dissent tracking.
+ * Validates artifacts from Round 4: Verdict phase where
+ * the Judge agent produces the final recommendation and confidence score.
  */
 
 import { VerdictArtifact, Dissent } from '../../../types/consult';
@@ -45,63 +45,49 @@ export class VerdictSchema {
       throw new Error('roundNumber must be 4 for Verdict artifacts');
     }
 
-    // Validate recommendation
     if (typeof artifact.recommendation !== 'string' || artifact.recommendation.length === 0) {
       throw new Error('recommendation must be a non-empty string');
     }
 
-    // Validate confidence
     if (typeof artifact.confidence !== 'number' || artifact.confidence < 0 || artifact.confidence > 1) {
       throw new Error('confidence must be a number between 0 and 1');
     }
 
-    // Validate evidence
+    // Validate Evidence
     if (!Array.isArray(artifact.evidence)) {
       throw new Error('evidence must be an array');
     }
-
     if (!artifact.evidence.every((e: any) => typeof e === 'string')) {
       throw new Error('All evidence items must be strings');
     }
 
-    if (artifact.evidence.length === 0) {
-      throw new Error('evidence must contain at least one item');
-    }
-
-    // Validate dissent
+    // Validate Dissent
     if (!Array.isArray(artifact.dissent)) {
       throw new Error('dissent must be an array');
     }
+    artifact.dissent.forEach((d: any, index: number) => {
+      this.validateDissent(d, index);
+    });
 
-    for (const diss of artifact.dissent) {
-      this.validateDissent(diss);
-    }
-
-    // Validate createdAt
     if (typeof artifact.createdAt !== 'string') {
       throw new Error('createdAt must be an ISO 8601 timestamp string');
     }
 
+    // Validate timestamp format (basic check)
     if (!this.isValidISO8601(artifact.createdAt)) {
       throw new Error('createdAt must be a valid ISO 8601 timestamp');
     }
   }
 
-  /**
-   * Validate a Dissent
-   */
-  private static validateDissent(dissent: any): void {
-    if (typeof dissent.agent !== 'string' || dissent.agent.length === 0) {
-      throw new Error('Dissent.agent must be a non-empty string');
+  private static validateDissent(d: any, index: number): void {
+    if (typeof d.agent !== 'string' || d.agent.length === 0) {
+      throw new Error(`Dissent at index ${index} missing valid 'agent' string`);
     }
-
-    if (typeof dissent.concern !== 'string' || dissent.concern.length === 0) {
-      throw new Error('Dissent.concern must be a non-empty string');
+    if (typeof d.concern !== 'string' || d.concern.length === 0) {
+      throw new Error(`Dissent at index ${index} missing valid 'concern' string`);
     }
-
-    const validSeverities = ['high', 'medium', 'low'];
-    if (typeof dissent.severity !== 'string' || !validSeverities.includes(dissent.severity)) {
-      throw new Error(`Dissent.severity must be one of: ${validSeverities.join(', ')}`);
+    if (!['high', 'medium', 'low'].includes(d.severity)) {
+      throw new Error(`Dissent at index ${index} has invalid severity: '${d.severity}'. Must be high, medium, or low.`);
     }
   }
 

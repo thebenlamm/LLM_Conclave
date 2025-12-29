@@ -25,6 +25,8 @@ import {
   ConsultState,
   IndependentArtifact,
   SynthesisArtifact,
+  CrossExamArtifact,
+  VerdictArtifact,
   AgentResponse,
   PromptVersions
 } from '../types/consult';
@@ -152,20 +154,38 @@ export default class ConsultOrchestrator {
     const synthesisArtifact = await this.executeRound2Synthesis(question, successfulArtifacts);
     
     // --- State: CrossExam (Round 3) ---
-    // this.stateMachine.transition(ConsultState.CrossExam);
+    this.stateMachine.transition(ConsultState.CrossExam);
+    if (this.verbose) console.log(`\n--- Round 3: Cross-Examination ---\n`);
+
+    let crossExamArtifact: CrossExamArtifact | null = null;
+    if (synthesisArtifact) {
+      crossExamArtifact = await this.executeRound3CrossExam(successfulArtifacts, synthesisArtifact);
+    } else {
+      console.warn("Skipping Round 3 due to missing Synthesis artifact");
+    }
     
-    // TODO: Implement Round 3 & 4 in subsequent stories.
-    // For this story verification (Story 1.4), we stop after Round 2.
-    // Synthesis -> Complete is a valid transition (early termination path).
+    // --- State: Verdict (Round 4) ---
+    this.stateMachine.transition(ConsultState.Verdict);
+    if (this.verbose) console.log(`\n--- Round 4: Verdict ---\n`);
+
+    let verdictArtifact: VerdictArtifact | null = null;
+    // We can proceed to Verdict even if CrossExam failed (using R1/R2)
+    // But we need at least Synthesis
+    if (synthesisArtifact) {
+        verdictArtifact = await this.executeRound4Verdict(question, successfulArtifacts, synthesisArtifact, crossExamArtifact);
+    } else {
+         throw new Error("Cannot generate Verdict without Synthesis artifact");
+    }
+
     this.stateMachine.transition(ConsultState.Complete);
 
     const durationMs = Date.now() - startTime;
     
-    const consensusText = synthesisArtifact
-      ? synthesisArtifact.consensusPoints
-          .map(point => `${point.point} (${Math.round(point.confidence * 100)}%)`)
-          .join('\n')
-      : 'Pending Round 2 implementation';
+    // Use Verdict for final results
+    const consensusText = verdictArtifact ? verdictArtifact.recommendation : (synthesisArtifact?.consensusPoints[0]?.point || "No consensus");
+    const confidence = verdictArtifact ? verdictArtifact.confidence : 0;
+    const recommendation = verdictArtifact ? verdictArtifact.recommendation : "Consultation incomplete";
+    const dissent = verdictArtifact ? verdictArtifact.dissent : [];
 
     const result: ConsultationResult = {
       consultationId: this.consultationId,
@@ -177,19 +197,21 @@ export default class ConsultOrchestrator {
       agentResponses,
       state: ConsultState.Complete,
       rounds: this.maxRounds,
-      completedRounds: 2,
+      completedRounds: verdictArtifact ? 4 : (crossExamArtifact ? 3 : 2),
       responses: {
         round1: successfulArtifacts,
-        round2: synthesisArtifact || undefined
+        round2: synthesisArtifact || undefined,
+        round3: crossExamArtifact || undefined,
+        round4: verdictArtifact || undefined
       },
       consensus: consensusText,
-      confidence: 0,
-      recommendation: 'Pending Round 4 implementation',
+      confidence,
+      recommendation,
       reasoning: {},
-      concerns: [],
-      dissent: [],
-      perspectives: [],
-      cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: estimate.estimatedCostUsd }, // Using estimate as actual for now
+      concerns: crossExamArtifact?.unresolved || [],
+      dissent,
+      perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
+      cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: estimate.estimatedCostUsd }, 
       durationMs,
       promptVersions: {
         mode: 'converge',
@@ -282,6 +304,176 @@ export default class ConsultOrchestrator {
       if (this.verbose) console.warn(`⚠️ Synthesis failed: ${error.message}`);
       // In a real scenario, we might want to fail the consultation or degrade gracefully
       this.stateMachine.transition(ConsultState.Aborted, `Synthesis failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Execute Round 4: Verdict
+   * - Judge synthesizes all rounds into final recommendation
+   */
+  private async executeRound4Verdict(
+    question: string,
+    round1Artifacts: IndependentArtifact[],
+    synthesisArtifact: SynthesisArtifact,
+    crossExamArtifact: CrossExamArtifact | null
+  ): Promise<VerdictArtifact> {
+    const startTime = Date.now();
+    
+    if (this.verbose) console.log(`⚡ Judge (GPT-4o) generating Final Verdict...`);
+
+    const judgeAgent = {
+      name: 'Judge (Verdict)',
+      model: 'gpt-4o',
+      provider: ProviderFactory.createProvider('gpt-4o'),
+      systemPrompt: this.getVerdictPrompt(question, round1Artifacts, synthesisArtifact, crossExamArtifact)
+    };
+
+    this.eventBus.emitEvent('agent:thinking' as any, {
+      consultation_id: this.consultationId,
+      agent_name: judgeAgent.name,
+      round: 4
+    });
+
+    try {
+      const response = await judgeAgent.provider.chat([
+        { role: 'user', content: 'Render your final verdict.' }
+      ], judgeAgent.systemPrompt);
+
+      const artifact = ArtifactExtractor.extractVerdictArtifact(response.text || '');
+
+      this.eventBus.emitEvent('consultation:round_artifact' as any, {
+        consultation_id: this.consultationId,
+        round_number: 4,
+        artifact_type: 'verdict',
+        artifact
+      });
+
+      this.eventBus.emitEvent('round:completed' as any, {
+        consultation_id: this.consultationId,
+        round_number: 4,
+        artifact_type: 'verdict'
+      });
+      
+      if (this.verbose) console.log(`✓ Verdict complete: ${Math.round(artifact.confidence * 100)}% confidence`);
+
+      return artifact;
+
+    } catch (error: any) {
+      if (this.verbose) console.warn(`⚠️ Verdict generation failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Execute Round 3: Cross-Examination
+   * - Agents critique consensus and each other
+   * - Judge synthesizes challenges and rebuttals
+   */
+  private async executeRound3CrossExam(
+    round1Artifacts: IndependentArtifact[],
+    synthesisArtifact: SynthesisArtifact
+  ): Promise<CrossExamArtifact | null> {
+    const startTime = Date.now();
+    
+    if (this.verbose) console.log(`⚡ Agents starting Cross-Examination...`);
+
+    // 1. Parallel execution of all agents
+    const promises = this.agents.map(async (agent) => {
+      // Find this agent's Round 1 artifact
+      const r1Artifact = round1Artifacts.find(a => a.agentId === agent.name); 
+      if (!r1Artifact) {
+          // If agent failed in R1, they can't cross-exam
+          return null;
+      }
+      
+      const systemPrompt = this.getCrossExamPrompt(agent.name, r1Artifact, synthesisArtifact);
+      
+      this.eventBus.emitEvent('agent:thinking' as any, {
+        consultation_id: this.consultationId,
+        agent_name: agent.name,
+        round: 3
+      });
+      
+      try {
+        const start = Date.now();
+        const response = await agent.provider.chat([
+          { role: 'user', content: 'Proceed with Cross-Examination.' }
+        ], systemPrompt);
+        const duration = Date.now() - start;
+
+        this.eventBus.emitEvent('agent:completed' as any, {
+          consultation_id: this.consultationId,
+          agent_name: agent.name,
+          duration_ms: duration,
+          tokens: response.usage
+        });
+
+        const agentResponse: AgentResponse = {
+          agentId: agent.name,
+          agentName: agent.name,
+          model: agent.model,
+          provider: 'unknown',
+          content: response.text || '',
+          tokens: response.usage || { input: 0, output: 0, total: 0 },
+          durationMs: duration,
+          timestamp: new Date().toISOString()
+        };
+        return agentResponse;
+      } catch (error) {
+        console.warn(`⚠️ Agent ${agent.name} failed in Round 3: ${(error as any).message}`);
+        return null;
+      }
+    });
+
+    const agentResponses = (await Promise.all(promises)).filter(r => r !== null) as AgentResponse[];
+    
+    if (agentResponses.length === 0) {
+        throw new Error("All agents failed in Round 3 Cross-Exam");
+    }
+
+    if (this.verbose) console.log(`⚡ Judge (GPT-4o) synthesizing Cross-Examination...`);
+
+    // 2. Judge Synthesis
+    const judgeAgent = {
+      name: 'Judge (Cross-Exam)',
+      model: 'gpt-4o',
+      provider: ProviderFactory.createProvider('gpt-4o'),
+      systemPrompt: this.getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact)
+    };
+
+    this.eventBus.emitEvent('agent:thinking' as any, {
+        consultation_id: this.consultationId,
+        agent_name: judgeAgent.name,
+        round: 3
+    });
+
+    try {
+      const response = await judgeAgent.provider.chat([
+          { role: 'user', content: 'Analyze the cross-examination.' }
+      ], judgeAgent.systemPrompt);
+      
+      const artifact = ArtifactExtractor.extractCrossExamArtifact(response.text || '');
+
+      this.eventBus.emitEvent('consultation:round_artifact' as any, {
+        consultation_id: this.consultationId,
+        round_number: 3,
+        artifact_type: 'cross_exam',
+        artifact
+      });
+
+      this.eventBus.emitEvent('round:completed' as any, {
+        consultation_id: this.consultationId,
+        round_number: 3,
+        artifact_type: 'cross_exam'
+      });
+      
+      if (this.verbose) console.log(`✓ Cross-Exam complete`);
+
+      return artifact;
+
+    } catch (error: any) {
+      if (this.verbose) console.warn(`⚠️ Cross-Exam Synthesis failed: ${error.message}`);
       throw error;
     }
   }
@@ -457,6 +649,185 @@ Use the following schema:
   ],
   "priority_order": ["Topic 1", "Topic 2", "Topic 3"]
 }`;
+  }
+
+  /**
+   * Cross-Examination Prompt for Agents
+   */
+  private getCrossExamPrompt(
+    agentName: string,
+    round1Artifact: IndependentArtifact,
+    synthesisArtifact: SynthesisArtifact
+  ): string {
+    return `You are participating in a multi-model consultation.
+You are the ${agentName}.
+
+### Your Previous Position (Round 1):
+${round1Artifact.position}
+${round1Artifact.rationale}
+
+### Current Consensus (Round 2):
+${synthesisArtifact.consensusPoints.map(cp => `- ${cp.point} (Confidence: ${cp.confidence})`).join('\n')}
+
+### Identified Tensions:
+${synthesisArtifact.tensions.map(t => `- ${t.topic}: ${t.viewpoints.map(v => v.viewpoint).join(' vs ')}`).join('\n')}
+
+### Instructions:
+1. **Review** the consensus and tensions.
+2. **Challenge** any consensus points that ignore your critical risks or insights.
+3. **Defend** your position if it was marked as a tension.
+4. **Refine** your stance based on others' valid points.
+
+IMPORTANT: You must provide your response in valid JSON format ONLY.
+Do not include any introductory or concluding text.
+Use the following schema:
+
+{
+  "critique": "Your critique of the current consensus",
+  "challenges": [
+    {
+      "target_agent": "Agent Name (or 'Consensus')",
+      "challenge_point": "Specific argument you are challenging",
+      "evidence": "Why they are wrong (based on your expertise)"
+    }
+  ],
+  "defense": "Defense of your position against identified tensions (if applicable)",
+  "revised_position": "Your updated position after considering others' views"
+}
+`;
+  }
+
+  /**
+   * Cross-Examination Synthesis Prompt for Judge
+   */
+  private getCrossExamSynthesisPrompt(
+    agentResponses: AgentResponse[],
+    synthesisArtifact: SynthesisArtifact
+  ): string {
+    // Format agent responses for the judge
+    // Note: We attempt to parse JSON content, but fallback to raw text if parsing fails
+    const responsesText = agentResponses.map(r => {
+      let content = r.content;
+      try {
+        const json = JSON.parse(r.content);
+        content = `
+**Critique:** ${json.critique}
+**Challenges:** ${JSON.stringify(json.challenges)}
+**Defense:** ${json.defense}
+**Revised Position:** ${json.revised_position}
+`;
+      } catch (e) {
+        // Fallback for malformed JSON
+      }
+      return `### Agent: ${r.agentName}\n${content}`;
+    }).join('\n---\n');
+
+    return `You are the Debate Judge.
+Review the challenges and defenses from the Cross-Examination round.
+
+### Previous Consensus:
+${JSON.stringify(synthesisArtifact.consensusPoints)}
+
+### Agent Cross-Examination Responses:
+${responsesText}
+
+### Instructions:
+1. Extract **Challenges**: Who successfully challenged whom?
+2. Extract **Rebuttals**: Who defended their position well?
+3. Identify **Unresolved Tensions**: What disagreements remain significant?
+
+IMPORTANT: You must provide your response in valid JSON format ONLY.
+Do not include any introductory or concluding text.
+Use the following schema:
+
+{
+  "challenges": [
+    {
+      "challenger": "Agent Name",
+      "target_agent": "Agent Name",
+      "challenge": "The core challenge point",
+      "evidence": ["Evidence 1", "Evidence 2"]
+    }
+  ],
+  "rebuttals": [
+    {
+      "agent": "Agent Name",
+      "rebuttal": "The defense provided"
+    }
+  ],
+  "unresolved": ["Tension 1", "Tension 2"]
+}
+`;
+  }
+
+  /**
+   * Verdict Prompt for Judge
+   */
+  private getVerdictPrompt(
+    question: string,
+    round1Artifacts: IndependentArtifact[],
+    synthesisArtifact: SynthesisArtifact,
+    crossExamArtifact: CrossExamArtifact | null
+  ): string {
+    const r1Summary = round1Artifacts.map(a => `- ${a.agentId}: ${a.position} (Confidence: ${a.confidence})`).join('\n');
+    const r2Summary = synthesisArtifact.consensusPoints.map(cp => `- ${cp.point}`).join('\n');
+    
+    let r3Summary = "No Cross-Examination conducted.";
+    if (crossExamArtifact) {
+        r3Summary = `
+**Challenges:**
+${crossExamArtifact.challenges.map(c => `- ${c.challenger} -> ${c.targetAgent}: ${c.challenge}`).join('\n')}
+
+**Rebuttals:**
+${crossExamArtifact.rebuttals.map(r => `- ${r.agent} defended: ${r.rebuttal}`).join('\n')}
+
+**Unresolved Issues:**
+${crossExamArtifact.unresolved.map(u => `- ${u}`).join('\n')}
+`;
+    }
+
+    return `You are the Final Judge in a high-stakes multi-model consultation.
+Your goal is to issue a final Verdict on the user's question.
+
+### User Question:
+${question}
+
+### The Debate Record:
+**Round 1 (Positions):**
+${r1Summary}
+
+**Round 2 (Consensus):**
+${r2Summary}
+
+**Round 3 (Cross-Examination):**
+${r3Summary}
+
+### Instructions:
+1. **Weigh the Evidence:** Prioritize consensus points that survived cross-examination. Discard points that were successfully challenged without rebuttal.
+2. **Form a Recommendation:** Provide a single, clear, actionable answer.
+3. **Assess Confidence:**
+   - High (>0.9): Strong consensus, no unresolved issues.
+   - Medium (0.7-0.9): General agreement but some minor dissent.
+   - Low (<0.7): Major unresolved tensions or significant dissent.
+4. **Document Dissent:** Explicitly list who disagrees and why.
+
+IMPORTANT: You must provide your response in valid JSON format ONLY.
+Do not include any introductory or concluding text.
+Use the following schema:
+
+{
+  "recommendation": "The final authoritative answer",
+  "confidence": 0.0-1.0,
+  "evidence": ["Key point 1", "Key point 2 (survived challenge)"],
+  "dissent": [
+    {
+      "agent": "Agent Name",
+      "concern": "Why they disagree",
+      "severity": "high/medium/low"
+    }
+  ]
+}
+`;
   }
 
   /**
