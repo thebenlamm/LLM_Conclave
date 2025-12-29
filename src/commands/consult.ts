@@ -5,6 +5,8 @@ import * as path from 'path';
 import ConsultOrchestrator from '../orchestration/ConsultOrchestrator';
 import ProjectContext from '../utils/ProjectContext';
 import ConsultLogger from '../utils/ConsultLogger';
+import { ConsultConsoleLogger } from '../cli/ConsultConsoleLogger';
+import { ArtifactTransformer } from '../consult/artifacts/ArtifactTransformer';
 import { ConsultationResult } from '../types';
 
 /**
@@ -25,15 +27,13 @@ export function createConsultCommand(): Command {
     .action(async (questionArgs: string[], options: any) => {
       const question = questionArgs.join(' ');
 
-      console.log(chalk.blue('\n🤝 Starting multi-model consultation...\n'));
+      // Initialize real-time console logger
+      const consoleLogger = new ConsultConsoleLogger();
+      consoleLogger.start();
 
       try {
         // Load context
         const context = await loadContext(options);
-
-        if (context) {
-          console.log(chalk.cyan(`Context loaded: ${estimateTokens(context)} tokens (approx)\n`));
-        }
 
         // Initialize orchestrator
         const orchestrator = new ConsultOrchestrator({
@@ -42,15 +42,19 @@ export function createConsultCommand(): Command {
         });
 
         // Execute consultation
+        // Orchestrator emits events which consoleLogger handles
         const result = await orchestrator.consult(question, context);
+
+        // Transform result for persistence (camelCase -> snake_case)
+        const jsonResult = ArtifactTransformer.consultationResultToJSON(result);
 
         // Persist consultation for analytics
         const logger = new ConsultLogger();
-        const logPaths = await logger.log(result);
+        const logPaths = await logger.log(jsonResult);
         console.log(chalk.gray(`Logs saved to ${logPaths.jsonPath}`));
 
         // Format and display output
-        displayOutput(result, options.format);
+        displayOutput(jsonResult, options.format);
 
       } catch (error: any) {
         console.error(chalk.red(`\n❌ Consultation failed: ${error.message}\n`));
@@ -72,7 +76,6 @@ async function loadContext(options: any): Promise<string> {
 
   // Explicit file context
   if (options.context) {
-    console.log(chalk.cyan(`Loading context files...\n`));
     const files = options.context.split(',').map((f: string) => f.trim());
 
     for (const file of files) {
@@ -88,8 +91,6 @@ async function loadContext(options: any): Promise<string> {
 
   // Project context
   if (options.project) {
-    console.log(chalk.cyan(`Analyzing project context: ${options.project}...\n`));
-
     if (!fs.existsSync(options.project)) {
       throw new Error(`Project directory not found: ${options.project}`);
     }
@@ -100,21 +101,7 @@ async function loadContext(options: any): Promise<string> {
     context += `\n\n### Project Context\n\n${formattedContext}`;
   }
 
-  // Stdin context (future enhancement)
-  // if (!process.stdin.isTTY) {
-  //   const stdin = fs.readFileSync(0, 'utf-8');
-  //   context += `\n\n### Stdin Input\n\n${stdin}`;
-  // }
-
   return context;
-}
-
-/**
- * Estimate token count (rough approximation)
- */
-function estimateTokens(text: string): number {
-  // Rough estimate: 1 token ≈ 4 characters
-  return Math.round(text.length / 4);
 }
 
 /**

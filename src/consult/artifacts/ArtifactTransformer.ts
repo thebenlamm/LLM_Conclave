@@ -274,6 +274,52 @@ export class ArtifactTransformer {
   }
 
   // ============================================================================
+  // Consultation Result Transformer
+  // ============================================================================
+
+  /**
+   * Convert ConsultationResult (camelCase) to JSON (snake_case)
+   */
+  public static consultationResultToJSON(result: import('../../types/consult').ConsultationResult): any {
+    return {
+      consultation_id: result.consultationId,
+      timestamp: result.timestamp,
+      question: result.question,
+      context: result.context,
+      mode: result.mode,
+      agents: result.agents,
+      state: result.state,
+      rounds: result.rounds,
+      completed_rounds: result.completedRounds,
+      responses: {
+        round1: result.responses.round1 ? result.responses.round1.map(r => this.independentToJSON(r)) : [],
+        round2: result.responses.round2 ? this.synthesisToJSON(result.responses.round2) : undefined,
+        round3: result.responses.round3 ? this.crossExamToJSON(result.responses.round3) : undefined,
+        round4: result.responses.round4 ? this.verdictToJSON(result.responses.round4) : undefined
+      },
+      consensus: result.consensus,
+      confidence: result.confidence,
+      recommendation: result.recommendation,
+      reasoning: result.reasoning,
+      concerns: result.concerns,
+      dissent: result.dissent.map(d => this.dissentToJSON(d)),
+      perspectives: result.perspectives,
+      cost: result.cost,
+      duration_ms: result.durationMs,
+      prompt_versions: {
+        mode: result.promptVersions.mode,
+        independent_prompt_version: result.promptVersions.independentPromptVersion,
+        synthesis_prompt_version: result.promptVersions.synthesisPromptVersion,
+        cross_exam_prompt_version: result.promptVersions.crossExamPromptVersion,
+        verdict_prompt_version: result.promptVersions.verdictPromptVersion
+      },
+      early_termination: result.earlyTermination,
+      early_termination_reason: result.earlyTerminationReason,
+      abort_reason: result.abortReason
+    };
+  }
+
+  // ============================================================================
   // Generic Transformer
   // ============================================================================
 

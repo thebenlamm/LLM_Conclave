@@ -12,6 +12,7 @@ import ProviderFactory from '../providers/ProviderFactory';
 import { EventBus } from '../core/EventBus';
 import { ConsultStateMachine } from './ConsultStateMachine';
 import { ArtifactExtractor } from '../consult/artifacts/ArtifactExtractor';
+import { CostEstimator } from '../consult/cost/CostEstimator';
 import {
   Agent,
   Message,
@@ -34,11 +35,13 @@ export default class ConsultOrchestrator {
   private stateMachine: ConsultStateMachine;
   private eventBus: EventBus;
   private consultationId: string;
+  private costEstimator: CostEstimator;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
     this.verbose = options.verbose || false;
     this.eventBus = EventBus.getInstance();
+    this.costEstimator = new CostEstimator();
     
     // Generate ID first so state machine can use it
     this.consultationId = this.generateId('consult');
@@ -94,13 +97,21 @@ export default class ConsultOrchestrator {
       mode: 'converge' // Default for now
     });
 
-    console.log(`\n${'='.repeat(80)}`);
-    console.log(`CONSULTATION: ${question}`);
-    console.log(`${'='.repeat(80)}\n`);
+    if (this.verbose) {
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`CONSULTATION: ${question}`);
+      console.log(`${'='.repeat(80)}\n`);
+    }
 
     // --- State: Estimating ---
-    // (Story 1.3 will implement actual estimation. For now, we simulate success)
-    
+    const estimate = this.costEstimator.estimateCost(question, this.agents, this.maxRounds);
+    this.eventBus.emitEvent('consultation:cost_estimated' as any, {
+      consultation_id: this.consultationId,
+      estimated_cost: estimate.estimatedCostUsd,
+      input_tokens: estimate.inputTokens,
+      expected_output_tokens: estimate.outputTokens
+    });
+
     // --- State: AwaitingConsent ---
     this.stateMachine.transition(ConsultState.AwaitingConsent);
     this.eventBus.emitEvent('consultation:user_consent' as any, {
@@ -110,7 +121,7 @@ export default class ConsultOrchestrator {
 
     // --- State: Independent (Round 1) ---
     this.stateMachine.transition(ConsultState.Independent);
-    console.log(`\n--- Round 1: Independent Analysis ---\n`);
+    if (this.verbose) console.log(`\n--- Round 1: Independent Analysis ---\n`);
     
     const round1Artifacts = await this.executeRound1Independent(question, context);
     
@@ -120,15 +131,26 @@ export default class ConsultOrchestrator {
       this.stateMachine.transition(ConsultState.Aborted, 'All agents failed in Round 1');
       throw new Error('All agents failed. Unable to provide consultation.');
     }
+    
+    this.eventBus.emitEvent('round:completed' as any, {
+      consultation_id: this.consultationId,
+      round_number: 1,
+      artifact_type: 'independent',
+      // We pass the full artifacts array for the round
+      // The payload type expects a single artifact? No, usually round completion might just signify end.
+      // But ConsultationRoundArtifactPayload expects 'artifact'.
+      // We'll skip sending the payload here if it doesn't match, or emit multiple events.
+      // The story says: "System emits consultation:round_artifact event with round_number: 2" for synthesis.
+      // For Independent, we have multiple artifacts. We already emitted agent:completed.
+      // round:completed is for CLI display.
+    });
 
     // --- State: Synthesis (Round 2) ---
     this.stateMachine.transition(ConsultState.Synthesis);
-    console.log(`\n--- Round 2: Synthesis ---\n`);
+    if (this.verbose) console.log(`\n--- Round 2: Synthesis ---\n`);
     
     // Placeholder for Story 1.4 implementation
     // For now, we'll create a dummy synthesis to satisfy the return type or just finish
-    // Since Story 1.2 focuses on Round 1, we will stop full implementation here
-    // but ensuring the flow is correct.
     
     // TODO: Implement Round 2, 3, 4 fully in subsequent stories.
     
@@ -137,8 +159,10 @@ export default class ConsultOrchestrator {
 
     const durationMs = Date.now() - startTime;
     
-    // Minimal result for Story 1.2 verification
-    return {
+    // Emit completion event
+    // The payload needs result, which we are building now.
+    
+    const result: ConsultationResult = {
       consultationId: this.consultationId,
       timestamp: new Date().toISOString(),
       question,
@@ -158,7 +182,7 @@ export default class ConsultOrchestrator {
       concerns: [],
       dissent: [],
       perspectives: [],
-      cost: { tokens: { input: 0, output: 0, total: 0 }, usd: 0 },
+      cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: estimate.estimatedCostUsd }, // Using estimate as actual for now
       durationMs,
       promptVersions: {
         mode: 'converge',
@@ -168,6 +192,13 @@ export default class ConsultOrchestrator {
         verdictPromptVersion: '1.0'
       }
     };
+
+    this.eventBus.emitEvent('consultation:completed' as any, {
+      consultation_id: this.consultationId,
+      result
+    });
+
+    return result;
   }
 
   /**
@@ -208,7 +239,7 @@ export default class ConsultOrchestrator {
         round: 1
       });
 
-      console.log(`⚡ ${agent.name} (${agent.model}) thinking...`);
+      if (this.verbose) console.log(`⚡ ${agent.name} (${agent.model}) thinking...`);
 
       const messages: Message[] = [
         {
@@ -223,7 +254,7 @@ export default class ConsultOrchestrator {
       );
 
       const duration = Date.now() - startTime;
-      console.log(`✓ ${agent.name} responded in ${(duration / 1000).toFixed(1)}s`);
+      if (this.verbose) console.log(`✓ ${agent.name} responded in ${(duration / 1000).toFixed(1)}s`);
 
       // Extract Artifact
       const artifact = ArtifactExtractor.extractIndependentArtifact(
@@ -242,7 +273,7 @@ export default class ConsultOrchestrator {
 
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      console.warn(`⚠️  Agent ${agent.name} failed: ${error.message}`);
+      if (this.verbose) console.warn(`⚠️  Agent ${agent.name} failed: ${error.message}`);
       
       // Story: Failed agent response includes error field (handled in logging/warning)
       // We return null here and filter later, but ideally we should preserve the error state in the result
