@@ -12,12 +12,14 @@ import ProviderFactory from '../providers/ProviderFactory';
 import { EventBus } from '../core/EventBus';
 import { ConsultStateMachine } from './ConsultStateMachine';
 import { ArtifactExtractor } from '../consult/artifacts/ArtifactExtractor';
-import { CostEstimator } from '../consult/cost/CostEstimator';
+import { CostEstimator, CostEstimate } from '../consult/cost/CostEstimator';
 import { CostGate } from '../consult/cost/CostGate';
 import { ConfigCascade } from '../cli/ConfigCascade';
 import { ConsultationFileLogger } from '../consult/logging/ConsultationFileLogger';
 import { ProviderHealthMonitor } from '../consult/health/ProviderHealthMonitor';
+import { PROVIDER_TIER_MAP } from '../consult/health/ProviderTiers';
 import { HedgedRequestManager } from '../consult/health/HedgedRequestManager';
+import { InteractivePulse } from '../consult/health/InteractivePulse';
 import chalk from 'chalk';
 import {
   Agent,
@@ -54,6 +56,7 @@ export default class ConsultOrchestrator {
   private fileLogger: ConsultationFileLogger;
   private healthMonitor: ProviderHealthMonitor;
   private hedgedRequestManager: HedgedRequestManager;
+  private interactivePulse: InteractivePulse;
   private estimatedCostUsd: number = 0;
   private actualCostUsd: number = 0;
 
@@ -65,6 +68,7 @@ export default class ConsultOrchestrator {
     this.costGate = new CostGate();
     this.fileLogger = new ConsultationFileLogger();
     this.hedgedRequestManager = new HedgedRequestManager(this.eventBus);
+    this.interactivePulse = new InteractivePulse();
 
     // Generate ID first so state machine can use it
     this.consultationId = this.generateId('consult');
@@ -75,10 +79,12 @@ export default class ConsultOrchestrator {
 
     // Initialize Health Monitor (Story 2.2)
     this.healthMonitor = new ProviderHealthMonitor();
-    this.agents.forEach(agent => {
-        // Register agent's model (which corresponds to provider config)
-        this.healthMonitor.registerProvider(agent.model);
+    
+    // Register ALL configured providers (Fix 2)
+    Object.keys(PROVIDER_TIER_MAP).forEach(model => {
+        this.healthMonitor.registerProvider(model);
     });
+    
     this.healthMonitor.startMonitoring();
   }
 
@@ -109,6 +115,63 @@ export default class ConsultOrchestrator {
   }
 
   /**
+   * Create recursive pulse callback for an agent
+   */
+  private createPulseCallback(agentName: string) {
+    return async () => {
+      // Get all agents running > 60s
+      const runningAgents = this.interactivePulse.getRunningAgents();
+      
+      // If we are the only one or one of many, prompt user
+      // Note: Since this callback is async and multiple agents might trigger around same time,
+      // Inquirer might get messy if parallel prompts occur.
+      // However, Node.js single thread means we process one callback at a time.
+      // But await inquirer... means event loop continues.
+      // Ideally InteractivePulse should handle locking/debouncing prompts if multiple trigger at once.
+      // For now, assuming simple case.
+      
+      const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
+
+      if (!shouldContinue) {
+        // User cancelled
+        // We need to signal cancellation. 
+        // Throwing error here is inside setTimeout callback - won't be caught by executeAgent main flow directly
+        // unless we reject a promise or emit an event.
+        // We should emit a cancellation event that the Orchestrator listens to, OR 
+        // handle this more robustly.
+        
+        // Actually, the executeAgent logic needs to "hear" this.
+        // The Story suggested:
+        // reject(new Error('User cancelled via pulse'));
+        // inside the Promise wrapper.
+        
+        // But here I'm defining the callback separately.
+        // I'll implementation the Promise wrapper logic directly in executeAgent* methods
+        // instead of a separate method if that's easier for closure access to 'reject'.
+        // Or I can emit an event.
+        
+        this.eventBus.emitEvent('consultation:pulse_cancel' as any, {
+            consultation_id: this.consultationId,
+            agent_name: agentName,
+            reason: 'User cancelled via interactive pulse'
+        });
+        
+        // We also need to stop the current execution context if possible, 
+        // but since we can't easily cancel the HTTP request promise from here without an AbortController,
+        // we'll rely on the event or the wrapper to handle flow control.
+        
+        // Actually, let's keep it simple:
+        // The wrapper in executeAgent will pass a reject function to this callback? 
+        // Or better: The wrapper handles the timer creation and callback definition to close over 'reject'.
+        return; 
+      }
+
+      // Continue - restart timer recursively
+      this.interactivePulse.startTimer(agentName, this.createPulseCallback(agentName));
+    };
+  }
+
+  /**
    * Execute a consultation
    * @param question - The question to consult on
    * @param context - Optional context (files, project info, etc.)
@@ -116,139 +179,236 @@ export default class ConsultOrchestrator {
    */
   async consult(question: string, context: string = ''): Promise<ConsultationResult> {
     const startTime = Date.now();
-    
-    // Start consultation lifecycle
-    this.stateMachine.transition(ConsultState.Estimating);
-    
-    // Emit started event
-    this.eventBus.emitEvent('consultation:started' as any, {
-      consultation_id: this.consultationId,
-      question,
-      agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
-      mode: 'converge' // Default for now
-    });
-
-    if (this.verbose) {
-      console.log(`\n${'='.repeat(80)}`);
-      console.log(`CONSULTATION: ${question}`);
-      console.log(`${'='.repeat(80)}\n`);
-    }
-
-    // Health Check Warning (Story 2.2)
-    if (!this.healthMonitor.hasHealthyProviders()) {
-      console.log(chalk.yellow('\n⚠️  All providers degraded. Consultation may be slower than usual.'));
-    }
-
-    // --- State: Estimating ---
-    const estimate = this.costEstimator.estimateCost(question, this.agents, this.maxRounds);
-    this.estimatedCostUsd = estimate.estimatedCostUsd; // Store for later comparison
-
-    this.eventBus.emitEvent('consultation:cost_estimated' as any, {
-      consultation_id: this.consultationId,
-      estimated_cost: estimate.estimatedCostUsd,
-      input_tokens: estimate.inputTokens,
-      expected_output_tokens: estimate.outputTokens
-    });
-
-    // --- State: AwaitingConsent ---
-    this.stateMachine.transition(ConsultState.AwaitingConsent);
-
-    // Get configuration for cost threshold
-    const config = ConfigCascade.resolve({}, process.env);
-
-    // Check if user consent is needed
-    if (this.costGate.shouldPromptUser(estimate, config)) {
-      // Cost exceeds threshold - prompt user
-      const consent = await this.costGate.getUserConsent(
-        estimate,
-        this.agents.length,
-        this.maxRounds
-      );
-
-      if (consent === 'denied') {
-        this.stateMachine.transition(ConsultState.Aborted, 'User cancelled');
-        console.log(chalk.yellow('\n⚠️  Consultation cancelled by user'));
-        throw new Error('Consultation cancelled by user');
-      }
-
-      // Consent given (either 'approved' or 'always' which also approves current consultation)
-      this.eventBus.emitEvent('consultation:user_consent' as any, {
-        consultation_id: this.consultationId,
-        approved: true,
-        auto_approved: false
-      });
-    } else {
-      // Cost under threshold - auto-approve
-      this.costGate.displayAutoApproved(estimate.estimatedCostUsd);
-      this.eventBus.emitEvent('consultation:user_consent' as any, {
-        consultation_id: this.consultationId,
-        approved: true,
-        auto_approved: true
-      });
-    }
-
-    // --- State: Independent (Round 1) ---
-    this.stateMachine.transition(ConsultState.Independent);
-    if (this.verbose) console.log(`\n--- Round 1: Independent Analysis ---\n`);
-
-    const round1Results = await this.executeRound1Independent(question, context);
-
-    // Track costs from Round 1
-    for (const result of round1Results) {
-      if (result.response.tokens) {
-        this.trackActualCost(result.response.tokens, result.response.model);
-      }
-    }
-    this.checkCostThreshold(); // Check after Round 1
-
-    // Track failed agents
-    const successfulArtifacts = (round1Results.map(result => result.artifact).filter(a => !!a) as IndependentArtifact[]);
-    const agentResponses = round1Results.map(result => result.response);
-    if (successfulArtifacts.length === 0) {
-      this.stateMachine.transition(ConsultState.Aborted, 'All agents failed in Round 1');
-      throw new Error('All agents failed. Unable to provide consultation.');
-    }
-
-    this.eventBus.emitEvent('round:completed' as any, {
-      consultation_id: this.consultationId,
-      round_number: 1,
-      artifact_type: 'independent'
-    });
-
-    // --- State: Synthesis (Round 2) ---
-    this.stateMachine.transition(ConsultState.Synthesis);
-    if (this.verbose) console.log(`\n--- Round 2: Synthesis ---\n`);
-
-    const synthesisArtifact = await this.executeRound2Synthesis(question, successfulArtifacts);
-    this.checkCostThreshold(); // Check after Round 2
-
-    // --- State: CrossExam (Round 3) ---
-    this.stateMachine.transition(ConsultState.CrossExam);
-    if (this.verbose) console.log(`\n--- Round 3: Cross-Examination ---\n`);
-
+    let estimate: CostEstimate | null = null;
+    let agentResponses: AgentResponse[] = [];
+    let successfulArtifacts: IndependentArtifact[] = [];
+    let synthesisArtifact: SynthesisArtifact | null = null;
     let crossExamArtifact: CrossExamArtifact | null = null;
-    if (synthesisArtifact) {
-      crossExamArtifact = await this.executeRound3CrossExam(successfulArtifacts, synthesisArtifact);
-      this.checkCostThreshold(); // Check after Round 3
-    } else {
-      console.warn("Skipping Round 3 due to missing Synthesis artifact");
-    }
-
-    // --- State: Verdict (Round 4) ---
-    this.stateMachine.transition(ConsultState.Verdict);
-    if (this.verbose) console.log(`\n--- Round 4: Verdict ---\n`);
-
     let verdictArtifact: VerdictArtifact | null = null;
-    // We can proceed to Verdict even if CrossExam failed (using R1/R2)
-    // But we need at least Synthesis
-    if (synthesisArtifact) {
-        verdictArtifact = await this.executeRound4Verdict(question, successfulArtifacts, synthesisArtifact, crossExamArtifact);
-        this.checkCostThreshold(); // Check after Round 4
-    } else {
-         throw new Error("Cannot generate Verdict without Synthesis artifact");
-    }
+    
+    try {
+      // Start consultation lifecycle
+      this.stateMachine.transition(ConsultState.Estimating);
+      
+      // Emit started event
+      this.eventBus.emitEvent('consultation:started' as any, {
+        consultation_id: this.consultationId,
+        question,
+        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
+        mode: 'converge' // Default for now
+      });
 
-    this.stateMachine.transition(ConsultState.Complete);
+      if (this.verbose) {
+        console.log(`\n${'='.repeat(80)}`);
+        console.log(`CONSULTATION: ${question}`);
+        console.log(`${'='.repeat(80)}\n`);
+      }
+
+      // Health Check Warning (Story 2.2)
+      // Fix 3: Only warn if we have actually checked at least once
+      if (this.healthMonitor.hasCompletedFirstCheck() && !this.healthMonitor.hasHealthyProviders()) {
+        console.log(chalk.yellow('\n⚠️  All providers degraded. Consultation may be slower than usual.'));
+      }
+
+      // --- State: Estimating ---
+      estimate = this.costEstimator.estimateCost(question, this.agents, this.maxRounds);
+      this.estimatedCostUsd = estimate.estimatedCostUsd; // Store for later comparison
+
+      this.eventBus.emitEvent('consultation:cost_estimated' as any, {
+        consultation_id: this.consultationId,
+        estimated_cost: estimate.estimatedCostUsd,
+        input_tokens: estimate.inputTokens,
+        expected_output_tokens: estimate.outputTokens
+      });
+
+      // --- State: AwaitingConsent ---
+      this.stateMachine.transition(ConsultState.AwaitingConsent);
+
+      // Get configuration for cost threshold
+      const config = ConfigCascade.resolve({}, process.env);
+
+      // Check if user consent is needed
+      if (this.costGate.shouldPromptUser(estimate, config)) {
+        // Cost exceeds threshold - prompt user
+        const consent = await this.costGate.getUserConsent(
+          estimate,
+          this.agents.length,
+          this.maxRounds
+        );
+
+        if (consent === 'denied') {
+          this.stateMachine.transition(ConsultState.Aborted, 'User cancelled');
+          console.log(chalk.yellow('\n⚠️  Consultation cancelled by user'));
+          throw new Error('Consultation cancelled by user');
+        }
+
+        // Consent given (either 'approved' or 'always' which also approves current consultation)
+        this.eventBus.emitEvent('consultation:user_consent' as any, {
+          consultation_id: this.consultationId,
+          approved: true,
+          auto_approved: false
+        });
+      } else {
+        // Cost under threshold - auto-approve
+        this.costGate.displayAutoApproved(estimate.estimatedCostUsd);
+        this.eventBus.emitEvent('consultation:user_consent' as any, {
+          consultation_id: this.consultationId,
+          approved: true,
+          auto_approved: true
+        });
+      }
+
+      // --- State: Independent (Round 1) ---
+      this.stateMachine.transition(ConsultState.Independent);
+      if (this.verbose) console.log(`\n--- Round 1: Independent Analysis ---\n`);
+
+      const round1Results = await this.executeRound1Independent(question, context);
+
+      // Track costs from Round 1
+      for (const result of round1Results) {
+        if (result.response.tokens) {
+          this.trackActualCost(result.response.tokens, result.response.model);
+        }
+      }
+      this.checkCostThreshold(); // Check after Round 1
+
+      // Track failed agents
+      successfulArtifacts = (round1Results.map(result => result.artifact).filter(a => !!a) as IndependentArtifact[]);
+      agentResponses = round1Results.map(result => result.response);
+      if (successfulArtifacts.length === 0) {
+        this.stateMachine.transition(ConsultState.Aborted, 'All agents failed in Round 1');
+        throw new Error('All agents failed. Unable to provide consultation.');
+      }
+
+      this.eventBus.emitEvent('round:completed' as any, {
+        consultation_id: this.consultationId,
+        round_number: 1,
+        artifact_type: 'independent'
+      });
+
+      // --- State: Synthesis (Round 2) ---
+      this.stateMachine.transition(ConsultState.Synthesis);
+      if (this.verbose) console.log(`\n--- Round 2: Synthesis ---\n`);
+
+      synthesisArtifact = await this.executeRound2Synthesis(question, successfulArtifacts);
+      this.checkCostThreshold(); // Check after Round 2
+
+      // --- State: CrossExam (Round 3) ---
+      this.stateMachine.transition(ConsultState.CrossExam);
+      if (this.verbose) console.log(`\n--- Round 3: Cross-Examination ---\n`);
+
+      if (synthesisArtifact) {
+        crossExamArtifact = await this.executeRound3CrossExam(successfulArtifacts, synthesisArtifact);
+        this.checkCostThreshold(); // Check after Round 3
+      } else {
+        console.warn("Skipping Round 3 due to missing Synthesis artifact");
+      }
+
+      // --- State: Verdict (Round 4) ---
+      this.stateMachine.transition(ConsultState.Verdict);
+      if (this.verbose) console.log(`\n--- Round 4: Verdict ---\n`);
+
+      // We can proceed to Verdict even if CrossExam failed (using R1/R2)
+      // But we need at least Synthesis
+      if (synthesisArtifact) {
+          verdictArtifact = await this.executeRound4Verdict(question, successfulArtifacts, synthesisArtifact, crossExamArtifact);
+          this.checkCostThreshold(); // Check after Round 4
+      } else {
+           throw new Error("Cannot generate Verdict without Synthesis artifact");
+      }
+
+      this.stateMachine.transition(ConsultState.Complete);
+    } catch (error: any) {
+      if (error?.message === 'User cancelled via interactive pulse') {
+          // Get max elapsed time from running agents for message
+          const runningAgents = this.interactivePulse.getRunningAgents();
+          const maxElapsed = runningAgents.length > 0
+            ? Math.max(...runningAgents.map(a => a.elapsedSeconds))
+            : 0;
+
+          console.log(chalk.yellow(`\n⚠️  Consultation cancelled by user after ${maxElapsed}s`));
+          this.stateMachine.transition(ConsultState.Aborted, `User cancelled after ${maxElapsed}s`);
+
+          // Cleanup all pulse timers
+          this.interactivePulse.cleanup();
+
+          await this.savePartialResults(
+            'User cancelled via interactive pulse',
+            question,
+            context,
+            estimate,
+            successfulArtifacts,
+            synthesisArtifact,
+            crossExamArtifact,
+            verdictArtifact,
+            agentResponses
+          );
+          
+          // Re-throw to ensure caller knows it failed
+          throw error;
+      }
+
+      if (error?.message?.includes('Cost threshold exceeded')) {
+        const durationMs = Date.now() - startTime;
+        const completedRounds = verdictArtifact ? 4 : (crossExamArtifact ? 3 : (synthesisArtifact ? 2 : (successfulArtifacts.length > 0 ? 1 : 0)));
+        const consensusText = verdictArtifact
+          ? verdictArtifact.recommendation
+          : (synthesisArtifact?.consensusPoints[0]?.point || 'Consultation aborted due to cost threshold');
+        const confidence = verdictArtifact ? verdictArtifact.confidence : 0;
+        const recommendation = verdictArtifact ? verdictArtifact.recommendation : 'Consultation aborted due to cost threshold';
+        const dissent = verdictArtifact ? verdictArtifact.dissent : [];
+
+        const partialResult: ConsultationResult = {
+          consultationId: this.consultationId,
+          timestamp: new Date().toISOString(),
+          question,
+          context,
+          mode: 'converge',
+          agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+          agentResponses,
+          state: ConsultState.Aborted,
+          rounds: this.maxRounds,
+          completedRounds,
+          responses: {
+            round1: successfulArtifacts.length > 0 ? successfulArtifacts : undefined,
+            round2: synthesisArtifact || undefined,
+            round3: crossExamArtifact || undefined,
+            round4: verdictArtifact || undefined
+          },
+          consensus: consensusText,
+          confidence,
+          recommendation,
+          reasoning: {},
+          concerns: crossExamArtifact?.unresolved || [],
+          dissent,
+          perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
+          cost: {
+            tokens: {
+              input: estimate?.inputTokens || 0,
+              output: estimate?.outputTokens || 0,
+              total: estimate?.totalTokens || 0
+            },
+            usd: this.actualCostUsd
+          },
+          durationMs,
+          promptVersions: {
+            mode: 'converge',
+            independentPromptVersion: '1.0',
+            synthesisPromptVersion: '1.0',
+            crossExamPromptVersion: '1.0',
+            verdictPromptVersion: '1.0'
+          },
+          abortReason: 'Cost exceeded estimate by >50%',
+          estimatedCost: this.estimatedCostUsd,
+          actualCost: this.actualCostUsd,
+          costExceeded: true
+        };
+
+        await this.fileLogger.logConsultation(partialResult);
+      }
+
+      throw error;
+    }
 
     const durationMs = Date.now() - startTime;
     
@@ -501,36 +661,51 @@ export default class ConsultOrchestrator {
         const messages: Message[] = [
           { role: 'user', content: 'Proceed with Cross-Examination.' }
         ];
-        // Note: HedgedRequestManager expects messages array, but doesn't take systemPrompt directly in args?
-        // Wait, executeAgentWithHedging(agent, messages, healthMonitor)
-        // Where does systemPrompt go?
-        // AgentConfig passed to it doesn't have systemPrompt in my call above?
-        // The implementation of HedgedRequestManager:
-        // const primaryProvider = ProviderFactory.createProvider(primaryProviderId);
-        // primaryProvider.chat(messages, { signal: ... })
-        // It does NOT pass systemPrompt!
-        // This is a BUG in my HedgedRequestManager implementation if providers need systemPrompt separately.
-        // Most providers take systemPrompt in options OR as a message.
-        // In ConsultOrchestrator, we pass `agent.systemPrompt` as 2nd arg to `chat`.
-        // HedgedRequestManager needs to support this!
-        
-        // I must FIX HedgedRequestManager to accept systemPrompt or options.
-        // Or I must inject systemPrompt into messages.
-        
-        // Let's assume I can inject it into messages for now.
-        // LLMProvider usually handles system messages.
-        // I'll prepend system prompt to messages.
-        
+
+        // Inject system prompt into messages since HedgedRequestManager doesn't take options
         const fullMessages: Message[] = [
            { role: 'system', content: systemPrompt },
            ...messages
         ];
 
-        const response = await this.hedgedRequestManager.executeAgentWithHedging(
-            agentConfig,
-            fullMessages,
-            this.healthMonitor
-        );
+        // --- Pulse Logic Wrapper ---
+        const executionPromise = (async () => {
+          let cancelPulse: (reason?: any) => void;
+          const cancellationPromise = new Promise<never>((_, reject) => {
+              cancelPulse = reject;
+          });
+
+          const startRecursivePulse = () => {
+              this.interactivePulse.startTimer(agent.name, async () => {
+                  const runningAgents = this.interactivePulse.getRunningAgents();
+                  const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
+
+                  if (!shouldContinue) {
+                      cancelPulse(new Error('User cancelled via interactive pulse'));
+                  } else {
+                      startRecursivePulse();
+                  }
+              });
+          };
+
+          startRecursivePulse();
+
+          try {
+              const response = await Promise.race([
+                  this.hedgedRequestManager.executeAgentWithHedging(
+                    agentConfig,
+                    fullMessages,
+                    this.healthMonitor
+                  ),
+                  cancellationPromise
+              ]);
+              return response;
+          } finally {
+              this.interactivePulse.cancelTimer(agent.name);
+          }
+        })();
+
+        const response = await executionPromise;
         
         const duration = response.durationMs || (Date.now() - start);
 
@@ -552,7 +727,11 @@ export default class ConsultOrchestrator {
           timestamp: new Date().toISOString()
         };
         return agentResponse;
-      } catch (error) {
+      } catch (error: any) {
+        if (error.message === 'User cancelled via interactive pulse') {
+             throw error; // Re-throw to abort
+        }
+
         console.warn(`⚠️ Agent ${agent.name} failed in Round 3: ${(error as any).message}`);
         return null;
       }
@@ -631,6 +810,7 @@ export default class ConsultOrchestrator {
     context: string
   ): Promise<Round1ExecutionResult> {
     const startTime = Date.now();
+    let pulseTriggered = false;
 
     try {
       this.eventBus.emitEvent('agent:thinking' as any, {
@@ -661,11 +841,58 @@ export default class ConsultOrchestrator {
            ...messages
       ];
 
-      const response = await this.hedgedRequestManager.executeAgentWithHedging(
-        agentConfig,
-        fullMessages,
-        this.healthMonitor
-      );
+      // --- Pulse Logic Wrapper ---
+      // We wrap the hedged request in a race with the pulse timer
+      // We need a way to reject the main promise if user cancels in the callback
+      
+      const executionPromise = (async () => {
+          // Wrap startTimer in a promise structure so we can reject from callback?
+          // Actually, we can just use Promise.race between the execution and a "cancel signal" promise?
+          
+          // Let's create a controlled promise for the pulse cancellation
+          let cancelPulse: (reason?: any) => void;
+          const cancellationPromise = new Promise<never>((_, reject) => {
+              cancelPulse = reject;
+          });
+
+          // Recursive pulse starter
+          const startRecursivePulse = () => {
+              this.interactivePulse.startTimer(agent.name, async () => {
+                  pulseTriggered = true;
+                  const runningAgents = this.interactivePulse.getRunningAgents();
+                  const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
+
+                  if (!shouldContinue) {
+                      cancelPulse(new Error('User cancelled via interactive pulse'));
+                  } else {
+                      // Restart timer
+                      startRecursivePulse();
+                  }
+              });
+          };
+
+          // Start the initial timer
+          startRecursivePulse();
+
+          try {
+              // Race the actual execution against the cancellation promise
+              const response = await Promise.race([
+                  this.hedgedRequestManager.executeAgentWithHedging(
+                    agentConfig,
+                    fullMessages,
+                    this.healthMonitor
+                  ),
+                  cancellationPromise
+              ]);
+              
+              return response;
+          } finally {
+              // Cleanup timer on completion or error
+              this.interactivePulse.cancelTimer(agent.name);
+          }
+      })();
+      
+      const response = await executionPromise;
 
       const duration = response.durationMs || (Date.now() - startTime);
       if (this.verbose) console.log(`✓ ${agent.name} responded in ${(duration / 1000).toFixed(1)}s`);
@@ -711,6 +938,15 @@ export default class ConsultOrchestrator {
       const duration = Date.now() - startTime;
       console.warn(`⚠️  Agent ${agent.name} failed: ${error.message}`);
       
+      // If user cancelled, we should probably propagate that differently or mark it
+      if (error.message === 'User cancelled via interactive pulse') {
+          // Re-throw to be caught by main loop to abort consultation? 
+          // Or just return null/failed result?
+          // Story says: "Current round is cancelled... State transitions to Aborted... Message: 'Consultation cancelled...'"
+          // So we should re-throw so the main consult() loop catches it and aborts.
+          throw error;
+      }
+
       // Story: Failed agent response includes error field (handled in logging/warning)
       // We return null here and filter later, but ideally we should preserve the error state in the result
       const agentResponse: AgentResponse = {
@@ -743,14 +979,100 @@ export default class ConsultOrchestrator {
   }
 
   /**
+   * Save partial results when consultation is cancelled/aborted
+   * (Story 2.5 dependency)
+   */
+  private async savePartialResults(
+    reason: string,
+    question: string,
+    context: string,
+    estimate: CostEstimate | null,
+    successfulArtifacts: IndependentArtifact[] = [],
+    synthesisArtifact: SynthesisArtifact | null = null,
+    crossExamArtifact: CrossExamArtifact | null = null,
+    verdictArtifact: VerdictArtifact | null = null,
+    agentResponses: AgentResponse[] = []
+  ): Promise<void> {
+      // Create partial result object
+      const completedRounds = verdictArtifact ? 4 : (crossExamArtifact ? 3 : (synthesisArtifact ? 2 : (successfulArtifacts.length > 0 ? 1 : 0)));
+      
+      const partialResult: ConsultationResult = {
+        consultationId: this.consultationId,
+        timestamp: new Date().toISOString(),
+        question,
+        context,
+        mode: 'converge',
+        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+        agentResponses,
+        state: ConsultState.Aborted,
+        rounds: this.maxRounds,
+        completedRounds,
+        responses: {
+          round1: successfulArtifacts.length > 0 ? successfulArtifacts : undefined,
+          round2: synthesisArtifact || undefined,
+          round3: crossExamArtifact || undefined,
+          round4: verdictArtifact || undefined
+        },
+        consensus: synthesisArtifact?.consensusPoints[0]?.point || "Consultation aborted",
+        confidence: 0,
+        recommendation: "Consultation aborted",
+        reasoning: {},
+        concerns: [],
+        dissent: [],
+        perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
+        cost: {
+          tokens: {
+            input: estimate?.inputTokens || 0,
+            output: estimate?.outputTokens || 0,
+            total: estimate?.totalTokens || 0
+          },
+          usd: this.actualCostUsd
+        },
+        durationMs: 0, // Not fully tracked for abort
+        promptVersions: {
+          mode: 'converge',
+          independentPromptVersion: '1.0',
+          synthesisPromptVersion: '1.0',
+          crossExamPromptVersion: '1.0',
+          verdictPromptVersion: '1.0'
+        },
+        abortReason: reason,
+        pulseTriggered: true, // Assuming this called from pulse cancel
+        userCancelledAfterPulse: true,
+        pulseTimestamp: new Date().toISOString()
+      };
+
+      await this.fileLogger.logConsultation(partialResult);
+  }
+
+  /**
    * Track actual cost from agent response
    * (Epic 2, Story 1: In-flight cost monitoring)
    */
-  private trackActualCost(usage: TokenUsage, model: string): void {
-    // Get pricing for model
+  private normalizeUsage(
+    usage: TokenUsage | { input_tokens?: number; output_tokens?: number; total_tokens?: number }
+  ): TokenUsage {
+    if ('input' in usage) {
+      return usage;
+    }
+
+    const input = usage.input_tokens ?? 0;
+    const output = usage.output_tokens ?? 0;
+    return {
+      input,
+      output,
+      total: usage.total_tokens ?? (input + output)
+    };
+  }
+
+  private trackActualCost(
+    usage: TokenUsage | { input_tokens?: number; output_tokens?: number; total_tokens?: number },
+    model: string
+  ): void {
+    const normalized = this.normalizeUsage(usage);
     const pricing = this.getPricingForModel(model);
-    const inputCost = (usage.input / 1000) * pricing.input;
-    const outputCost = (usage.output / 1000) * pricing.output;
+    const inputCost = (normalized.input / 1000) * pricing.input;
+    const outputCost = (normalized.output / 1000) * pricing.output;
     this.actualCostUsd += inputCost + outputCost;
   }
 
