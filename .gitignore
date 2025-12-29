@@ -27,6 +27,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Session data
+.codex/
+
 # Archives
 *.tar.gz
 *.zip
