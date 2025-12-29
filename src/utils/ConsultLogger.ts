@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { ConsultationResult } from '../types';
+import { ConsultationResult } from '../types/consult';
+import { ArtifactTransformer } from '../consult/artifacts/ArtifactTransformer';
+import { MarkdownFormatter } from '../consult/formatting/MarkdownFormatter';
 
 interface ConsultationIndexEntry {
   id: string;
@@ -40,11 +42,14 @@ export default class ConsultLogger {
   }> {
     await this.ensureLogDir();
 
-    const jsonPath = path.join(this.logDir, `${result.consultation_id}.json`);
-    const markdownPath = path.join(this.logDir, `${result.consultation_id}.md`);
+    const jsonResult = ArtifactTransformer.consultationResultToJSON(result);
+    const jsonPath = path.join(this.logDir, `${result.consultationId}.json`);
+    const markdownPath = path.join(this.logDir, `${result.consultationId}.md`);
 
-    await fs.promises.writeFile(jsonPath, JSON.stringify(result, null, 2), 'utf-8');
-    await fs.promises.writeFile(markdownPath, this.formatMarkdown(result), 'utf-8');
+    await fs.promises.writeFile(jsonPath, JSON.stringify(jsonResult, null, 2), 'utf-8');
+    
+    const formatter = new MarkdownFormatter();
+    await fs.promises.writeFile(markdownPath, formatter.format(result), 'utf-8');
 
     const indexPath = await this.updateMonthlyIndex(result);
 
@@ -75,10 +80,10 @@ export default class ConsultLogger {
     }
 
     const entry: ConsultationIndexEntry = {
-      id: result.consultation_id,
+      id: result.consultationId,
       timestamp: result.timestamp,
       question: result.question,
-      duration_ms: result.duration_ms,
+      duration_ms: result.durationMs,
       cost_usd: result.cost.usd,
       confidence: result.confidence
     };
@@ -93,68 +98,6 @@ export default class ConsultLogger {
     await fs.promises.writeFile(indexPath, JSON.stringify(index, null, 2), 'utf-8');
 
     return indexPath;
-  }
-
-  /**
-   * Build a Markdown summary suitable for quick review.
-   */
-  private formatMarkdown(result: ConsultationResult): string {
-    const date = new Date(result.timestamp);
-    const confidencePercent = (result.confidence * 100).toFixed(0);
-
-    const output: string[] = [];
-
-    output.push('# Consultation Summary');
-    output.push('');
-    output.push(`**Question:** ${result.question}`);
-    output.push(`**Date:** ${date.toLocaleString()}`);
-    output.push(`**Confidence:** ${confidencePercent}%`);
-    output.push('');
-    output.push('## Consensus');
-    output.push('');
-    output.push(result.consensus);
-    output.push('');
-    output.push('## Recommendation');
-    output.push('');
-    output.push(result.recommendation);
-    output.push('');
-    output.push('## Agent Perspectives');
-    output.push('');
-
-    for (const perspective of result.perspectives) {
-      output.push(`### ${perspective.agent} (${perspective.model})`);
-      output.push('');
-      output.push(perspective.opinion);
-      output.push('');
-    }
-
-    if (result.concerns.length > 0) {
-      output.push('## Concerns Raised');
-      output.push('');
-      for (const concern of result.concerns) {
-        output.push(`- ${concern}`);
-      }
-      output.push('');
-    }
-
-    if (result.dissent.length > 0) {
-      output.push('## Dissenting Views');
-      output.push('');
-      for (const dissent of result.dissent) {
-        output.push(`- ${dissent}`);
-      }
-      output.push('');
-    }
-
-    output.push('---');
-    output.push('');
-    output.push(
-      `**Cost:** $${result.cost.usd.toFixed(4)} | ` +
-      `**Duration:** ${(result.duration_ms / 1000).toFixed(1)}s | ` +
-      `**Tokens:** ${result.cost.tokens.total.toLocaleString()}`
-    );
-
-    return output.join('\n');
   }
 
   private getMonthString(timestamp: string): string {
