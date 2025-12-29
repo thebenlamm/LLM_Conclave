@@ -125,6 +125,11 @@ So that I can resume work after interruptions or inspect incomplete results when
 
 ### Review Follow-ups (AI)
 
+- [x] [AI-Review][High] Unified abort handling for pulse, cost, and provider errors to ensure partial work is always saved. [src/orchestration/ConsultOrchestrator.ts]
+- [x] [AI-Review][High] Switched partial log storage to JSONL format with `.jsonl` extension. [src/consult/persistence/PartialResultManager.ts]
+- [x] [AI-Review][High] Aligned partial schema with requirements: added `abort_reason`, `resume_token`, and ensured artifacts are preserved. [src/consult/persistence/PartialResultManager.ts]
+- [x] [AI-Review][Medium] Fixed cost tracking in partial saves to reflect actual tokens consumed up to the abort point. [src/orchestration/ConsultOrchestrator.ts]
+- [x] [AI-Review][Low] Added required user-facing success message with the saved partial filename. [src/consult/persistence/PartialResultManager.ts]
 - [ ] [AI-Review][Medium] Improve `ConsultOrchestratorPersistence.test.ts` to verify `saveCheckpoint` calls using mocks [src/orchestration/__tests__/ConsultOrchestratorPersistence.test.ts]
 - [ ] [AI-Review][Low] Add schema validation to `PartialResultManager.loadPartialResults` instead of unsafe casting [src/consult/persistence/PartialResultManager.ts]
 - [ ] [AI-Review][Low] Refactor hardcoded "1.0" schema versions to a constant in `ConsultOrchestrator.ts`
@@ -138,12 +143,12 @@ So that I can resume work after interruptions or inspect incomplete results when
 This story implements the **Session Persistence** foundation for the analytics system. While the full analytics implementation (SQLite indexing) comes in Epic 3, Story 2.5 establishes the partial results file format and checkpoint pattern.
 
 **Write Pattern (from architecture):**
-1. Write consultation to JSON file (source of truth)
+1. Write consultation to JSONL file (source of truth) - Story 2.5
 2. Write-through to SQLite index (best effort) - Story 3.1
 3. Background sync job reconciles any drift - Story 3.1
 
 **For Story 2.5:**
-- Focus on Step 1: JSON file writes (JSONL format)
+- Focus on Step 1: JSONL file writes (JSONL format)
 - Structure data for future SQLite indexing
 - Cryptographic signing (same pattern as complete consultations)
 
@@ -176,12 +181,12 @@ When `InteractivePulse` detects user cancellation:
 - `InteractivePulse` (from Story 2.4 - cancellation trigger)
 - `ConsultStateMachine` (existing - state tracking)
 - Node.js `fs/promises` for async file I/O
-- Node.js `crypto` for file signing (if not already implemented)
+- Node.js `crypto` for file signing and resume tokens
 
 **File Locations:**
-- Complete consultations: `~/.llm-conclave/consult-logs/YYYY-MM-DD-[id].jsonl`
-- Partial consultations: `~/.llm-conclave/consult-logs/YYYY-MM-DD-[id]-partial.jsonl`
-- Pattern: Same base name, add `-partial` suffix before extension
+- Complete consultations: `~/.llm-conclave/consult-logs/consult-[id].json`
+- Partial consultations: `~/.llm-conclave/consult-logs/consult-[id]-partial.jsonl`
+- Pattern: Same base name, add `-partial` suffix and `.jsonl` extension
 
 **Checkpoint Timing:**
 ```typescript
@@ -189,19 +194,19 @@ When `InteractivePulse` detects user cancellation:
 async runConsultation() {
   // Round 1: Independent Analysis
   const round1Results = await this.executeRound1();
-  await this.partialResultManager.saveCheckpoint(this.currentState); // ← CHECKPOINT
+  await this.saveCheckpoint(); // ← CHECKPOINT
 
   // Round 2: Synthesis
   const round2Results = await this.executeRound2(round1Results);
-  await this.partialResultManager.saveCheckpoint(this.currentState); // ← CHECKPOINT
+  await this.saveCheckpoint(); // ← CHECKPOINT
 
   // Round 3: Cross-Examination
   const round3Results = await this.executeRound3(round2Results);
-  await this.partialResultManager.saveCheckpoint(this.currentState); // ← CHECKPOINT
+  await this.saveCheckpoint(); // ← CHECKPOINT
 
   // Round 4: Verdict
   const finalResult = await this.executeRound4(round3Results);
-  await this.consultationFileLogger.writeLog(finalResult); // ← COMPLETE LOG
+  await this.fileLogger.logConsultation(finalResult); // ← COMPLETE LOG
 }
 ```
 
@@ -209,7 +214,7 @@ async runConsultation() {
 
 **Node.js fs/promises (built-in):**
 ```typescript
-import { writeFile, readFile, mkdir } from 'fs/promises';
+import { writeFile, readFile, mkdir, appendFile } from 'fs/promises';
 import { existsSync } from 'fs';
 
 // Ensure directory exists
@@ -217,13 +222,13 @@ if (!existsSync(logDir)) {
   await mkdir(logDir, { recursive: true });
 }
 
-// Write partial results
-await writeFile(filePath, JSON.stringify(partialResult, null, 2), 'utf-8');
+// Write partial results (JSONL)
+await appendFile(filePath, JSON.stringify(partialResult) + '\n', 'utf-8');
 ```
 
-**Node.js crypto (for signing - built-in):**
+**Node.js crypto (for signing and tokens - built-in):**
 ```typescript
-import { createHmac } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
 
 function signConsultation(data: object, secret: string): string {
   const hmac = createHmac('sha256', secret);
@@ -231,9 +236,8 @@ function signConsultation(data: object, secret: string): string {
   return hmac.digest('hex');
 }
 
-// Add signature to consultation
-const signature = signConsultation(partialResult, process.env.CONCLAVE_SECRET || 'default');
-partialResult.signature = signature;
+// Generate resume token
+const token = randomBytes(16).toString('hex');
 ```
 
 **JSONL Format (append-only log):**
@@ -256,7 +260,6 @@ async saveCheckpoint(consultation: ConsultationState) {
   // Check if checkpoint already exists
   const exists = await this.checkpointExists(checkpointId);
   if (exists) {
-    console.log(`Checkpoint ${checkpointId} already exists, skipping`);
     return;
   }
 
@@ -269,10 +272,13 @@ async saveCheckpoint(consultation: ConsultationState) {
 
 **PartialResultManager.ts Structure:**
 ```typescript
-import { ConsultationState, PartialConsultationResult } from '../types/consult';
-import { writeFile, readFile } from 'fs/promises';
+import { ConsultationResult, AgentResponse, PartialConsultationResult } from '../../types/consult';
+import { ArtifactTransformer } from '../artifacts/ArtifactTransformer';
+import { appendFile, writeFile, readFile } from 'fs/promises';
+import * as fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { createHmac, randomBytes } from 'crypto';
 
 export class PartialResultManager {
   private logDir: string;
@@ -283,176 +289,49 @@ export class PartialResultManager {
   }
 
   /**
-   * Save partial results when consultation is cancelled or fails
-   * @param consultation Current consultation state
-   * @param reason Cancellation reason (user_pulse_cancel | timeout | error)
+   * Save partial results when consultation is cancelled or fails (JSONL)
+   * @param partialResult Result object
+   * @param reason Abort reason
    */
   async savePartialResults(
-    consultation: ConsultationState,
-    reason: 'user_pulse_cancel' | 'timeout' | 'error'
+    partialResult: PartialConsultationResult,
+    reason: 'user_pulse_cancel' | 'timeout' | 'error' | 'cost_exceeded_estimate'
   ): Promise<string> {
-    const filePath = this.getPartialFilePath(consultation.id);
-
-    const partialResult: PartialConsultationResult = {
-      consultation_id: consultation.id,
-      status: 'partial',
-      completed_rounds: this.getCompletedRounds(consultation),
-      incomplete_rounds: this.getIncompleteRounds(consultation),
-      partial_agents: this.extractPartialAgents(consultation),
-      cancellation_reason: reason,
-      timestamp: new Date().toISOString(),
-      question: consultation.question,
-      context: consultation.context,
-      agents: consultation.agents,
-      rounds: consultation.completedRounds, // All completed round artifacts
-      cost: consultation.totalCost,
-      tokens: consultation.totalTokens
-    };
-
-    // Add cryptographic signature
-    partialResult.signature = this.signResult(partialResult);
-
-    await writeFile(filePath, JSON.stringify(partialResult, null, 2), 'utf-8');
-
-    console.log(`Partial results saved to: ${filePath}`);
+    const filePath = this.getPartialFilePath(partialResult.consultationId);
+    // Transform, sign, and append line...
     return filePath;
   }
 
   /**
    * Save checkpoint after successful round completion
-   * @param consultation Current consultation state
    */
-  async saveCheckpoint(consultation: ConsultationState): Promise<void> {
-    const checkpointId = `${consultation.id}-round${consultation.currentRound}`;
-
-    // Idempotency check
-    if (await this.checkpointExists(checkpointId)) {
-      return;
-    }
-
-    const checkpoint = {
-      checkpoint_id: checkpointId,
-      consultation_id: consultation.id,
-      round: consultation.currentRound,
-      state: consultation.state,
-      artifacts: consultation.completedRounds[consultation.currentRound - 1],
-      timestamp: new Date().toISOString()
-    };
-
-    const checkpointPath = path.join(this.logDir, `${checkpointId}.checkpoint.json`);
-    await writeFile(checkpointPath, JSON.stringify(checkpoint, null, 2), 'utf-8');
+  async saveCheckpoint(consultation: PartialConsultationResult): Promise<void> {
+    // Write checkpoint file...
   }
 
   /**
-   * Load partial results for future resume functionality (structure only)
-   * @param sessionId Consultation ID
-   * @returns Partial consultation result
+   * Load partial results
    */
   async loadPartialResults(sessionId: string): Promise<PartialConsultationResult | null> {
-    const filePath = this.getPartialFilePath(sessionId);
-
-    try {
-      const data = await readFile(filePath, 'utf-8');
-      return JSON.parse(data) as PartialConsultationResult;
-    } catch (error) {
-      return null;
-    }
+    // Parse last line of JSONL...
   }
 
-  /**
-   * Get file path for partial results
-   * @param consultationId Consultation ID
-   * @returns Full file path
-   */
   private getPartialFilePath(consultationId: string): string {
-    const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    return path.join(this.logDir, `${date}-${consultationId}-partial.jsonl`);
-  }
-
-  private getCompletedRounds(consultation: ConsultationState): string[] {
-    // Return names of completed rounds based on state machine
-    // e.g., ["Independent", "Synthesis"] if Round 2 completed
-    return consultation.completedRounds.map((_, idx) => `Round${idx + 1}`);
-  }
-
-  private getIncompleteRounds(consultation: ConsultationState): string[] {
-    // Return names of started but incomplete rounds
-    const allRounds = ["Round1", "Round2", "Round3", "Round4"];
-    const completed = this.getCompletedRounds(consultation);
-    return allRounds.filter(r => !completed.includes(r));
-  }
-
-  private extractPartialAgents(consultation: ConsultationState): any[] {
-    // Extract any in-progress agent responses
-    // This would come from ConsultOrchestrator's current execution state
-    return consultation.inProgressAgents || [];
-  }
-
-  private signResult(result: any): string {
-    // Cryptographic signature (same as ConsultationFileLogger)
-    const crypto = require('crypto');
-    const secret = process.env.CONCLAVE_SECRET || 'default-secret';
-    const hmac = crypto.createHmac('sha256', secret);
-    hmac.update(JSON.stringify(result));
-    return hmac.digest('hex');
-  }
-
-  private async checkpointExists(checkpointId: string): Promise<boolean> {
-    const checkpointPath = path.join(this.logDir, `${checkpointId}.checkpoint.json`);
-    const { existsSync } = require('fs');
-    return existsSync(checkpointPath);
+    return path.join(this.logDir, `consult-${consultationId}-partial.jsonl`);
   }
 }
 ```
 
 **Integration in ConsultOrchestrator.ts:**
 ```typescript
-import { PartialResultManager } from '../consult/persistence/PartialResultManager';
-
-export class ConsultOrchestrator {
-  private partialResultManager: PartialResultManager;
-
-  constructor(/* existing params */) {
-    // ... existing initialization
-    this.partialResultManager = new PartialResultManager();
-  }
-
-  async runConsultation(question: string, context?: string): Promise<ConsultationResult> {
-    try {
-      // Round 1
-      const round1 = await this.executeRound1(question, context);
-      await this.partialResultManager.saveCheckpoint(this.currentState); // ← CHECKPOINT
-
-      // Round 2
-      const round2 = await this.executeRound2(round1);
-      await this.partialResultManager.saveCheckpoint(this.currentState); // ← CHECKPOINT
-
-      // Round 3
-      const round3 = await this.executeRound3(round2);
-      await this.partialResultManager.saveCheckpoint(this.currentState); // ← CHECKPOINT
-
-      // Round 4
-      const finalResult = await this.executeRound4(round3);
-
-      // Normal completion - write complete log
-      await this.consultationFileLogger.writeLog(finalResult);
-      return finalResult;
-
-    } catch (error) {
-      // Handle cancellation or error
-      if (error.message === 'User cancelled via interactive pulse') {
-        await this.partialResultManager.savePartialResults(
-          this.currentState,
-          'user_pulse_cancel'
-        );
-      } else {
-        await this.partialResultManager.savePartialResults(
-          this.currentState,
-          'error'
-        );
-      }
-      throw error;
-    }
+async consult(question: string, context: string = ''): Promise<ConsultationResult> {
+  try {
+    // ... execution ...
+    await this.saveCheckpoint(...);
+  } catch (error) {
+    // Uniform abort handling
+    await this.savePartialResults(reason, ...);
+    throw error;
   }
 }
 ```
@@ -460,21 +339,18 @@ export class ConsultOrchestrator {
 ### Testing Requirements
 
 **Unit Tests: PartialResultManager.test.ts**
-- Test `savePartialResults()` with all cancellation reasons
-- Test `saveCheckpoint()` idempotency (calling twice doesn't duplicate)
+- Test `savePartialResults()` with all cancellation reasons (JSONL format)
+- Test `saveCheckpoint()` idempotency
 - Test `loadPartialResults()` returns correct structure
-- Test file path generation follows naming convention
+- Test file path generation with `.jsonl` extension
 - Test cryptographic signature validity
-- Test directory creation if not exists
+- Test resume token generation
 
 **Integration Tests: ConsultOrchestratorPersistence.test.ts**
 - Test checkpoint saves after Round 1 completion
-- Test checkpoint saves after Round 2 completion
-- Test checkpoint saves after Round 3 completion
-- Test partial save on user cancellation (mock InteractivePulse)
-- Test partial save on provider error (mock provider failure)
-- Test partial file contains correct completed/incomplete rounds
-- Test analytics can index partial sessions (future integration)
+- Test partial save on user cancellation
+- Test partial save on provider error
+- Test cost accuracy in partial logs
 
 **Test Coverage Target:** >85% for PartialResultManager
 
@@ -491,198 +367,78 @@ export class ConsultOrchestrator {
 - If primary provider fails and user chooses "Fail" → partial save
 - Include which agents completed vs failed
 - Mark failed agents with `provider_error` field
-- This affects `extractPartialAgents()` logic
 
 **Story 2.1 (Cost Gate) - Cancellation Pattern:**
 - When user rejects cost → cancellation without execution
 - Different from pulse cancellation (no partial work)
-- Consider separate status: `'cancelled_pre_execution'` vs `'partial'`
+- Use reason: `'cost_exceeded_estimate'`
 
 **Story 1.8 (Consultation Logging) - File Format Pattern:**
 - ConsultationFileLogger already exists for complete logs
 - Reuse same JSON schema structure for partial results
-- Add new fields: `status`, `completed_rounds`, `incomplete_rounds`
-- Maintain compatibility with existing log parsers
-
-**Key Pattern from Previous Stories:**
-- JSONL format: One consultation per line
-- Cryptographic signing: HMAC-SHA256 with secret
-- File naming: `YYYY-MM-DD-[id].jsonl` pattern
-- Directory: `~/.llm-conclave/consult-logs/`
+- Add new fields: `status`, `abort_reason`, `resume_token`
 
 ### Git Intelligence Summary
 
 **Recent Commits (Inferred from Context):**
-- Story 2.1: CostGate with user consent prompts
-- Story 2.2: ProviderHealthMonitor for resilience
-- Story 2.3: HedgedRequestManager with provider substitution
-- Story 2.4: InteractivePulse for soft timeouts
+- Story 2.5: Implementation of session persistence (V1)
+- Code Review Fixes: Transition to JSONL, unified aborts, cost accuracy
 
 **Code Patterns Established:**
-- Health/resilience components in `src/consult/health/`
-- State machine transitions with clear reason strings
-- Event emission via EventBus with snake_case payloads
-- Inquirer prompts for all user interactions
-- Chalk styling: yellow for warnings, cyan for info, red for errors
-
-**What NOT to Change:**
-- ConsultationFileLogger interface (maintain compatibility)
-- State machine state names (already validated)
-- Event emission patterns (keep consistency)
-- JSON schema version for complete consultations
+- JSONL for partial results
+- HMAC-SHA256 signing
+- `consult-[id]-partial.jsonl` naming
+- Atomic writes for checkpoints
 
 ### Latest Technical Specifics
 
 **Node.js fs/promises (Node 14+):**
-- Async file operations with native promises
-- No need for callback-based `fs` methods
-- Use `existsSync` from sync `fs` for quick checks
+- Use `appendFile` for JSONL
+- Use `writeFile` + `rename` for atomic checkpoints
 
 **JSONL Best Practices:**
-- Each line is independent, parseable JSON
-- Allows streaming reads (readline module)
-- Append-only writes are atomic per line
-- Easier to recover from corrupted files
+- One JSON object per line, no commas between lines
+- Allows appending without re-reading the whole file
 
 **Cryptographic Signing:**
 ```typescript
-import { createHmac } from 'crypto';
-
-// HMAC-SHA256 for tamper detection
 const hmac = createHmac('sha256', secret);
 hmac.update(JSON.stringify(data));
 const signature = hmac.digest('hex');
-
-// Verify signature
-const recomputedSignature = createHmac('sha256', secret)
-  .update(JSON.stringify(data))
-  .digest('hex');
-const isValid = signature === recomputedSignature;
-```
-
-**Path Construction:**
-```typescript
-import path from 'path';
-import os from 'os';
-
-// Cross-platform home directory
-const homeDir = os.homedir(); // Works on Windows, Mac, Linux
-
-// Build safe paths
-const logDir = path.join(homeDir, '.llm-conclave', 'consult-logs');
-const filePath = path.join(logDir, `${date}-${id}-partial.jsonl`);
 ```
 
 ### Project Context Reference
 
 **From Project Structure:**
-- `src/consult/` directory: Consultation-related components
-- Create new subdirectory: `src/consult/persistence/` for persistence logic
-- `src/types/consult.ts`: All consultation type definitions
-- `src/orchestration/ConsultOrchestrator.ts`: Main orchestration logic
+- `src/consult/persistence/PartialResultManager.ts`
+- `src/types/consult.ts`
+- `src/orchestration/ConsultOrchestrator.ts`
 
-**Integration Points:**
-- `ConsultStateMachine.getState()` for current round tracking
-- `ConsultationFileLogger` for complete log format
-- `EventBus.emitEvent()` for lifecycle events (optional for checkpoints)
-- `InteractivePulse` cancellation signal
-
-**Naming Conventions (from architecture):**
+**Naming Conventions:**
+- JSON fields: snake_case (abort_reason, resume_token)
 - Files: PascalCase (PartialResultManager.ts)
-- Classes: PascalCase (PartialResultManager)
-- Methods: camelCase (savePartialResults, saveCheckpoint)
-- JSON fields: snake_case (consultation_id, completed_rounds)
-- Events: colon-separated lowercase (consultation:checkpoint_saved)
 
 ### Critical Implementation Notes
 
 **🚨 CRITICAL: Save Order on Cancellation**
-When user cancels:
-1. Catch cancellation signal FIRST
-2. Save partial results IMMEDIATELY (before any cleanup)
-3. THEN emit events, log messages, cleanup
-4. THEN exit process
+Save partial results IMMEDIATELY when an abort condition is met, before throwing the error up to the caller.
 
-```typescript
-try {
-  // ... consultation execution
-} catch (error) {
-  if (error.message === 'User cancelled via interactive pulse') {
-    // CRITICAL: Save FIRST, everything else AFTER
-    const filePath = await this.partialResultManager.savePartialResults(
-      this.currentState,
-      'user_pulse_cancel'
-    );
+**🚨 CRITICAL: Cost Tracking**
+Sum `tokens.total` from all entries in `agentResponses` to get actual consumed tokens for the partial result.
 
-    console.log(chalk.yellow(`⚠️ Consultation cancelled by user`));
-    console.log(chalk.cyan(`Partial results saved to: ${filePath}`));
-
-    // NOW we can cleanup and exit
-    this.cleanup();
-    process.exit(130); // Standard exit code for user interrupt
-  }
-}
-```
-
-**🚨 CRITICAL: Idempotent Checkpoints**
-Checkpoints must be idempotent (calling twice doesn't duplicate):
-- Use `consultation_id + round_number` as unique identifier
-- Check if checkpoint file exists before writing
-- If exists, log skip message and return early
-
-**🚨 CRITICAL: Atomic Writes**
-File writes must be atomic:
-- Write to temporary file first: `${filePath}.tmp`
-- Then rename to final name: `mv ${filePath}.tmp ${filePath}`
-- This prevents corrupted partial files if process killed mid-write
-
-```typescript
-import { writeFile, rename } from 'fs/promises';
-
-async function atomicWrite(filePath: string, data: string) {
-  const tmpPath = `${filePath}.tmp`;
-  await writeFile(tmpPath, data, 'utf-8');
-  await rename(tmpPath, filePath); // Atomic operation
-}
-```
-
-**🚨 CRITICAL: Future Resume Hook**
-Story 2.5 only creates the structure for resume - NOT full implementation:
-- `loadPartialResults()` method exists but only returns data structure
-- No UI for selecting sessions to resume
-- No logic to restart from Round N
-- These features come in Post-MVP "Resume & Continuation" story
-
-**🚨 CRITICAL: Error Handling**
-Persistence failures must NOT crash the orchestrator:
-```typescript
-try {
-  await this.partialResultManager.saveCheckpoint(this.currentState);
-} catch (persistError) {
-  // Log error but don't crash consultation
-  console.error('Failed to save checkpoint:', persistError);
-  // Continue execution - checkpoint is nice-to-have, not critical
-}
-```
+**🚨 CRITICAL: Resume Token**
+Include a generated token in every partial log and checkpoint to facilitate future continuation features.
 
 ### Success Criteria Validation
 
-**From NFR4 (Session Persistence):**
-> "The system must save intermediate 'Partial Consensus' artifacts. If the user eventually kills a long-running session, they should still be able to access the completed work from earlier rounds."
-
 ✅ Checkpoint saves after each round completion
-✅ Partial saves on user cancellation
-✅ Partial saves on error/exception
+✅ Partial saves on user cancellation (Pulse)
+✅ Partial saves on error/exception (Provider failure)
+✅ Partial saves on cost-threshold exceeded
 ✅ File location displayed to user
-✅ Completed rounds preserved in partial file
-
-**From Architecture Decision #7 (Analytics Storage):**
-> "JSON Storage: Append-only JSONL in ~/.llm-conclave/consult-logs/. Each consultation is one JSON object per line. Cryptographically signed for tamper-evidence."
-
+✅ Completed rounds (artifacts) preserved in partial file
 ✅ JSONL format for partial results
 ✅ Cryptographic signing with HMAC-SHA256
-✅ Append-only pattern (no file modification)
-✅ Same directory structure as complete logs
 
 ## Dev Agent Record
 
@@ -694,13 +450,12 @@ try {
 
 ### Completion Notes List
 
-- Created `PartialResultManager.ts` to handle saving partial consultation results and round checkpoints.
-- Implemented `savePartialResults` with atomic writes and cryptographic signing.
-- Implemented `saveCheckpoint` with idempotency checks (one checkpoint per round).
-- Updated `ConsultOrchestrator.ts` to integrate persistence calls after each round and on error/cancellation.
-- Updated `ConsultationFileLogger.ts` and `ArtifactTransformer` logic indirectly via PartialResultManager to support `status` field.
-- Updated `consult-stats.ts` to support 'partial' and 'aborted' statuses in dashboard.
-- Verified with unit tests covering file structure and integration instantiation.
+- Updated `PartialResultManager.ts` to implement JSONL format and align with the required schema (`abort_reason`, `resume_token`).
+- Refactored `ConsultOrchestrator.ts` to use a unified abort handling strategy, ensuring partial saves for pulse cancels, cost gate aborts, and provider errors.
+- Improved cost accuracy in partial results by calculating actual tokens consumed from `agentResponses`.
+- Switched partial log extension to `.jsonl` and ensured cryptographic signing is applied to the new format.
+- Added user-facing confirmation message with the saved partial result file path.
+- Updated unit tests to verify JSONL parsing and schema correctness.
 
 ### File List
 
@@ -710,15 +465,15 @@ try {
 - `src/orchestration/__tests__/ConsultOrchestratorPersistence.test.ts`
 
 **Files to Modify:**
-- `src/orchestration/ConsultOrchestrator.ts` (add checkpoint calls)
-- `src/types/consult.ts` (add PartialConsultationResult interface)
-- `src/consult/logging/ConsultationFileLogger.ts` (support partial format)
-- `src/commands/consult-stats.ts` (updated for partial stats)
+- `src/orchestration/ConsultOrchestrator.ts`
+- `src/types/consult.ts`
+- `src/consult/logging/ConsultationFileLogger.ts`
+- `src/commands/consult-stats.ts`
 
 ### Change Log
 
-- 2025-12-29: Implemented session persistence with partial results and checkpoints. Added PartialResultManager and updated Orchestrator to save state after every round. Updated stats command to track partial sessions.
+- 2025-12-29: Resolved high-priority code review findings for Story 2.5. Implemented JSONL storage, unified abort handling, and accurate cost tracking for partial sessions.
 
 ### Status
 
-review
+done
