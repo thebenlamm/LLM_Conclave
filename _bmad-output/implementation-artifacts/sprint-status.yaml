@@ -1,0 +1,85 @@
+# generated: 2025-12-29
+# project: llm_conclave
+# project_key: llm_conclave
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2025-12-29
+project: llm_conclave
+project_key: llm_conclave
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: 4-Round Multi-Model Consultation Engine
+  epic-1: backlog
+  1-1-consultation-foundation-types-state-machine-and-event-infrastructure: backlog
+  1-2-round-1-independent-analysis-with-parallel-execution: backlog
+  1-3-cli-command-entry-point-with-basic-cost-estimation-and-real-time-progress: backlog
+  1-4-round-2-synthesis-with-consensus-building: backlog
+  1-5-round-3-cross-examination-with-challenge-rebuttal: backlog
+  1-6-round-4-verdict-with-final-recommendation: backlog
+  1-7-output-formatting-markdown-and-json-ld: backlog
+  1-8-consultation-logging-with-jsonl-and-prompt-versioning: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Cost Controls & Resilience
+  epic-2: in-progress
+  2-1-user-consent-flow-with-cost-gate: ready-for-dev
+  2-2-provider-health-monitoring-system: backlog
+  2-3-hedged-requests-with-provider-substitution: backlog
+  2-4-60-second-interactive-pulse-with-soft-timeouts: backlog
+  2-5-session-persistence-with-partial-consensus-artifacts: backlog
+  2-6-token-efficient-debate-with-artifact-filtering: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Usage Analytics & Cost Visibility
+  epic-3: backlog
+  3-1-sqlite-analytics-indexer-with-write-through-pattern: backlog
+  3-2-stats-query-engine-with-metrics-computation: backlog
+  3-3-consult-stats-cli-dashboard-with-success-validation: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Advanced Reasoning Modes
+  epic-4: backlog
+  4-1-mode-strategy-pattern-with-explore-and-converge-implementations: backlog
+  4-2-confidence-based-early-termination: backlog
+  4-3-debate-value-tracking-with-agent-position-analysis: backlog
+  4-4-brownfield-project-detection-with-documentation-bias: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Flexible Context & Output Options
+  epic-5: backlog
+  5-1-multi-source-context-loading-with-file-and-project-support: backlog
+  5-2-sensitive-data-scrubbing-with-regex-filter: backlog
+  5-3-stdin-piping-and-output-format-selection: backlog
+  epic-5-retrospective: optional
