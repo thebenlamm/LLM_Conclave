@@ -1,5 +1,5 @@
 import { CostEstimate } from './CostEstimator';
-import inquirer from 'inquirer';
+// import inquirer from 'inquirer'; // Dynamic import used instead
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -48,6 +48,8 @@ export class CostGate {
     console.log(`- Expected output tokens: ~${estimate.outputTokens.toLocaleString()}`);
     console.log(`- ${agents} agents × ${rounds} rounds`);
     console.log(chalk.gray('━'.repeat(50)) + '\n');
+
+    const { default: inquirer } = await import('inquirer');
 
     const { consent } = await inquirer.prompt([
       {

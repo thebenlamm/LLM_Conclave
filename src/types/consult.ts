@@ -42,6 +42,15 @@ export interface AgentResponse {
   durationMs: number;
   timestamp: string;
   error?: string;
+  provider_error?: string; // NEW: For failed agents
+}
+
+export interface ProviderSubstitution {
+  agent_id: string;
+  original_provider: string;
+  substitute_provider: string;
+  reason: 'timeout' | 'failure' | 'health_check';
+  timestamp: Date;
 }
 
 export interface AgentPerspective {
@@ -182,6 +191,9 @@ export interface ConsultationResult {
   concerns: string[];
   dissent: Dissent[];
   perspectives: AgentPerspective[];
+
+  // Substitutions (Epic 2, Story 3)
+  substitutions?: ProviderSubstitution[];
 
   // Metadata
   cost: CostSummary;

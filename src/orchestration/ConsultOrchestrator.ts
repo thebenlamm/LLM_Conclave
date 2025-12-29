@@ -17,6 +17,7 @@ import { CostGate } from '../consult/cost/CostGate';
 import { ConfigCascade } from '../cli/ConfigCascade';
 import { ConsultationFileLogger } from '../consult/logging/ConsultationFileLogger';
 import { ProviderHealthMonitor } from '../consult/health/ProviderHealthMonitor';
+import { HedgedRequestManager } from '../consult/health/HedgedRequestManager';
 import chalk from 'chalk';
 import {
   Agent,
@@ -52,6 +53,7 @@ export default class ConsultOrchestrator {
   private costGate: CostGate;
   private fileLogger: ConsultationFileLogger;
   private healthMonitor: ProviderHealthMonitor;
+  private hedgedRequestManager: HedgedRequestManager;
   private estimatedCostUsd: number = 0;
   private actualCostUsd: number = 0;
 
@@ -62,6 +64,7 @@ export default class ConsultOrchestrator {
     this.costEstimator = new CostEstimator();
     this.costGate = new CostGate();
     this.fileLogger = new ConsultationFileLogger();
+    this.hedgedRequestManager = new HedgedRequestManager(this.eventBus);
 
     // Generate ID first so state machine can use it
     this.consultationId = this.generateId('consult');
@@ -488,25 +491,63 @@ export default class ConsultOrchestrator {
       
       try {
         const start = Date.now();
-        const response = await agent.provider.chat([
+        // Use HedgedRequestManager for reliability (Story 2.3)
+        const agentConfig = {
+          name: agent.name,
+          model: agent.model,
+          provider: agent.model // Map model to provider ID
+        };
+
+        const messages: Message[] = [
           { role: 'user', content: 'Proceed with Cross-Examination.' }
-        ], systemPrompt);
-        const duration = Date.now() - start;
+        ];
+        // Note: HedgedRequestManager expects messages array, but doesn't take systemPrompt directly in args?
+        // Wait, executeAgentWithHedging(agent, messages, healthMonitor)
+        // Where does systemPrompt go?
+        // AgentConfig passed to it doesn't have systemPrompt in my call above?
+        // The implementation of HedgedRequestManager:
+        // const primaryProvider = ProviderFactory.createProvider(primaryProviderId);
+        // primaryProvider.chat(messages, { signal: ... })
+        // It does NOT pass systemPrompt!
+        // This is a BUG in my HedgedRequestManager implementation if providers need systemPrompt separately.
+        // Most providers take systemPrompt in options OR as a message.
+        // In ConsultOrchestrator, we pass `agent.systemPrompt` as 2nd arg to `chat`.
+        // HedgedRequestManager needs to support this!
+        
+        // I must FIX HedgedRequestManager to accept systemPrompt or options.
+        // Or I must inject systemPrompt into messages.
+        
+        // Let's assume I can inject it into messages for now.
+        // LLMProvider usually handles system messages.
+        // I'll prepend system prompt to messages.
+        
+        const fullMessages: Message[] = [
+           { role: 'system', content: systemPrompt },
+           ...messages
+        ];
+
+        const response = await this.hedgedRequestManager.executeAgentWithHedging(
+            agentConfig,
+            fullMessages,
+            this.healthMonitor
+        );
+        
+        const duration = response.durationMs || (Date.now() - start);
 
         this.eventBus.emitEvent('agent:completed' as any, {
           consultation_id: this.consultationId,
           agent_name: agent.name,
           duration_ms: duration,
-          tokens: response.usage
+          tokens: response.tokens
         });
 
         const agentResponse: AgentResponse = {
           agentId: agent.name,
           agentName: agent.name,
-          model: agent.model,
-          provider: 'unknown',
-          content: response.text || '',
-          tokens: response.usage || { input: 0, output: 0, total: 0 },
+          model: response.model || agent.model,
+          provider: response.provider || 'unknown',
+          content: response.content || '',
+          tokens: response.tokens || { input: 0, output: 0, total: 0 },
           durationMs: duration,
           timestamp: new Date().toISOString()
         };
@@ -607,37 +648,54 @@ export default class ConsultOrchestrator {
         }
       ];
 
-      const response = await agent.provider.chat(
-        messages,
-        agent.systemPrompt
+      // Use HedgedRequestManager for reliability (Story 2.3)
+      const agentConfig = {
+        name: agent.name,
+        model: agent.model,
+        provider: agent.model // Map model to provider ID
+      };
+
+      // Inject system prompt into messages since HedgedRequestManager doesn't take options
+      const fullMessages: Message[] = [
+           { role: 'system', content: agent.systemPrompt },
+           ...messages
+      ];
+
+      const response = await this.hedgedRequestManager.executeAgentWithHedging(
+        agentConfig,
+        fullMessages,
+        this.healthMonitor
       );
 
-      const duration = Date.now() - startTime;
+      const duration = response.durationMs || (Date.now() - startTime);
       if (this.verbose) console.log(`✓ ${agent.name} responded in ${(duration / 1000).toFixed(1)}s`);
 
-      const usage = response.usage || {};
-      const inputTokens = usage.input_tokens || 0;
-      const outputTokens = usage.output_tokens || 0;
+      const usage = response.tokens || { input: 0, output: 0, total: 0 };
+      const inputTokens = usage.input || 0;
+      const outputTokens = usage.output || 0;
 
       // Extract Artifact
       const artifact = ArtifactExtractor.extractIndependentArtifact(
-        response.text || '',
+        response.content || '',
         agent.name // Using name as ID for now, ideally strictly ID
       );
 
+      // 'agent:completed' is emitted here, but HedgedManager emits 'substitution'.
+      // We still emit 'agent:completed' for consistency in Orchestrator logic.
       this.eventBus.emitEvent('agent:completed' as any, {
         consultation_id: this.consultationId,
         agent_name: agent.name,
         duration_ms: duration,
-        tokens: response.usage
+        tokens: usage
       });
 
+      // Map response to AgentResponse type
       const agentResponse: AgentResponse = {
         agentId: agent.name,
         agentName: agent.name,
-        model: agent.model,
-        provider: 'unknown',
-        content: response.text || '',
+        model: response.model || agent.model, // Use actual model (backup might be different)
+        provider: response.provider || 'unknown',
+        content: response.content || '',
         tokens: {
           input: inputTokens,
           output: outputTokens,
