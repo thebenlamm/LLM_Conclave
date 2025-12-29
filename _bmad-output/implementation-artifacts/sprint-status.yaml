@@ -54,8 +54,8 @@ development_status:
 
   # Epic 2: Cost Controls & Resilience
   epic-2: in-progress
-  2-1-user-consent-flow-with-cost-gate: ready-for-dev
-  2-2-provider-health-monitoring-system: backlog
+  2-1-user-consent-flow-with-cost-gate: review
+  2-2-provider-health-monitoring-system: ready-for-dev
   2-3-hedged-requests-with-provider-substitution: backlog
   2-4-60-second-interactive-pulse-with-soft-timeouts: backlog
   2-5-session-persistence-with-partial-consensus-artifacts: backlog
