@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 
-export type EventType = 
-  | 'run:start' 
+export type EventType =
+  | 'run:start'
   | 'run:complete'
   | 'agent:thinking'
   | 'token'
@@ -12,7 +12,18 @@ export type EventType =
   | 'error'
   | 'cost:update'
   | 'tool:call'
-  | 'tool:result';
+  | 'tool:result'
+  // Consult Mode Events (4-Round Consultation Engine)
+  | 'consultation:started'
+  | 'consultation:cost_estimated'
+  | 'consultation:user_consent'
+  | 'consultation:round_artifact'
+  | 'consultation:provider_substituted'
+  | 'consultation:completed'
+  | 'consultation:state_change'
+  | 'health:check_started'
+  | 'health:status_updated'
+  | 'cost:gate_triggered';
 
 export interface ConclaveEvent {
   type: EventType;
