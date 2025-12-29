@@ -1,0 +1,335 @@
+/**
+ * Artifact Transformer
+ *
+ * Converts between TypeScript (camelCase) and JSON (snake_case) formats
+ * for all consultation artifacts.
+ *
+ * TypeScript uses camelCase for properties (e.g., agentId, roundNumber)
+ * JSON uses snake_case for fields (e.g., agent_id, round_number)
+ */
+
+import {
+  IndependentArtifact,
+  SynthesisArtifact,
+  CrossExamArtifact,
+  VerdictArtifact,
+  ConsensusPoint,
+  Tension,
+  Challenge,
+  Rebuttal,
+  Dissent
+} from '../../types/consult';
+
+export class ArtifactTransformer {
+  // ============================================================================
+  // Independent Artifact (Round 1)
+  // ============================================================================
+
+  /**
+   * Convert Independent artifact to JSON (snake_case)
+   */
+  public static independentToJSON(artifact: IndependentArtifact): any {
+    return {
+      artifact_type: artifact.artifactType,
+      schema_version: artifact.schemaVersion,
+      agent_id: artifact.agentId,
+      round_number: artifact.roundNumber,
+      position: artifact.position,
+      key_points: artifact.keyPoints,
+      rationale: artifact.rationale,
+      confidence: artifact.confidence,
+      prose_excerpt: artifact.proseExcerpt,
+      created_at: artifact.createdAt
+    };
+  }
+
+  /**
+   * Convert JSON (snake_case) to Independent artifact
+   */
+  public static independentFromJSON(json: any): IndependentArtifact {
+    return {
+      artifactType: json.artifact_type,
+      schemaVersion: json.schema_version,
+      agentId: json.agent_id,
+      roundNumber: json.round_number,
+      position: json.position,
+      keyPoints: json.key_points,
+      rationale: json.rationale,
+      confidence: json.confidence,
+      proseExcerpt: json.prose_excerpt,
+      createdAt: json.created_at
+    };
+  }
+
+  // ============================================================================
+  // Synthesis Artifact (Round 2)
+  // ============================================================================
+
+  /**
+   * Convert Synthesis artifact to JSON (snake_case)
+   */
+  public static synthesisToJSON(artifact: SynthesisArtifact): any {
+    return {
+      artifact_type: artifact.artifactType,
+      schema_version: artifact.schemaVersion,
+      round_number: artifact.roundNumber,
+      consensus_points: artifact.consensusPoints.map(cp => this.consensusPointToJSON(cp)),
+      tensions: artifact.tensions.map(t => this.tensionToJSON(t)),
+      priority_order: artifact.priorityOrder,
+      created_at: artifact.createdAt
+    };
+  }
+
+  /**
+   * Convert JSON (snake_case) to Synthesis artifact
+   */
+  public static synthesisFromJSON(json: any): SynthesisArtifact {
+    return {
+      artifactType: json.artifact_type,
+      schemaVersion: json.schema_version,
+      roundNumber: json.round_number,
+      consensusPoints: json.consensus_points.map((cp: any) => this.consensusPointFromJSON(cp)),
+      tensions: json.tensions.map((t: any) => this.tensionFromJSON(t)),
+      priorityOrder: json.priority_order,
+      createdAt: json.created_at
+    };
+  }
+
+  /**
+   * Convert ConsensusPoint to JSON
+   */
+  private static consensusPointToJSON(point: ConsensusPoint): any {
+    return {
+      point: point.point,
+      supporting_agents: point.supportingAgents,
+      confidence: point.confidence
+    };
+  }
+
+  /**
+   * Convert JSON to ConsensusPoint
+   */
+  private static consensusPointFromJSON(json: any): ConsensusPoint {
+    return {
+      point: json.point,
+      supportingAgents: json.supporting_agents,
+      confidence: json.confidence
+    };
+  }
+
+  /**
+   * Convert Tension to JSON
+   */
+  private static tensionToJSON(tension: Tension): any {
+    return {
+      topic: tension.topic,
+      viewpoints: tension.viewpoints
+    };
+  }
+
+  /**
+   * Convert JSON to Tension
+   */
+  private static tensionFromJSON(json: any): Tension {
+    return {
+      topic: json.topic,
+      viewpoints: json.viewpoints
+    };
+  }
+
+  // ============================================================================
+  // CrossExam Artifact (Round 3)
+  // ============================================================================
+
+  /**
+   * Convert CrossExam artifact to JSON (snake_case)
+   */
+  public static crossExamToJSON(artifact: CrossExamArtifact): any {
+    return {
+      artifact_type: artifact.artifactType,
+      schema_version: artifact.schemaVersion,
+      round_number: artifact.roundNumber,
+      challenges: artifact.challenges.map(c => this.challengeToJSON(c)),
+      rebuttals: artifact.rebuttals.map(r => this.rebuttalToJSON(r)),
+      unresolved: artifact.unresolved,
+      created_at: artifact.createdAt
+    };
+  }
+
+  /**
+   * Convert JSON (snake_case) to CrossExam artifact
+   */
+  public static crossExamFromJSON(json: any): CrossExamArtifact {
+    return {
+      artifactType: json.artifact_type,
+      schemaVersion: json.schema_version,
+      roundNumber: json.round_number,
+      challenges: json.challenges.map((c: any) => this.challengeFromJSON(c)),
+      rebuttals: json.rebuttals.map((r: any) => this.rebuttalFromJSON(r)),
+      unresolved: json.unresolved,
+      createdAt: json.created_at
+    };
+  }
+
+  /**
+   * Convert Challenge to JSON
+   */
+  private static challengeToJSON(challenge: Challenge): any {
+    return {
+      challenger: challenge.challenger,
+      target_agent: challenge.targetAgent,
+      challenge: challenge.challenge,
+      evidence: challenge.evidence
+    };
+  }
+
+  /**
+   * Convert JSON to Challenge
+   */
+  private static challengeFromJSON(json: any): Challenge {
+    return {
+      challenger: json.challenger,
+      targetAgent: json.target_agent,
+      challenge: json.challenge,
+      evidence: json.evidence
+    };
+  }
+
+  /**
+   * Convert Rebuttal to JSON
+   */
+  private static rebuttalToJSON(rebuttal: Rebuttal): any {
+    return {
+      agent: rebuttal.agent,
+      rebuttal: rebuttal.rebuttal
+    };
+  }
+
+  /**
+   * Convert JSON to Rebuttal
+   */
+  private static rebuttalFromJSON(json: any): Rebuttal {
+    return {
+      agent: json.agent,
+      rebuttal: json.rebuttal
+    };
+  }
+
+  // ============================================================================
+  // Verdict Artifact (Round 4)
+  // ============================================================================
+
+  /**
+   * Convert Verdict artifact to JSON (snake_case)
+   */
+  public static verdictToJSON(artifact: VerdictArtifact): any {
+    return {
+      artifact_type: artifact.artifactType,
+      schema_version: artifact.schemaVersion,
+      round_number: artifact.roundNumber,
+      recommendation: artifact.recommendation,
+      confidence: artifact.confidence,
+      evidence: artifact.evidence,
+      dissent: artifact.dissent.map(d => this.dissentToJSON(d)),
+      created_at: artifact.createdAt
+    };
+  }
+
+  /**
+   * Convert JSON (snake_case) to Verdict artifact
+   */
+  public static verdictFromJSON(json: any): VerdictArtifact {
+    return {
+      artifactType: json.artifact_type,
+      schemaVersion: json.schema_version,
+      roundNumber: json.round_number,
+      recommendation: json.recommendation,
+      confidence: json.confidence,
+      evidence: json.evidence,
+      dissent: json.dissent.map((d: any) => this.dissentFromJSON(d)),
+      createdAt: json.created_at
+    };
+  }
+
+  /**
+   * Convert Dissent to JSON
+   */
+  private static dissentToJSON(dissent: Dissent): any {
+    return {
+      agent: dissent.agent,
+      concern: dissent.concern,
+      severity: dissent.severity
+    };
+  }
+
+  /**
+   * Convert JSON to Dissent
+   */
+  private static dissentFromJSON(json: any): Dissent {
+    return {
+      agent: json.agent,
+      concern: json.concern,
+      severity: json.severity
+    };
+  }
+
+  // ============================================================================
+  // Generic Transformer
+  // ============================================================================
+
+  /**
+   * Detect artifact type and convert to JSON
+   */
+  public static toJSON(artifact: IndependentArtifact | SynthesisArtifact | CrossExamArtifact | VerdictArtifact): any {
+    switch (artifact.artifactType) {
+      case 'independent':
+        return this.independentToJSON(artifact as IndependentArtifact);
+      case 'synthesis':
+        return this.synthesisToJSON(artifact as SynthesisArtifact);
+      case 'cross_exam':
+        return this.crossExamToJSON(artifact as CrossExamArtifact);
+      case 'verdict':
+        return this.verdictToJSON(artifact as VerdictArtifact);
+      default:
+        throw new Error(`Unknown artifact type: ${(artifact as any).artifactType}`);
+    }
+  }
+
+  /**
+   * Detect artifact type and convert from JSON
+   */
+  public static fromJSON(json: any): IndependentArtifact | SynthesisArtifact | CrossExamArtifact | VerdictArtifact {
+    const artifactType = json.artifact_type;
+
+    switch (artifactType) {
+      case 'independent':
+        return this.independentFromJSON(json);
+      case 'synthesis':
+        return this.synthesisFromJSON(json);
+      case 'cross_exam':
+        return this.crossExamFromJSON(json);
+      case 'verdict':
+        return this.verdictFromJSON(json);
+      default:
+        throw new Error(`Unknown artifact type: ${artifactType}`);
+    }
+  }
+
+  // ============================================================================
+  // Helper: Generic camelCase to snake_case converter
+  // ============================================================================
+
+  /**
+   * Convert a camelCase key to snake_case
+   */
+  public static camelToSnake(str: string): string {
+    return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+  }
+
+  /**
+   * Convert a snake_case key to camelCase
+   */
+  public static snakeToCamel(str: string): string {
+    return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  }
+}
