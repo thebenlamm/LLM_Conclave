@@ -45,24 +45,11 @@ describe('ConsultOrchestrator Story 1.2', () => {
     const question = "Test Question";
     const result = await orchestrator.consult(question);
 
-    // Verify 3 agents were initialized and called
-    expect(ProviderFactory.createProvider).toHaveBeenCalledTimes(3);
+    // Verify 3 agents initialized + 1 Judge initialized = 4 calls
+    expect(ProviderFactory.createProvider).toHaveBeenCalledTimes(4);
     
-    // Check if chat was called 3 times (once per agent)
-    // Note: It might be called more if Synthesis is also triggered, but for Round 1 it's 3.
-    // Our mock logic for ConsultOrchestrator.ts currently has a minimal Synthesis placeholder 
-    // which doesn't call an LLM yet (we commented it out/placeholder). 
-    // Wait, the synthesis code I wrote:
-    // "const synthesis = await this.synthesizeConsensus..." was commented out? 
-    // No, I kept the method calls but I didn't verify the synthesis part fully.
-    
-    // Actually, looking at my code for ConsultOrchestrator.ts:
-    // I removed the synthesis call logic inside `consult` and just did:
-    // this.stateMachine.transition(ConsultState.Synthesis);
-    // this.stateMachine.transition(ConsultState.Complete);
-    // So `chat` should be called exactly 3 times for Round 1.
-    
-    expect(mockProvider.chat).toHaveBeenCalledTimes(3);
+    // Check if chat was called 4 times (3 agents + 1 judge)
+    expect(mockProvider.chat).toHaveBeenCalledTimes(4);
 
     // Verify results structure
     expect(result.responses.round1).toHaveLength(3);

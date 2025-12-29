@@ -24,6 +24,7 @@ import {
   TokenUsage,
   ConsultState,
   IndependentArtifact,
+  SynthesisArtifact,
   AgentResponse,
   PromptVersions
 } from '../types/consult';
@@ -126,7 +127,7 @@ export default class ConsultOrchestrator {
     const round1Artifacts = await this.executeRound1Independent(question, context);
     
     // Track failed agents
-    const successfulArtifacts = round1Artifacts.filter(a => !!a);
+    const successfulArtifacts = (round1Artifacts.filter(a => !!a) as IndependentArtifact[]);
     if (successfulArtifacts.length === 0) {
       this.stateMachine.transition(ConsultState.Aborted, 'All agents failed in Round 1');
       throw new Error('All agents failed. Unable to provide consultation.');
@@ -135,32 +136,24 @@ export default class ConsultOrchestrator {
     this.eventBus.emitEvent('round:completed' as any, {
       consultation_id: this.consultationId,
       round_number: 1,
-      artifact_type: 'independent',
-      // We pass the full artifacts array for the round
-      // The payload type expects a single artifact? No, usually round completion might just signify end.
-      // But ConsultationRoundArtifactPayload expects 'artifact'.
-      // We'll skip sending the payload here if it doesn't match, or emit multiple events.
-      // The story says: "System emits consultation:round_artifact event with round_number: 2" for synthesis.
-      // For Independent, we have multiple artifacts. We already emitted agent:completed.
-      // round:completed is for CLI display.
+      artifact_type: 'independent'
     });
 
     // --- State: Synthesis (Round 2) ---
     this.stateMachine.transition(ConsultState.Synthesis);
     if (this.verbose) console.log(`\n--- Round 2: Synthesis ---\n`);
     
-    // Placeholder for Story 1.4 implementation
-    // For now, we'll create a dummy synthesis to satisfy the return type or just finish
+    const synthesisArtifact = await this.executeRound2Synthesis(question, successfulArtifacts);
     
-    // TODO: Implement Round 2, 3, 4 fully in subsequent stories.
+    // --- State: CrossExam (Round 3) ---
+    // this.stateMachine.transition(ConsultState.CrossExam);
     
-    // For this story verification, we'll complete the flow minimally.
+    // TODO: Implement Round 3 & 4 in subsequent stories.
+    // For this story verification (Story 1.4), we stop after Round 2.
+    // Synthesis -> Complete is a valid transition (early termination path).
     this.stateMachine.transition(ConsultState.Complete);
 
     const durationMs = Date.now() - startTime;
-    
-    // Emit completion event
-    // The payload needs result, which we are building now.
     
     const result: ConsultationResult = {
       consultationId: this.consultationId,
@@ -171,9 +164,10 @@ export default class ConsultOrchestrator {
       agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
       state: ConsultState.Complete,
       rounds: this.maxRounds,
-      completedRounds: 1,
+      completedRounds: 2,
       responses: {
-        round1: successfulArtifacts as IndependentArtifact[]
+        round1: successfulArtifacts,
+        round2: synthesisArtifact || undefined
       },
       consensus: 'Pending Round 2 implementation',
       confidence: 0,
@@ -215,11 +209,68 @@ export default class ConsultOrchestrator {
     );
 
     const results = await Promise.all(promises);
-    
-    // Emit completion event for the round? 
-    // The story says: "System emits agent:completed event with duration and tokens" (handled in executeAgentIndependent)
-    
     return results;
+  }
+
+  /**
+   * Execute Round 2: Synthesis
+   * - Uses GPT-4o as Judge to synthesize independent perspectives
+   */
+  private async executeRound2Synthesis(
+    question: string,
+    artifacts: IndependentArtifact[]
+  ): Promise<SynthesisArtifact | null> {
+    const startTime = Date.now();
+    const judgeAgent = {
+      name: 'Judge (Synthesis)',
+      model: 'gpt-4o',
+      provider: ProviderFactory.createProvider('gpt-4o'),
+      systemPrompt: this.getSynthesisPrompt(artifacts)
+    };
+
+    this.eventBus.emitEvent('agent:thinking' as any, {
+      consultation_id: this.consultationId,
+      agent_name: judgeAgent.name,
+      round: 2
+    });
+
+    if (this.verbose) console.log(`⚡ Judge (GPT-4o) synthesizing consensus...`);
+
+    try {
+      const messages: Message[] = [
+        {
+          role: 'user',
+          content: `Question: ${question}\n\nAnalyze the expert perspectives and synthesize consensus.`
+        }
+      ];
+
+      const response = await judgeAgent.provider.chat(messages, judgeAgent.systemPrompt);
+      const duration = Date.now() - startTime;
+
+      if (this.verbose) console.log(`✓ Synthesis complete in ${(duration / 1000).toFixed(1)}s`);
+
+      const artifact = ArtifactExtractor.extractSynthesisArtifact(response.text || '');
+      
+      this.eventBus.emitEvent('consultation:round_artifact' as any, {
+        consultation_id: this.consultationId,
+        round_number: 2,
+        artifact_type: 'synthesis',
+        artifact
+      });
+
+      this.eventBus.emitEvent('round:completed' as any, {
+        consultation_id: this.consultationId,
+        round_number: 2,
+        artifact_type: 'synthesis'
+      });
+
+      return artifact;
+    } catch (error: any) {
+      if (this.verbose) console.warn(`⚠️ Synthesis failed: ${error.message}`);
+      // In a real scenario, we might want to fail the consultation or degrade gracefully
+      this.stateMachine.transition(ConsultState.Aborted, `Synthesis failed: ${error.message}`);
+      throw error;
+    }
   }
 
   /**
@@ -307,6 +358,57 @@ Use the following schema:
   "prose_excerpt": "A short, quote-worthy summary of your stance"
 }
 `;
+  }
+
+  /**
+   * Synthesis Prompt for Judge
+   */
+  private getSynthesisPrompt(artifacts: IndependentArtifact[]): string {
+    const perspectives = artifacts.map(a => `
+### Agent: ${a.agentId}
+**Position:** ${a.position}
+**Key Points:**
+${a.keyPoints.map(kp => `- ${kp}`).join('\n')}
+**Rationale:** ${a.rationale}
+**Confidence:** ${a.confidence}
+`).join('\n---\n');
+
+    return `You are the Consensus Judge in a rigorous multi-model consultation.
+
+Your goal is to synthesize the perspectives of 3 experts into a coherent analysis of consensus and disagreement.
+You are NOT providing the final answer yet. You are mapping the debate terrain.
+
+### Expert Perspectives:
+${perspectives}
+
+### Instructions:
+1. Identify **Consensus Points**: What do the experts agree on? (Explicit or implicit agreement)
+2. Identify **Tensions**: Where do they disagree? (Conflicting recommendations, trade-offs, or emphasis)
+3. Rank the **Priority Order** of topics that need resolution.
+
+IMPORTANT: You must provide your response in valid JSON format ONLY.
+Do not include any introductory or concluding text.
+Use the following schema:
+
+{
+  "consensus_points": [
+    {
+      "point": "Statement of agreement",
+      "supporting_agents": ["Agent Name 1", "Agent Name 2"],
+      "confidence": 0.0-1.0 (how strong is this consensus?)
+    }
+  ],
+  "tensions": [
+    {
+      "topic": "Topic of disagreement (e.g., Auth Method)",
+      "viewpoints": [
+        { "agent": "Agent Name 1", "viewpoint": "Summary of their view" },
+        { "agent": "Agent Name 2", "viewpoint": "Summary of their view" }
+      ]
+    }
+  ],
+  "priority_order": ["Topic 1", "Topic 2", "Topic 3"]
+}`;
   }
 
   /**
