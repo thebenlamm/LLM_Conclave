@@ -207,6 +207,11 @@ export interface ConsultationResult {
   // Abort reason
   abortReason?: string;
 
+  // Pulse tracking (Epic 2, Story 4)
+  pulseTriggered?: boolean;
+  userCancelledAfterPulse?: boolean;
+  pulseTimestamp?: string;
+
   // Cost tracking (Epic 2, Story 1)
   estimatedCost?: number;
   actualCost?: number;

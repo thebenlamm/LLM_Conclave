@@ -48,13 +48,22 @@ jest.mock('../../providers/ProviderFactory', () => ({
   }
 }));
 
+jest.mock('../../consult/health/ProviderHealthMonitor', () => ({
+  ProviderHealthMonitor: jest.fn().mockImplementation(() => ({
+    registerProvider: jest.fn(),
+    startMonitoring: jest.fn(),
+    stopMonitoring: jest.fn(),
+    hasHealthyProviders: jest.fn().mockReturnValue(true)
+  }))
+}));
+
 describe('ConsultOrchestrator + CostGate Integration', () => {
   let orchestrator: ConsultOrchestrator;
   let configPath: string;
 
   beforeEach(() => {
     orchestrator = new ConsultOrchestrator({ verbose: false });
-    configPath = path.join(os.homedir(), '.config', 'llm-conclave', 'config.json');
+    configPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
     mockPrompt.mockClear();
 
     // Clean up test config
@@ -217,27 +226,34 @@ describe('ConsultOrchestrator + CostGate Integration', () => {
 
   describe('AC #5: In-Flight Cost Monitoring', () => {
     it('should track actual costs during consultation', () => {
-      // This will be tested indirectly through cost tracking methods
-      // The actual cost tracking is tested in the orchestrator tests
-      expect(true).toBe(true); // Placeholder for compilation
+      const localOrchestrator = new ConsultOrchestrator({ verbose: false });
+      const orchestratorAny = localOrchestrator as any;
+
+      orchestratorAny.trackActualCost({ input_tokens: 1000, output_tokens: 1000 }, 'gpt-4o');
+
+      expect(orchestratorAny.actualCostUsd).toBeGreaterThan(0);
     });
 
-    it('should abort if cost exceeds estimate by >50%', () => {
-      const costGate = new CostGate();
-      const estimate = {
-        inputTokens: 1000,
-        outputTokens: 4000,
-        totalTokens: 5000,
-        estimatedCostUsd: 0.50
-      };
+    it('should abort and log partial results if cost exceeds estimate by >50%', async () => {
+      const localOrchestrator = new ConsultOrchestrator({ verbose: false });
+      const orchestratorAny = localOrchestrator as any;
 
-      // Simulate actual cost of $0.80 (60% over estimate)
-      const actualCost = 0.80;
-      const threshold = estimate.estimatedCostUsd * 1.5; // 0.75
+      jest.spyOn(orchestratorAny.costEstimator, 'estimateCost').mockReturnValue({
+        inputTokens: 10,
+        outputTokens: 10,
+        totalTokens: 20,
+        estimatedCostUsd: 0.001
+      });
 
-      expect(actualCost).toBeGreaterThan(threshold);
-      const percentOver = ((actualCost - estimate.estimatedCostUsd) / estimate.estimatedCostUsd) * 100;
-      expect(percentOver).toBeGreaterThan(50);
+      const logSpy = jest
+        .spyOn(orchestratorAny.fileLogger, 'logConsultation')
+        .mockResolvedValue(undefined);
+
+      await expect(localOrchestrator.consult('test question')).rejects.toThrow(
+        'Cost threshold exceeded'
+      );
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
     });
   });
 

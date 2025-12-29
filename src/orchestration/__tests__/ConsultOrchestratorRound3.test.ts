@@ -5,6 +5,8 @@ import { EventBus } from '../../core/EventBus';
 // Mock ProviderFactory
 jest.mock('../../providers/ProviderFactory');
 jest.mock('../../core/EventBus');
+jest.mock('../../consult/health/InteractivePulse');
+jest.mock('../../consult/health/ProviderHealthMonitor');
 
 describe('ConsultOrchestrator Round 3: Cross-Examination', () => {
   let orchestrator: ConsultOrchestrator;

@@ -59,6 +59,10 @@ export function createConsultCommand(): Command {
         console.log('\n' + output + '\n');
 
       } catch (error: any) {
+        if (error?.message === 'Consultation cancelled by user') {
+          process.exit(0);
+        }
+
         console.error(chalk.red(`\n❌ Consultation failed: ${error.message}\n`));
         if (options.verbose) {
           console.error(error.stack);

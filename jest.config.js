@@ -8,5 +8,11 @@ module.exports = {
     'src/**/*.ts',
     '!src/**/*.d.ts',
     '!src/**/__tests__/**'
+  ],
+  transform: {
+    '^.+\\.[tj]sx?$': 'ts-jest'
+  },
+  transformIgnorePatterns: [
+    'node_modules/(?!(inquirer)/)'
   ]
 };

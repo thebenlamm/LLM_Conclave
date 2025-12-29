@@ -1,6 +1,6 @@
 # Story 2.1: User Consent Flow with Cost Gate
 
-Status: review
+Status: done
 
 ## Story
 
@@ -157,7 +157,7 @@ const response = await inquirer.prompt([{
 
 **File I/O for Config:**
 - Use existing ConfigCascade write methods
-- Path: `~/.config/llm-conclave/config.json`
+- Path: `~/.llm-conclave/config.json`
 - Merge with existing config (don't overwrite)
 
 ### File Structure Requirements
@@ -322,7 +322,7 @@ const { consent } = await inquirer.prompt([{
 
 **Config File Write Pattern (match existing code):**
 ```typescript
-const configPath = path.join(os.homedir(), '.config', 'llm-conclave', 'config.json');
+const configPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
 
 // Ensure directory exists
 if (!fs.existsSync(path.dirname(configPath))) {
@@ -383,7 +383,7 @@ No major issues encountered. All tests passed successfully:
 **Key Decisions:**
 1. **Cost tracking granularity:** Track costs after each agent response using usage tokens
 2. **Threshold checking:** Check after each round (R1, R2, R3, R4) to catch overruns early
-3. **Auto-approval threshold:** Default $0.50, stored in global config at `~/.config/llm-conclave/config.json`
+3. **Auto-approval threshold:** Default $0.50, stored in global config at `~/.llm-conclave/config.json`
 4. **User experience:** Display formatted cost breakdown with chalk colors for clarity
 
 **Technical Implementation:**
@@ -393,6 +393,13 @@ No major issues encountered. All tests passed successfully:
 - `displayAutoApproved()`: Green success message for under-threshold consultations
 - `trackActualCost()`: Calculates cost from token usage using provider pricing
 - `checkCostThreshold()`: Aborts if actual > (estimated * 1.5)
+
+**Code Review Fixes (2025-12-29):**
+1. **Cost tracking normalization:** Normalize provider usage tokens to prevent NaN costs and ensure in-flight checks work across rounds
+2. **Cancel flow exit behavior:** Treat user cancellation as a clean exit (code 0) in CLI
+3. **Partial logging on cost abort:** Save partial consultation artifacts when cost exceeds threshold
+4. **Config path alignment:** Save and load config from `~/.llm-conclave/config.json`
+5. **Test coverage:** Added real abort + partial log test for cost threshold
 
 **Test Coverage:**
 - Unit tests: shouldPromptUser, getUserConsent, saveAutoApproveThreshold, edge cases
@@ -424,8 +431,12 @@ No major issues encountered. All tests passed successfully:
   - Lines 632-681: Added helper methods (trackActualCost, checkCostThreshold, getPricingForModel)
 - `src/cli/ConfigCascade.ts` (lines 71-74: added consult defaults)
 - `src/types/consult.ts` (lines 198-201: added estimatedCost, actualCost, costExceeded fields)
+- `src/commands/consult.ts` (treat user cancel as clean exit code 0)
+- `src/consult/cost/CostGate.ts` (config path aligned with AC)
+- `src/consult/cost/__tests__/CostGate.test.ts` (config path aligned with AC)
+- `src/orchestration/__tests__/ConsultOrchestratorCostGate.test.ts` (in-flight abort + partial log coverage)
 
 **Files Referenced (No Changes):**
 - `src/consult/cost/CostEstimator.ts`
 - `src/orchestration/ConsultStateMachine.ts`
-- `~/.config/llm-conclave/config.json` (user config file, managed by CostGate)
+- `~/.llm-conclave/config.json` (user config file, managed by CostGate)
