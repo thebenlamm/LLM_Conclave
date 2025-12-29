@@ -1,6 +1,6 @@
 # Story 1.4: Round 2 - Synthesis with Consensus Building
 
-**Status:** in-progress
+**Status:** review
 **Story Type:** Feature
 **Epic:** Epic 1: 4-Round Multi-Model Consultation Engine
 **Sprint:** 1
@@ -95,3 +95,4 @@ So that the debate builds structured understanding before cross-examination.
 - [2025-12-29] Story created.
 - [2025-12-29] Implemented Round 2 Synthesis logic and tests.
 - [2025-12-29] Tightened schema validation and surfaced synthesis consensus in result output.
+- [2025-12-29] Story marked ready for review - all tasks complete, tests passing (2/2 for Round 2), DoD validated.

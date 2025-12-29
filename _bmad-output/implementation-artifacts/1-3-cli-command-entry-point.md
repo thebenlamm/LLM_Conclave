@@ -2,7 +2,7 @@
 
 **Story Key:** 1-3-cli-command-entry-point
 **Epic:** Epic 1: 4-Round Multi-Model Consultation Engine
-**Status:** in-progress
+**Status:** review
 
 ## Story
 
@@ -12,12 +12,12 @@ So that consultations work end-to-end following the validated architecture and s
 
 ## Acceptance Criteria
 
-- [ ] **Command Execution:** `llm-conclave consult "question"` creates ConsultOrchestrator, transitions Idle → Estimating, emits `consultation:started`.
-- [ ] **Cost Estimation:** In Estimating state, calculates basic pre-flight cost (tokens * price) and emits `consultation:cost_estimated`.
-- [ ] **Auto-Approval:** In AwaitingConsent state, auto-approves, emits `consultation:user_consent` (approved: true), transitions to Independent.
-- [ ] **Real-Time Progress:** CLI subscribes to events and displays progress (`started`, `thinking`, `completed`, `round:completed`) using Chalk.
-- [ ] **Help & Validation:** `--help` shows usage; missing question shows error.
-- [ ] **Hardcoded Pricing:** Uses defined pricing for Claude Sonnet 4.5, GPT-4o, Gemini 2.5 Pro.
+- [x] **Command Execution:** `llm-conclave consult "question"` creates ConsultOrchestrator, transitions Idle → Estimating, emits `consultation:started`.
+- [x] **Cost Estimation:** In Estimating state, calculates basic pre-flight cost (tokens * price) and emits `consultation:cost_estimated`.
+- [x] **Auto-Approval:** In AwaitingConsent state, auto-approves, emits `consultation:user_consent` (approved: true), transitions to Independent.
+- [x] **Real-Time Progress:** CLI subscribes to events and displays progress (`started`, `thinking`, `completed`, `round:completed`) using Chalk.
+- [x] **Help & Validation:** `--help` shows usage; missing question shows error.
+- [x] **Hardcoded Pricing:** Uses defined pricing for Claude Sonnet 4.5, GPT-4o, Gemini 2.5 Pro.
 
 ## Tasks/Subtasks
 
@@ -90,6 +90,4 @@ So that consultations work end-to-end following the validated architecture and s
 - Added CostEstimator logic
 - Added ConsultConsoleLogger
 - [2025-12-29] Fixed cost estimation math, console event payload handling, and question validation.
-
-## Status
-in-progress
+- [2025-12-29] Validated all acceptance criteria - marked story ready for review.

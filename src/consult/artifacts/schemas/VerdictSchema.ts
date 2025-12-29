@@ -57,6 +57,9 @@ export class VerdictSchema {
     if (!Array.isArray(artifact.evidence)) {
       throw new Error('evidence must be an array');
     }
+    if (artifact.evidence.length === 0) {
+      throw new Error('evidence must contain at least one item');
+    }
     if (!artifact.evidence.every((e: any) => typeof e === 'string')) {
       throw new Error('All evidence items must be strings');
     }

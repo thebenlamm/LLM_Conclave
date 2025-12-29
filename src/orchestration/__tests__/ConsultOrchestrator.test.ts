@@ -81,7 +81,7 @@ describe('ConsultOrchestrator Story 1.2', () => {
         .mockResolvedValueOnce(r3JudgeResponse)
         .mockResolvedValueOnce({ // Round 4 Verdict
             text: JSON.stringify({
-                recommendation: "Rec", confidence: 0.9, evidence: [], dissent: []
+                recommendation: "Rec", confidence: 0.9, evidence: ["test evidence"], dissent: []
             }),
             usage: {}
         });
@@ -137,7 +137,7 @@ describe('ConsultOrchestrator Story 1.2', () => {
       .mockResolvedValueOnce(r3JudgeResponse) // R3 Judge
       .mockResolvedValueOnce({ // R4 Judge
         text: JSON.stringify({
-            recommendation: "Rec", confidence: 0.9, evidence: [], dissent: []
+            recommendation: "Rec", confidence: 0.9, evidence: ["test evidence"], dissent: []
         }),
         usage: {}
       });

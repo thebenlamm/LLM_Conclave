@@ -201,7 +201,7 @@ describe('CrossExamSchema (Round 3)', () => {
         }
       ]
     };
-    expect(() => CrossExamSchema.validate(invalid)).toThrow('Challenge.targetAgent must be a non-empty string');
+    expect(() => CrossExamSchema.validate(invalid)).toThrow("Challenge at index 0 missing valid 'targetAgent' string");
   });
 
   it('should allow empty unresolved array', () => {
@@ -273,7 +273,7 @@ describe('VerdictSchema (Round 4)', () => {
         }
       ]
     };
-    expect(() => VerdictSchema.validate(invalid)).toThrow('Dissent.severity must be one of: high, medium, low');
+    expect(() => VerdictSchema.validate(invalid)).toThrow("Dissent at index 0 has invalid severity: 'critical'. Must be high, medium, or low.");
   });
 
   it('should allow all valid severity levels', () => {

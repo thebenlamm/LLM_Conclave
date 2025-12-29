@@ -36,6 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const fs = __importStar(require("fs"));
 const os = __importStar(require("os"));
 const path = __importStar(require("path"));
+const ArtifactTransformer_1 = require("../consult/artifacts/ArtifactTransformer");
+const MarkdownFormatter_1 = require("../consult/formatting/MarkdownFormatter");
 /**
  * ConsultLogger - persists consultation results for analytics
  * Saves both JSON (full result) and Markdown (summary) and maintains
@@ -51,10 +53,12 @@ class ConsultLogger {
      */
     async log(result) {
         await this.ensureLogDir();
-        const jsonPath = path.join(this.logDir, `${result.consultation_id}.json`);
-        const markdownPath = path.join(this.logDir, `${result.consultation_id}.md`);
-        await fs.promises.writeFile(jsonPath, JSON.stringify(result, null, 2), 'utf-8');
-        await fs.promises.writeFile(markdownPath, this.formatMarkdown(result), 'utf-8');
+        const jsonResult = ArtifactTransformer_1.ArtifactTransformer.consultationResultToJSON(result);
+        const jsonPath = path.join(this.logDir, `${result.consultationId}.json`);
+        const markdownPath = path.join(this.logDir, `${result.consultationId}.md`);
+        await fs.promises.writeFile(jsonPath, JSON.stringify(jsonResult, null, 2), 'utf-8');
+        const formatter = new MarkdownFormatter_1.MarkdownFormatter();
+        await fs.promises.writeFile(markdownPath, formatter.format(result), 'utf-8');
         const indexPath = await this.updateMonthlyIndex(result);
         return { jsonPath, markdownPath, indexPath };
     }
@@ -79,10 +83,10 @@ class ConsultLogger {
             }
         }
         const entry = {
-            id: result.consultation_id,
+            id: result.consultationId,
             timestamp: result.timestamp,
             question: result.question,
-            duration_ms: result.duration_ms,
+            duration_ms: result.durationMs,
             cost_usd: result.cost.usd,
             confidence: result.confidence
         };
@@ -93,58 +97,6 @@ class ConsultLogger {
         index.consultations.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         await fs.promises.writeFile(indexPath, JSON.stringify(index, null, 2), 'utf-8');
         return indexPath;
-    }
-    /**
-     * Build a Markdown summary suitable for quick review.
-     */
-    formatMarkdown(result) {
-        const date = new Date(result.timestamp);
-        const confidencePercent = (result.confidence * 100).toFixed(0);
-        const output = [];
-        output.push('# Consultation Summary');
-        output.push('');
-        output.push(`**Question:** ${result.question}`);
-        output.push(`**Date:** ${date.toLocaleString()}`);
-        output.push(`**Confidence:** ${confidencePercent}%`);
-        output.push('');
-        output.push('## Consensus');
-        output.push('');
-        output.push(result.consensus);
-        output.push('');
-        output.push('## Recommendation');
-        output.push('');
-        output.push(result.recommendation);
-        output.push('');
-        output.push('## Agent Perspectives');
-        output.push('');
-        for (const perspective of result.perspectives) {
-            output.push(`### ${perspective.agent} (${perspective.model})`);
-            output.push('');
-            output.push(perspective.opinion);
-            output.push('');
-        }
-        if (result.concerns.length > 0) {
-            output.push('## Concerns Raised');
-            output.push('');
-            for (const concern of result.concerns) {
-                output.push(`- ${concern}`);
-            }
-            output.push('');
-        }
-        if (result.dissent.length > 0) {
-            output.push('## Dissenting Views');
-            output.push('');
-            for (const dissent of result.dissent) {
-                output.push(`- ${dissent}`);
-            }
-            output.push('');
-        }
-        output.push('---');
-        output.push('');
-        output.push(`**Cost:** $${result.cost.usd.toFixed(4)} | ` +
-            `**Duration:** ${(result.duration_ms / 1000).toFixed(1)}s | ` +
-            `**Tokens:** ${result.cost.tokens.total.toLocaleString()}`);
-        return output.join('\n');
     }
     getMonthString(timestamp) {
         const date = new Date(timestamp);
