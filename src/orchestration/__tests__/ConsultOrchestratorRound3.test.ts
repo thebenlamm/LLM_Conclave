@@ -96,7 +96,7 @@ describe('ConsultOrchestrator Round 3: Cross-Examination', () => {
       .mockResolvedValueOnce(r3AgentResponse("3"))
       .mockResolvedValueOnce(r3JudgeResponse)
       .mockResolvedValueOnce({ // Round 4
-          text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: [], dissent: [] }),
+          text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: ["test evidence"], dissent: [] }),
           usage: {}
       });
 
@@ -142,7 +142,7 @@ describe('ConsultOrchestrator Round 3: Cross-Examination', () => {
       .mockResolvedValueOnce(r3AgentResponse("3"))
       .mockResolvedValueOnce(r3JudgeResponse)
       .mockResolvedValueOnce({ // Round 4
-          text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: [], dissent: [] }),
+          text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: ["test evidence"], dissent: [] }),
           usage: {}
       });
 

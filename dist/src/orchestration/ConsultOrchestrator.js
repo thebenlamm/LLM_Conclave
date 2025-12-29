@@ -3,20 +3,32 @@
  * ConsultOrchestrator - Fast multi-model consultation system
  *
  * Implements a streamlined consultation flow:
- * 1. Round 1: All agents respond in parallel
- * 2. Round 2: Agents respond to each other (if maxRounds > 1)
- * 3. Synthesis: Judge creates consensus with confidence scoring
- * 4. Cost tracking: Track token usage and costs
+ * 1. Round 1: All agents respond in parallel (Independent)
+ * 2. Round 2: Synthesis (Consensus Building)
+ * 3. Round 3: Cross-Examination
+ * 4. Round 4: Verdict
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const ProviderFactory_1 = __importDefault(require("../providers/ProviderFactory"));
+const EventBus_1 = require("../core/EventBus");
+const ConsultStateMachine_1 = require("./ConsultStateMachine");
+const ArtifactExtractor_1 = require("../consult/artifacts/ArtifactExtractor");
+const CostEstimator_1 = require("../consult/cost/CostEstimator");
+const ConsultationFileLogger_1 = require("../consult/logging/ConsultationFileLogger");
+const consult_1 = require("../types/consult");
 class ConsultOrchestrator {
     constructor(options = {}) {
-        this.maxRounds = options.maxRounds || 2;
+        this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
         this.verbose = options.verbose || false;
+        this.eventBus = EventBus_1.EventBus.getInstance();
+        this.costEstimator = new CostEstimator_1.CostEstimator();
+        this.fileLogger = new ConsultationFileLogger_1.ConsultationFileLogger();
+        // Generate ID first so state machine can use it
+        this.consultationId = this.generateId('consult');
+        this.stateMachine = new ConsultStateMachine_1.ConsultStateMachine(this.consultationId);
         // Initialize 3 fixed agents with diverse models
         this.agents = this.initializeAgents();
     }
@@ -53,229 +65,408 @@ class ConsultOrchestrator {
      */
     async consult(question, context = '') {
         const startTime = Date.now();
-        const consultationId = this.generateId('consult');
-        console.log(`\n${'='.repeat(80)}`);
-        console.log(`CONSULTATION: ${question}`);
-        console.log(`${'='.repeat(80)}\n`);
-        // Round 1: All agents respond in parallel
-        console.log(`\n--- Round 1: Parallel Agent Execution ---\n`);
-        const round1Responses = await this.executeRound1(question, context);
-        // Round 2: Agents respond to each other (if maxRounds > 1)
-        let round2Responses = [];
-        if (this.maxRounds > 1) {
-            console.log(`\n--- Round 2: Agent Cross-Discussion ---\n`);
-            round2Responses = await this.executeRound2(question, round1Responses);
+        // Start consultation lifecycle
+        this.stateMachine.transition(consult_1.ConsultState.Estimating);
+        // Emit started event
+        this.eventBus.emitEvent('consultation:started', {
+            consultation_id: this.consultationId,
+            question,
+            agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
+            mode: 'converge' // Default for now
+        });
+        if (this.verbose) {
+            console.log(`\n${'='.repeat(80)}`);
+            console.log(`CONSULTATION: ${question}`);
+            console.log(`${'='.repeat(80)}\n`);
         }
-        // Synthesize consensus
-        console.log(`\n--- Synthesis: Generating Consensus ---\n`);
-        const synthesis = await this.synthesizeConsensus(question, [...round1Responses, ...round2Responses]);
-        // Calculate metrics
-        const duration_ms = Date.now() - startTime;
-        const cost = this.calculateCost([...round1Responses, ...round2Responses,
-            { agentName: 'Judge', model: 'gpt-4o', content: '', tokens: synthesis.tokens, duration_ms: 0 }]);
-        console.log(`\n✅ Consultation complete in ${(duration_ms / 1000).toFixed(1)}s`);
-        console.log(`💰 Total cost: $${cost.usd.toFixed(4)} | 🎯 Confidence: ${(synthesis.confidence * 100).toFixed(0)}%\n`);
-        return {
-            consultation_id: consultationId,
+        // --- State: Estimating ---
+        const estimate = this.costEstimator.estimateCost(question, this.agents, this.maxRounds);
+        this.eventBus.emitEvent('consultation:cost_estimated', {
+            consultation_id: this.consultationId,
+            estimated_cost: estimate.estimatedCostUsd,
+            input_tokens: estimate.inputTokens,
+            expected_output_tokens: estimate.outputTokens
+        });
+        // --- State: AwaitingConsent ---
+        this.stateMachine.transition(consult_1.ConsultState.AwaitingConsent);
+        this.eventBus.emitEvent('consultation:user_consent', {
+            consultation_id: this.consultationId,
+            approved: true
+        }); // Auto-approve for Epic 1 MVP
+        // --- State: Independent (Round 1) ---
+        this.stateMachine.transition(consult_1.ConsultState.Independent);
+        if (this.verbose)
+            console.log(`\n--- Round 1: Independent Analysis ---\n`);
+        const round1Results = await this.executeRound1Independent(question, context);
+        // Track failed agents
+        const successfulArtifacts = round1Results.map(result => result.artifact).filter(a => !!a);
+        const agentResponses = round1Results.map(result => result.response);
+        if (successfulArtifacts.length === 0) {
+            this.stateMachine.transition(consult_1.ConsultState.Aborted, 'All agents failed in Round 1');
+            throw new Error('All agents failed. Unable to provide consultation.');
+        }
+        this.eventBus.emitEvent('round:completed', {
+            consultation_id: this.consultationId,
+            round_number: 1,
+            artifact_type: 'independent'
+        });
+        // --- State: Synthesis (Round 2) ---
+        this.stateMachine.transition(consult_1.ConsultState.Synthesis);
+        if (this.verbose)
+            console.log(`\n--- Round 2: Synthesis ---\n`);
+        const synthesisArtifact = await this.executeRound2Synthesis(question, successfulArtifacts);
+        // --- State: CrossExam (Round 3) ---
+        this.stateMachine.transition(consult_1.ConsultState.CrossExam);
+        if (this.verbose)
+            console.log(`\n--- Round 3: Cross-Examination ---\n`);
+        let crossExamArtifact = null;
+        if (synthesisArtifact) {
+            crossExamArtifact = await this.executeRound3CrossExam(successfulArtifacts, synthesisArtifact);
+        }
+        else {
+            console.warn("Skipping Round 3 due to missing Synthesis artifact");
+        }
+        // --- State: Verdict (Round 4) ---
+        this.stateMachine.transition(consult_1.ConsultState.Verdict);
+        if (this.verbose)
+            console.log(`\n--- Round 4: Verdict ---\n`);
+        let verdictArtifact = null;
+        // We can proceed to Verdict even if CrossExam failed (using R1/R2)
+        // But we need at least Synthesis
+        if (synthesisArtifact) {
+            verdictArtifact = await this.executeRound4Verdict(question, successfulArtifacts, synthesisArtifact, crossExamArtifact);
+        }
+        else {
+            throw new Error("Cannot generate Verdict without Synthesis artifact");
+        }
+        this.stateMachine.transition(consult_1.ConsultState.Complete);
+        const durationMs = Date.now() - startTime;
+        // Use Verdict for final results
+        const consensusText = verdictArtifact ? verdictArtifact.recommendation : (synthesisArtifact?.consensusPoints[0]?.point || "No consensus");
+        const confidence = verdictArtifact ? verdictArtifact.confidence : 0;
+        const recommendation = verdictArtifact ? verdictArtifact.recommendation : "Consultation incomplete";
+        const dissent = verdictArtifact ? verdictArtifact.dissent : [];
+        const result = {
+            consultationId: this.consultationId,
             timestamp: new Date().toISOString(),
             question,
             context,
-            agents: this.agents.map(a => ({ name: a.name, model: a.model })),
+            mode: 'converge',
+            agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+            agentResponses,
+            state: consult_1.ConsultState.Complete,
             rounds: this.maxRounds,
+            completedRounds: verdictArtifact ? 4 : (crossExamArtifact ? 3 : 2),
             responses: {
-                round1: round1Responses,
-                round2: round2Responses
+                round1: successfulArtifacts,
+                round2: synthesisArtifact || undefined,
+                round3: crossExamArtifact || undefined,
+                round4: verdictArtifact || undefined
             },
-            consensus: synthesis.consensus,
-            confidence: synthesis.confidence,
-            recommendation: synthesis.recommendation,
-            reasoning: synthesis.reasoning,
-            concerns: synthesis.concerns,
-            dissent: synthesis.dissent,
-            perspectives: synthesis.perspectives,
-            cost,
-            duration_ms
+            consensus: consensusText,
+            confidence,
+            recommendation,
+            reasoning: {},
+            concerns: crossExamArtifact?.unresolved || [],
+            dissent,
+            perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
+            cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: estimate.estimatedCostUsd },
+            durationMs,
+            promptVersions: {
+                mode: 'converge',
+                independentPromptVersion: '1.0',
+                synthesisPromptVersion: '1.0',
+                crossExamPromptVersion: '1.0',
+                verdictPromptVersion: '1.0'
+            }
         };
+        this.eventBus.emitEvent('consultation:completed', {
+            consultation_id: this.consultationId,
+            result
+        });
+        // Log consultation to files (Story 1.8)
+        // This is async but we don't await to avoid blocking result delivery
+        this.fileLogger.logConsultation(result).catch(err => {
+            console.error('Failed to log consultation:', err.message);
+        });
+        return result;
     }
     /**
-     * Execute Round 1: All agents respond in parallel
+     * Execute Round 1: Independent Analysis
+     * - Parallel execution
+     * - Structured artifact extraction
      */
-    async executeRound1(question, context) {
-        // Execute all agents in parallel for speed
-        const promises = this.agents.map(agent => this.executeAgent(agent, question, context, []));
-        const responses = await Promise.all(promises);
-        if (this.verbose) {
-            console.log('\n=== Round 1 Responses ===');
-            responses.forEach(r => {
-                console.log(`\n${r.agentName}:\n${r.content}`);
-            });
-        }
-        return responses;
+    async executeRound1Independent(question, context) {
+        const promises = this.agents.map(agent => this.executeAgentIndependent(agent, question, context));
+        const results = await Promise.all(promises);
+        return results;
     }
     /**
-     * Execute Round 2: Agents respond to each other
+     * Execute Round 2: Synthesis
+     * - Uses GPT-4o as Judge to synthesize independent perspectives
      */
-    async executeRound2(question, round1Responses) {
-        // Each agent sees all Round 1 responses and can comment
-        const othersResponses = round1Responses
-            .filter(r => !r.error)
-            .map(r => `${r.agentName}: ${r.content}`)
-            .join('\n\n---\n\n');
-        const round2Prompt = `
-Given the question: "${question}"
-
-Here are the other agents' initial perspectives:
-
-${othersResponses}
-
-Now provide your second opinion:
-1. Do you agree or disagree with the other agents?
-2. What concerns or risks might they have missed?
-3. What would you add to the discussion?
-
-Be concise (2-3 paragraphs). Focus on what's different or additive to your first response.
-`;
-        const promises = this.agents.map(agent => this.executeAgent(agent, round2Prompt, '', round1Responses));
-        const responses = await Promise.all(promises);
-        if (this.verbose) {
-            console.log('\n=== Round 2 Responses ===');
-            responses.forEach(r => {
-                console.log(`\n${r.agentName}:\n${r.content}`);
-            });
-        }
-        return responses;
-    }
-    /**
-     * Execute a single agent
-     */
-    async executeAgent(agent, prompt, context, previousResponses) {
+    async executeRound2Synthesis(question, artifacts) {
         const startTime = Date.now();
+        const judgeAgent = {
+            name: 'Judge (Synthesis)',
+            model: 'gpt-4o',
+            provider: ProviderFactory_1.default.createProvider('gpt-4o'),
+            systemPrompt: this.getSynthesisPrompt(artifacts)
+        };
+        this.eventBus.emitEvent('agent:thinking', {
+            consultation_id: this.consultationId,
+            agent_name: judgeAgent.name,
+            round: 2
+        });
+        if (this.verbose)
+            console.log(`⚡ Judge (GPT-4o) synthesizing consensus...`);
         try {
             const messages = [
                 {
                     role: 'user',
-                    content: context ? `${context}\n\n---\n\n${prompt}` : prompt
+                    content: `Question: ${question}\n\nAnalyze the expert perspectives and synthesize consensus.`
                 }
             ];
-            console.log(`⚡ ${agent.name} (${agent.model}) thinking...`);
-            const response = await agent.provider.chat(messages, agent.systemPrompt);
+            const response = await judgeAgent.provider.chat(messages, judgeAgent.systemPrompt);
             const duration = Date.now() - startTime;
-            console.log(`✓ ${agent.name} responded in ${(duration / 1000).toFixed(1)}s`);
-            return {
-                agentName: agent.name,
-                model: agent.model,
-                content: response.text || '',
-                tokens: response.usage ? {
-                    input: response.usage.input_tokens || 0,
-                    output: response.usage.output_tokens || 0,
-                    total: (response.usage.input_tokens || 0) + (response.usage.output_tokens || 0)
-                } : { input: 0, output: 0, total: 0 },
-                duration_ms: duration
-            };
+            if (this.verbose)
+                console.log(`✓ Synthesis complete in ${(duration / 1000).toFixed(1)}s`);
+            const artifact = ArtifactExtractor_1.ArtifactExtractor.extractSynthesisArtifact(response.text || '');
+            this.eventBus.emitEvent('consultation:round_artifact', {
+                consultation_id: this.consultationId,
+                round_number: 2,
+                artifact_type: 'synthesis',
+                artifact
+            });
+            this.eventBus.emitEvent('round:completed', {
+                consultation_id: this.consultationId,
+                round_number: 2,
+                artifact_type: 'synthesis'
+            });
+            return artifact;
         }
         catch (error) {
-            // Graceful degradation: Return error response but don't fail entire consultation
+            if (this.verbose)
+                console.warn(`⚠️ Synthesis failed: ${error.message}`);
+            // In a real scenario, we might want to fail the consultation or degrade gracefully
+            this.stateMachine.transition(consult_1.ConsultState.Aborted, `Synthesis failed: ${error.message}`);
+            throw error;
+        }
+    }
+    /**
+     * Execute Round 4: Verdict
+     * - Judge synthesizes all rounds into final recommendation
+     */
+    async executeRound4Verdict(question, round1Artifacts, synthesisArtifact, crossExamArtifact) {
+        const startTime = Date.now();
+        if (this.verbose)
+            console.log(`⚡ Judge (GPT-4o) generating Final Verdict...`);
+        const judgeAgent = {
+            name: 'Judge (Verdict)',
+            model: 'gpt-4o',
+            provider: ProviderFactory_1.default.createProvider('gpt-4o'),
+            systemPrompt: this.getVerdictPrompt(question, round1Artifacts, synthesisArtifact, crossExamArtifact)
+        };
+        this.eventBus.emitEvent('agent:thinking', {
+            consultation_id: this.consultationId,
+            agent_name: judgeAgent.name,
+            round: 4
+        });
+        try {
+            const response = await judgeAgent.provider.chat([
+                { role: 'user', content: 'Render your final verdict.' }
+            ], judgeAgent.systemPrompt);
+            const artifact = ArtifactExtractor_1.ArtifactExtractor.extractVerdictArtifact(response.text || '');
+            this.eventBus.emitEvent('consultation:round_artifact', {
+                consultation_id: this.consultationId,
+                round_number: 4,
+                artifact_type: 'verdict',
+                artifact
+            });
+            this.eventBus.emitEvent('round:completed', {
+                consultation_id: this.consultationId,
+                round_number: 4,
+                artifact_type: 'verdict'
+            });
+            if (this.verbose)
+                console.log(`✓ Verdict complete: ${Math.round(artifact.confidence * 100)}% confidence`);
+            return artifact;
+        }
+        catch (error) {
+            if (this.verbose)
+                console.warn(`⚠️ Verdict generation failed: ${error.message}`);
+            throw error;
+        }
+    }
+    /**
+     * Execute Round 3: Cross-Examination
+     * - Agents critique consensus and each other
+     * - Judge synthesizes challenges and rebuttals
+     */
+    async executeRound3CrossExam(round1Artifacts, synthesisArtifact) {
+        const startTime = Date.now();
+        if (this.verbose)
+            console.log(`⚡ Agents starting Cross-Examination...`);
+        // 1. Parallel execution of all agents
+        const promises = this.agents.map(async (agent) => {
+            // Find this agent's Round 1 artifact
+            const r1Artifact = round1Artifacts.find(a => a.agentId === agent.name);
+            if (!r1Artifact) {
+                // If agent failed in R1, they can't cross-exam
+                return null;
+            }
+            const systemPrompt = this.getCrossExamPrompt(agent.name, r1Artifact, synthesisArtifact);
+            this.eventBus.emitEvent('agent:thinking', {
+                consultation_id: this.consultationId,
+                agent_name: agent.name,
+                round: 3
+            });
+            try {
+                const start = Date.now();
+                const response = await agent.provider.chat([
+                    { role: 'user', content: 'Proceed with Cross-Examination.' }
+                ], systemPrompt);
+                const duration = Date.now() - start;
+                this.eventBus.emitEvent('agent:completed', {
+                    consultation_id: this.consultationId,
+                    agent_name: agent.name,
+                    duration_ms: duration,
+                    tokens: response.usage
+                });
+                const agentResponse = {
+                    agentId: agent.name,
+                    agentName: agent.name,
+                    model: agent.model,
+                    provider: 'unknown',
+                    content: response.text || '',
+                    tokens: response.usage || { input: 0, output: 0, total: 0 },
+                    durationMs: duration,
+                    timestamp: new Date().toISOString()
+                };
+                return agentResponse;
+            }
+            catch (error) {
+                console.warn(`⚠️ Agent ${agent.name} failed in Round 3: ${error.message}`);
+                return null;
+            }
+        });
+        const agentResponses = (await Promise.all(promises)).filter(r => r !== null);
+        if (agentResponses.length === 0) {
+            throw new Error("All agents failed in Round 3 Cross-Exam");
+        }
+        if (this.verbose)
+            console.log(`⚡ Judge (GPT-4o) synthesizing Cross-Examination...`);
+        // 2. Judge Synthesis
+        const judgeAgent = {
+            name: 'Judge (Cross-Exam)',
+            model: 'gpt-4o',
+            provider: ProviderFactory_1.default.createProvider('gpt-4o'),
+            systemPrompt: this.getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact)
+        };
+        this.eventBus.emitEvent('agent:thinking', {
+            consultation_id: this.consultationId,
+            agent_name: judgeAgent.name,
+            round: 3
+        });
+        try {
+            const response = await judgeAgent.provider.chat([
+                { role: 'user', content: 'Analyze the cross-examination.' }
+            ], judgeAgent.systemPrompt);
+            const artifact = ArtifactExtractor_1.ArtifactExtractor.extractCrossExamArtifact(response.text || '');
+            this.eventBus.emitEvent('consultation:round_artifact', {
+                consultation_id: this.consultationId,
+                round_number: 3,
+                artifact_type: 'cross_exam',
+                artifact
+            });
+            this.eventBus.emitEvent('round:completed', {
+                consultation_id: this.consultationId,
+                round_number: 3,
+                artifact_type: 'cross_exam'
+            });
+            if (this.verbose)
+                console.log(`✓ Cross-Exam complete`);
+            return artifact;
+        }
+        catch (error) {
+            if (this.verbose)
+                console.warn(`⚠️ Cross-Exam Synthesis failed: ${error.message}`);
+            throw error;
+        }
+    }
+    /**
+     * Execute a single agent for Independent Round
+     */
+    async executeAgentIndependent(agent, question, context) {
+        const startTime = Date.now();
+        try {
+            this.eventBus.emitEvent('agent:thinking', {
+                consultation_id: this.consultationId,
+                agent_name: agent.name,
+                round: 1
+            });
+            if (this.verbose)
+                console.log(`⚡ ${agent.name} (${agent.model}) thinking...`);
+            const messages = [
+                {
+                    role: 'user',
+                    content: context ? `Context:\n${context}\n\nQuestion: ${question}` : `Question: ${question}`
+                }
+            ];
+            const response = await agent.provider.chat(messages, agent.systemPrompt);
             const duration = Date.now() - startTime;
-            console.warn(`⚠️  Agent ${agent.name} failed: ${error.message}`);
-            return {
+            if (this.verbose)
+                console.log(`✓ ${agent.name} responded in ${(duration / 1000).toFixed(1)}s`);
+            const usage = response.usage || {};
+            const inputTokens = usage.input_tokens || 0;
+            const outputTokens = usage.output_tokens || 0;
+            // Extract Artifact
+            const artifact = ArtifactExtractor_1.ArtifactExtractor.extractIndependentArtifact(response.text || '', agent.name // Using name as ID for now, ideally strictly ID
+            );
+            this.eventBus.emitEvent('agent:completed', {
+                consultation_id: this.consultationId,
+                agent_name: agent.name,
+                duration_ms: duration,
+                tokens: response.usage
+            });
+            const agentResponse = {
+                agentId: agent.name,
                 agentName: agent.name,
                 model: agent.model,
-                content: `[Agent unavailable: ${error.message}]`,
-                tokens: { input: 0, output: 0, total: 0 },
-                duration_ms: duration,
+                provider: 'unknown',
+                content: response.text || '',
+                tokens: {
+                    input: inputTokens,
+                    output: outputTokens,
+                    total: inputTokens + outputTokens
+                },
+                durationMs: duration,
+                timestamp: new Date().toISOString()
+            };
+            return { artifact, response: agentResponse };
+        }
+        catch (error) {
+            const duration = Date.now() - startTime;
+            console.warn(`⚠️  Agent ${agent.name} failed: ${error.message}`);
+            // Story: Failed agent response includes error field (handled in logging/warning)
+            // We return null here and filter later, but ideally we should preserve the error state in the result
+            const agentResponse = {
+                agentId: agent.name,
+                agentName: agent.name,
+                model: agent.model,
+                provider: 'unknown',
+                content: '',
+                tokens: {
+                    input: 0,
+                    output: 0,
+                    total: 0
+                },
+                durationMs: duration,
+                timestamp: new Date().toISOString(),
                 error: error.message
             };
+            return { artifact: null, response: agentResponse };
         }
-    }
-    /**
-     * Synthesize consensus from all agent responses
-     */
-    async synthesizeConsensus(question, allResponses) {
-        // Use GPT-4o as judge for fast synthesis
-        const judgeProvider = ProviderFactory_1.default.createProvider('gpt-4o');
-        const responseSummary = allResponses
-            .filter(r => !r.error)
-            .map(r => `${r.agentName} (${r.model}):\n${r.content}`)
-            .join('\n\n---\n\n');
-        const synthesisPrompt = `
-You are synthesizing a multi-agent consultation on the following question:
-
-"${question}"
-
-Here are the agents' responses:
-
-${responseSummary}
-
-Your task is to synthesize their perspectives into a clear, actionable recommendation.
-
-Provide your synthesis in the following JSON format:
-{
-  "consensus": "One sentence summary of the agreed-upon recommendation",
-  "confidence": 0.0-1.0 (based on agreement level),
-  "recommendation": "2-3 paragraph detailed explanation",
-  "reasoning": {
-    "security_expert": "Key points from security expert",
-    "architect": "Key points from architect",
-    "pragmatist": "Key points from pragmatist"
-  },
-  "concerns": ["concern 1", "concern 2"],
-  "dissent": ["Any dissenting opinions or alternative approaches"],
-  "perspectives": [
-    {"agent": "Security Expert", "model": "claude-sonnet-4-5", "opinion": "brief summary"},
-    {"agent": "Architect", "model": "gpt-4o", "opinion": "brief summary"},
-    {"agent": "Pragmatist", "model": "gemini-2.5-pro", "opinion": "brief summary"}
-  ]
-}
-
-IMPORTANT: Return ONLY the JSON object, no additional text.
-`;
-        const messages = [{ role: 'user', content: synthesisPrompt }];
-        const response = await judgeProvider.chat(messages, 'You are a synthesis expert.');
-        // Parse JSON response
-        const responseText = response.text || '{}';
-        // Extract JSON from markdown code blocks if present
-        let jsonText = responseText;
-        const jsonMatch = responseText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-        if (jsonMatch) {
-            jsonText = jsonMatch[1];
-        }
-        const synthesis = JSON.parse(jsonText);
-        // Add token usage
-        synthesis.tokens = response.usage ? {
-            input: response.usage.input_tokens || 0,
-            output: response.usage.output_tokens || 0,
-            total: (response.usage.input_tokens || 0) + (response.usage.output_tokens || 0)
-        } : { input: 0, output: 0, total: 0 };
-        return synthesis;
-    }
-    /**
-     * Calculate total cost from all responses
-     */
-    calculateCost(responses) {
-        // Token costs per model (approximate, as of Dec 2025)
-        const costs = {
-            'claude-sonnet-4-5': { input: 0.003 / 1000, output: 0.015 / 1000 },
-            'gpt-4o': { input: 0.0025 / 1000, output: 0.01 / 1000 },
-            'gemini-2.5-pro': { input: 0.00125 / 1000, output: 0.005 / 1000 }
-        };
-        let totalInputTokens = 0;
-        let totalOutputTokens = 0;
-        let totalCostUsd = 0;
-        for (const response of responses) {
-            const modelCost = costs[response.model] || { input: 0.003 / 1000, output: 0.015 / 1000 };
-            totalInputTokens += response.tokens.input;
-            totalOutputTokens += response.tokens.output;
-            totalCostUsd += (response.tokens.input * modelCost.input) +
-                (response.tokens.output * modelCost.output);
-        }
-        return {
-            tokens: {
-                input: totalInputTokens,
-                output: totalOutputTokens,
-                total: totalInputTokens + totalOutputTokens
-            },
-            usd: totalCostUsd
-        };
     }
     /**
      * Generate a unique consultation ID
@@ -284,6 +475,235 @@ IMPORTANT: Return ONLY the JSON object, no additional text.
         const timestamp = Date.now().toString(36);
         const random = Math.random().toString(36).substring(2, 9);
         return `${prefix}-${timestamp}-${random}`;
+    }
+    /**
+     * Common JSON instruction for all agents
+     */
+    getJsonInstruction() {
+        return `
+IMPORTANT: You must provide your response in valid JSON format ONLY. 
+Do not include any introductory or concluding text. 
+Use the following schema:
+
+{
+  "position": "One sentence summary of your position",
+  "key_points": ["Point 1", "Point 2", "Point 3"],
+  "rationale": "Detailed explanation of your reasoning (2-3 paragraphs)",
+  "confidence": 0.0-1.0 (number indicating your certainty),
+  "prose_excerpt": "A short, quote-worthy summary of your stance"
+}
+`;
+    }
+    /**
+     * Synthesis Prompt for Judge
+     */
+    getSynthesisPrompt(artifacts) {
+        const perspectives = artifacts.map(a => `
+### Agent: ${a.agentId}
+**Position:** ${a.position}
+**Key Points:**
+${a.keyPoints.map(kp => `- ${kp}`).join('\n')}
+**Rationale:** ${a.rationale}
+**Confidence:** ${a.confidence}
+`).join('\n---\n');
+        return `You are the Consensus Judge in a rigorous multi-model consultation.
+
+Your goal is to synthesize the perspectives of 3 experts into a coherent analysis of consensus and disagreement.
+You are NOT providing the final answer yet. You are mapping the debate terrain.
+
+### Expert Perspectives:
+${perspectives}
+
+### Instructions:
+1. Identify **Consensus Points**: What do the experts agree on? (Explicit or implicit agreement)
+2. Identify **Tensions**: Where do they disagree? (Conflicting recommendations, trade-offs, or emphasis)
+3. Rank the **Priority Order** of topics that need resolution.
+
+IMPORTANT: You must provide your response in valid JSON format ONLY.
+Do not include any introductory or concluding text.
+Use the following schema:
+
+{
+  "consensus_points": [
+    {
+      "point": "Statement of agreement",
+      "supporting_agents": ["Agent Name 1", "Agent Name 2"],
+      "confidence": 0.0-1.0 (how strong is this consensus?)
+    }
+  ],
+  "tensions": [
+    {
+      "topic": "Topic of disagreement (e.g., Auth Method)",
+      "viewpoints": [
+        { "agent": "Agent Name 1", "viewpoint": "Summary of their view" },
+        { "agent": "Agent Name 2", "viewpoint": "Summary of their view" }
+      ]
+    }
+  ],
+  "priority_order": ["Topic 1", "Topic 2", "Topic 3"]
+}`;
+    }
+    /**
+     * Cross-Examination Prompt for Agents
+     */
+    getCrossExamPrompt(agentName, round1Artifact, synthesisArtifact) {
+        return `You are participating in a multi-model consultation.
+You are the ${agentName}.
+
+### Your Previous Position (Round 1):
+${round1Artifact.position}
+${round1Artifact.rationale}
+
+### Current Consensus (Round 2):
+${synthesisArtifact.consensusPoints.map(cp => `- ${cp.point} (Confidence: ${cp.confidence})`).join('\n')}
+
+### Identified Tensions:
+${synthesisArtifact.tensions.map(t => `- ${t.topic}: ${t.viewpoints.map(v => v.viewpoint).join(' vs ')}`).join('\n')}
+
+### Instructions:
+1. **Review** the consensus and tensions.
+2. **Challenge** any consensus points that ignore your critical risks or insights.
+3. **Defend** your position if it was marked as a tension.
+4. **Refine** your stance based on others' valid points.
+
+IMPORTANT: You must provide your response in valid JSON format ONLY.
+Do not include any introductory or concluding text.
+Use the following schema:
+
+{
+  "critique": "Your critique of the current consensus",
+  "challenges": [
+    {
+      "target_agent": "Agent Name (or 'Consensus')",
+      "challenge_point": "Specific argument you are challenging",
+      "evidence": "Why they are wrong (based on your expertise)"
+    }
+  ],
+  "defense": "Defense of your position against identified tensions (if applicable)",
+  "revised_position": "Your updated position after considering others' views"
+}
+`;
+    }
+    /**
+     * Cross-Examination Synthesis Prompt for Judge
+     */
+    getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact) {
+        // Format agent responses for the judge
+        // Note: We attempt to parse JSON content, but fallback to raw text if parsing fails
+        const responsesText = agentResponses.map(r => {
+            let content = r.content;
+            try {
+                const json = JSON.parse(r.content);
+                content = `
+**Critique:** ${json.critique}
+**Challenges:** ${JSON.stringify(json.challenges)}
+**Defense:** ${json.defense}
+**Revised Position:** ${json.revised_position}
+`;
+            }
+            catch (e) {
+                // Fallback for malformed JSON
+            }
+            return `### Agent: ${r.agentName}\n${content}`;
+        }).join('\n---\n');
+        return `You are the Debate Judge.
+Review the challenges and defenses from the Cross-Examination round.
+
+### Previous Consensus:
+${JSON.stringify(synthesisArtifact.consensusPoints)}
+
+### Agent Cross-Examination Responses:
+${responsesText}
+
+### Instructions:
+1. Extract **Challenges**: Who successfully challenged whom?
+2. Extract **Rebuttals**: Who defended their position well?
+3. Identify **Unresolved Tensions**: What disagreements remain significant?
+
+IMPORTANT: You must provide your response in valid JSON format ONLY.
+Do not include any introductory or concluding text.
+Use the following schema:
+
+{
+  "challenges": [
+    {
+      "challenger": "Agent Name",
+      "target_agent": "Agent Name",
+      "challenge": "The core challenge point",
+      "evidence": ["Evidence 1", "Evidence 2"]
+    }
+  ],
+  "rebuttals": [
+    {
+      "agent": "Agent Name",
+      "rebuttal": "The defense provided"
+    }
+  ],
+  "unresolved": ["Tension 1", "Tension 2"]
+}
+`;
+    }
+    /**
+     * Verdict Prompt for Judge
+     */
+    getVerdictPrompt(question, round1Artifacts, synthesisArtifact, crossExamArtifact) {
+        const r1Summary = round1Artifacts.map(a => `- ${a.agentId}: ${a.position} (Confidence: ${a.confidence})`).join('\n');
+        const r2Summary = synthesisArtifact.consensusPoints.map(cp => `- ${cp.point}`).join('\n');
+        let r3Summary = "No Cross-Examination conducted.";
+        if (crossExamArtifact) {
+            r3Summary = `
+**Challenges:**
+${crossExamArtifact.challenges.map(c => `- ${c.challenger} -> ${c.targetAgent}: ${c.challenge}`).join('\n')}
+
+**Rebuttals:**
+${crossExamArtifact.rebuttals.map(r => `- ${r.agent} defended: ${r.rebuttal}`).join('\n')}
+
+**Unresolved Issues:**
+${crossExamArtifact.unresolved.map(u => `- ${u}`).join('\n')}
+`;
+        }
+        return `You are the Final Judge in a high-stakes multi-model consultation.
+Your goal is to issue a final Verdict on the user's question.
+
+### User Question:
+${question}
+
+### The Debate Record:
+**Round 1 (Positions):**
+${r1Summary}
+
+**Round 2 (Consensus):**
+${r2Summary}
+
+**Round 3 (Cross-Examination):**
+${r3Summary}
+
+### Instructions:
+1. **Weigh the Evidence:** Prioritize consensus points that survived cross-examination. Discard points that were successfully challenged without rebuttal.
+2. **Form a Recommendation:** Provide a single, clear, actionable answer.
+3. **Assess Confidence:**
+   - High (>0.9): Strong consensus, no unresolved issues.
+   - Medium (0.7-0.9): General agreement but some minor dissent.
+   - Low (<0.7): Major unresolved tensions or significant dissent.
+4. **Document Dissent:** Explicitly list who disagrees and why.
+
+IMPORTANT: You must provide your response in valid JSON format ONLY.
+Do not include any introductory or concluding text.
+Use the following schema:
+
+{
+  "recommendation": "The final authoritative answer",
+  "confidence": 0.0-1.0,
+  "evidence": ["Key point 1", "Key point 2 (survived challenge)"],
+  "dissent": [
+    {
+      "agent": "Agent Name",
+      "concern": "Why they disagree",
+      "severity": "high/medium/low"
+    }
+  ]
+}
+`;
     }
     /**
      * Get Security Expert system prompt
@@ -297,8 +717,7 @@ Your role in consultations:
 - Consider attack vectors and mitigation strategies
 - Assess compliance and privacy implications
 
-Be concise (2-3 paragraphs). Focus on actionable security recommendations.
-If you disagree with other agents, explain why from a security perspective.`;
+${this.getJsonInstruction()}`;
     }
     /**
      * Get Architect system prompt
@@ -312,8 +731,7 @@ Your role in consultations:
 - Assess technical debt implications
 - Recommend best practices and design patterns
 
-Be concise (2-3 paragraphs). Focus on long-term architectural implications.
-If you disagree with other agents, explain your architectural reasoning.`;
+${this.getJsonInstruction()}`;
     }
     /**
      * Get Pragmatist system prompt
@@ -327,8 +745,7 @@ Your role in consultations:
 - Balance ideal solutions with practical realities
 - Identify simpler alternatives that deliver 80% of value with 20% effort
 
-Be concise (2-3 paragraphs). Focus on what's practical and achievable.
-If you disagree with other agents, explain your pragmatic concerns.`;
+${this.getJsonInstruction()}`;
     }
 }
 exports.default = ConsultOrchestrator;

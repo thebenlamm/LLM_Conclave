@@ -90,7 +90,7 @@ describe('ConsultOrchestrator Round 2: Synthesis', () => {
       .mockResolvedValueOnce({ text: JSON.stringify({ critique: "", challenges: [], defense: "" }), usage: {} })
       .mockResolvedValueOnce({ text: JSON.stringify({ critique: "", challenges: [], defense: "" }), usage: {} })
       .mockResolvedValueOnce({ text: JSON.stringify({ challenges: [], rebuttals: [], unresolved: [] }), usage: {} })
-      .mockResolvedValueOnce({ text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: [], dissent: [] }), usage: {} });
+      .mockResolvedValueOnce({ text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: ["test evidence"], dissent: [] }), usage: {} });
 
     const question = "Test Question";
     const result = await orchestrator.consult(question);

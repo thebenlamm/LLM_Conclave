@@ -44,6 +44,8 @@ const path = __importStar(require("path"));
 const ConsultOrchestrator_1 = __importDefault(require("../orchestration/ConsultOrchestrator"));
 const ProjectContext_1 = __importDefault(require("../utils/ProjectContext"));
 const ConsultLogger_1 = __importDefault(require("../utils/ConsultLogger"));
+const ConsultConsoleLogger_1 = require("../cli/ConsultConsoleLogger");
+const FormatterFactory_1 = require("../consult/formatting/FormatterFactory");
 /**
  * Consult command - Fast multi-model consultation
  * Get quick consensus from Security Expert, Architect, and Pragmatist
@@ -60,26 +62,30 @@ function createConsultCommand() {
         .option('-v, --verbose', 'Show full agent conversation', false)
         .action(async (questionArgs, options) => {
         const question = questionArgs.join(' ');
-        console.log(chalk_1.default.blue('\n🤝 Starting multi-model consultation...\n'));
+        if (!question.trim()) {
+            throw new Error('Question is required. Usage: llm-conclave consult "your question"');
+        }
+        // Initialize real-time console logger
+        const consoleLogger = new ConsultConsoleLogger_1.ConsultConsoleLogger();
+        consoleLogger.start();
         try {
             // Load context
             const context = await loadContext(options);
-            if (context) {
-                console.log(chalk_1.default.cyan(`Context loaded: ${estimateTokens(context)} tokens (approx)\n`));
-            }
             // Initialize orchestrator
             const orchestrator = new ConsultOrchestrator_1.default({
-                maxRounds: options.quick ? 1 : 2,
+                maxRounds: options.quick ? 1 : 4,
                 verbose: options.verbose
             });
             // Execute consultation
+            // Orchestrator emits events which consoleLogger handles
             const result = await orchestrator.consult(question, context);
-            // Persist consultation for analytics
+            // Persist consultation for analytics (handles transformation to snake_case internally)
             const logger = new ConsultLogger_1.default();
             const logPaths = await logger.log(result);
             console.log(chalk_1.default.gray(`Logs saved to ${logPaths.jsonPath}`));
             // Format and display output
-            displayOutput(result, options.format);
+            const output = FormatterFactory_1.FormatterFactory.format(result, options.format);
+            console.log('\n' + output + '\n');
         }
         catch (error) {
             console.error(chalk_1.default.red(`\n❌ Consultation failed: ${error.message}\n`));
@@ -98,7 +104,6 @@ async function loadContext(options) {
     let context = '';
     // Explicit file context
     if (options.context) {
-        console.log(chalk_1.default.cyan(`Loading context files...\n`));
         const files = options.context.split(',').map((f) => f.trim());
         for (const file of files) {
             if (!fs.existsSync(file)) {
@@ -111,7 +116,6 @@ async function loadContext(options) {
     }
     // Project context
     if (options.project) {
-        console.log(chalk_1.default.cyan(`Analyzing project context: ${options.project}...\n`));
         if (!fs.existsSync(options.project)) {
             throw new Error(`Project directory not found: ${options.project}`);
         }
@@ -120,89 +124,5 @@ async function loadContext(options) {
         const formattedContext = projectContext.formatContext();
         context += `\n\n### Project Context\n\n${formattedContext}`;
     }
-    // Stdin context (future enhancement)
-    // if (!process.stdin.isTTY) {
-    //   const stdin = fs.readFileSync(0, 'utf-8');
-    //   context += `\n\n### Stdin Input\n\n${stdin}`;
-    // }
     return context;
-}
-/**
- * Estimate token count (rough approximation)
- */
-function estimateTokens(text) {
-    // Rough estimate: 1 token ≈ 4 characters
-    return Math.round(text.length / 4);
-}
-/**
- * Display output in requested format
- */
-function displayOutput(result, format) {
-    if (format === 'json' || format === 'both') {
-        console.log('\n' + chalk_1.default.bold('JSON Output:') + '\n');
-        console.log(JSON.stringify(result, null, 2));
-    }
-    if (format === 'markdown' || format === 'both') {
-        if (format === 'both') {
-            console.log('\n' + '='.repeat(80) + '\n');
-        }
-        console.log(formatMarkdown(result));
-    }
-}
-/**
- * Format consultation result as Markdown
- */
-function formatMarkdown(result) {
-    const output = [];
-    // Header
-    output.push(chalk_1.default.bold.blue('# Consultation Summary'));
-    output.push('');
-    output.push(chalk_1.default.gray(`**Question:** ${result.question}`));
-    output.push(chalk_1.default.gray(`**Date:** ${new Date(result.timestamp).toLocaleString()}`));
-    output.push(chalk_1.default.gray(`**Confidence:** ${(result.confidence * 100).toFixed(0)}%`));
-    output.push('');
-    // Consensus
-    output.push(chalk_1.default.bold.green('## Consensus'));
-    output.push('');
-    output.push(chalk_1.default.white(result.consensus));
-    output.push('');
-    // Recommendation
-    output.push(chalk_1.default.bold.yellow('## Recommendation'));
-    output.push('');
-    output.push(chalk_1.default.white(result.recommendation));
-    output.push('');
-    // Agent Perspectives
-    output.push(chalk_1.default.bold.cyan('## Agent Perspectives'));
-    output.push('');
-    for (const perspective of result.perspectives) {
-        output.push(chalk_1.default.bold(`### ${perspective.agent} (${perspective.model})`));
-        output.push('');
-        output.push(chalk_1.default.white(perspective.opinion));
-        output.push('');
-    }
-    // Concerns
-    if (result.concerns.length > 0) {
-        output.push(chalk_1.default.bold.red('## Concerns Raised'));
-        output.push('');
-        for (const concern of result.concerns) {
-            output.push(chalk_1.default.white(`- ${concern}`));
-        }
-        output.push('');
-    }
-    // Dissent
-    if (result.dissent.length > 0) {
-        output.push(chalk_1.default.bold.magenta('## Dissenting Views'));
-        output.push('');
-        for (const dissent of result.dissent) {
-            output.push(chalk_1.default.white(`- ${dissent}`));
-        }
-        output.push('');
-    }
-    // Footer
-    output.push('---');
-    output.push('');
-    output.push(chalk_1.default.gray(`**Cost:** $${result.cost.usd.toFixed(4)} | ` +
-        `**Duration:** ${(result.duration_ms / 1000).toFixed(1)}s | ` +
-        `**Tokens:** ${result.cost.tokens.total.toLocaleString()}`));
-    return output.join('\n');
 }

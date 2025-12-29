@@ -13,6 +13,7 @@ import { EventBus } from '../core/EventBus';
 import { ConsultStateMachine } from './ConsultStateMachine';
 import { ArtifactExtractor } from '../consult/artifacts/ArtifactExtractor';
 import { CostEstimator } from '../consult/cost/CostEstimator';
+import { ConsultationFileLogger } from '../consult/logging/ConsultationFileLogger';
 import {
   Agent,
   Message,
@@ -44,13 +45,15 @@ export default class ConsultOrchestrator {
   private eventBus: EventBus;
   private consultationId: string;
   private costEstimator: CostEstimator;
+  private fileLogger: ConsultationFileLogger;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
     this.verbose = options.verbose || false;
     this.eventBus = EventBus.getInstance();
     this.costEstimator = new CostEstimator();
-    
+    this.fileLogger = new ConsultationFileLogger();
+
     // Generate ID first so state machine can use it
     this.consultationId = this.generateId('consult');
     this.stateMachine = new ConsultStateMachine(this.consultationId);
@@ -225,6 +228,12 @@ export default class ConsultOrchestrator {
     this.eventBus.emitEvent('consultation:completed' as any, {
       consultation_id: this.consultationId,
       result
+    });
+
+    // Log consultation to files (Story 1.8)
+    // This is async but we don't await to avoid blocking result delivery
+    this.fileLogger.logConsultation(result).catch(err => {
+      console.error('Failed to log consultation:', err.message);
     });
 
     return result;
