@@ -20,6 +20,7 @@ import { ProviderHealthMonitor } from '../consult/health/ProviderHealthMonitor';
 import { PROVIDER_TIER_MAP } from '../consult/health/ProviderTiers';
 import { HedgedRequestManager } from '../consult/health/HedgedRequestManager';
 import { InteractivePulse } from '../consult/health/InteractivePulse';
+import { PartialResultManager } from '../consult/persistence/PartialResultManager';
 import chalk from 'chalk';
 import {
   Agent,
@@ -28,6 +29,7 @@ import {
 } from '../types';
 import {
   ConsultationResult,
+  PartialConsultationResult,
   CostSummary,
   TokenUsage,
   ConsultState,
@@ -57,6 +59,7 @@ export default class ConsultOrchestrator {
   private healthMonitor: ProviderHealthMonitor;
   private hedgedRequestManager: HedgedRequestManager;
   private interactivePulse: InteractivePulse;
+  private partialResultManager: PartialResultManager;
   private estimatedCostUsd: number = 0;
   private actualCostUsd: number = 0;
 
@@ -69,6 +72,7 @@ export default class ConsultOrchestrator {
     this.fileLogger = new ConsultationFileLogger();
     this.hedgedRequestManager = new HedgedRequestManager(this.eventBus);
     this.interactivePulse = new InteractivePulse();
+    this.partialResultManager = new PartialResultManager();
 
     // Generate ID first so state machine can use it
     this.consultationId = this.generateId('consult');
@@ -286,12 +290,18 @@ export default class ConsultOrchestrator {
         artifact_type: 'independent'
       });
 
+      // Save Checkpoint (Story 2.5)
+      await this.saveCheckpoint(question, context, successfulArtifacts, null, null, null, agentResponses);
+
       // --- State: Synthesis (Round 2) ---
       this.stateMachine.transition(ConsultState.Synthesis);
       if (this.verbose) console.log(`\n--- Round 2: Synthesis ---\n`);
 
       synthesisArtifact = await this.executeRound2Synthesis(question, successfulArtifacts);
       this.checkCostThreshold(); // Check after Round 2
+
+      // Save Checkpoint (Story 2.5)
+      await this.saveCheckpoint(question, context, successfulArtifacts, synthesisArtifact, null, null, agentResponses);
 
       // --- State: CrossExam (Round 3) ---
       this.stateMachine.transition(ConsultState.CrossExam);
@@ -300,6 +310,9 @@ export default class ConsultOrchestrator {
       if (synthesisArtifact) {
         crossExamArtifact = await this.executeRound3CrossExam(successfulArtifacts, synthesisArtifact);
         this.checkCostThreshold(); // Check after Round 3
+        
+        // Save Checkpoint (Story 2.5)
+        await this.saveCheckpoint(question, context, successfulArtifacts, synthesisArtifact, crossExamArtifact, null, agentResponses);
       } else {
         console.warn("Skipping Round 3 due to missing Synthesis artifact");
       }
@@ -979,6 +992,106 @@ export default class ConsultOrchestrator {
   }
 
   /**
+   * Helper to construct result object for checkpoints and partial saves
+   */
+  private constructResultObject(
+      status: 'complete' | 'partial' | 'aborted',
+      question: string,
+      context: string,
+      successfulArtifacts: IndependentArtifact[],
+      synthesisArtifact: SynthesisArtifact | null,
+      crossExamArtifact: CrossExamArtifact | null,
+      verdictArtifact: VerdictArtifact | null,
+      agentResponses: AgentResponse[],
+      abortReason?: string,
+      cancellationReason?: string
+  ): ConsultationResult {
+      const completedRounds = verdictArtifact ? 4 : (crossExamArtifact ? 3 : (synthesisArtifact ? 2 : (successfulArtifacts.length > 0 ? 1 : 0)));
+      const completedRoundNames: string[] = [];
+      if (successfulArtifacts.length > 0) completedRoundNames.push('Round1');
+      if (synthesisArtifact) completedRoundNames.push('Round2');
+      if (crossExamArtifact) completedRoundNames.push('Round3');
+      if (verdictArtifact) completedRoundNames.push('Round4');
+
+      const allRounds = ['Round1', 'Round2', 'Round3', 'Round4'];
+      const incompleteRoundNames = allRounds.filter(r => !completedRoundNames.includes(r));
+
+      return {
+        consultationId: this.consultationId,
+        timestamp: new Date().toISOString(),
+        question,
+        context,
+        mode: 'converge',
+        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+        agentResponses,
+        state: this.stateMachine.getCurrentState(), // Use current state
+        status,
+        rounds: this.maxRounds,
+        completedRounds,
+        completedRoundNames,
+        incompleteRoundNames,
+        responses: {
+          round1: successfulArtifacts.length > 0 ? successfulArtifacts : undefined,
+          round2: synthesisArtifact || undefined,
+          round3: crossExamArtifact || undefined,
+          round4: verdictArtifact || undefined
+        },
+        consensus: synthesisArtifact?.consensusPoints[0]?.point || "Consultation incomplete",
+        confidence: verdictArtifact?.confidence || 0,
+        recommendation: verdictArtifact?.recommendation || "Consultation incomplete",
+        reasoning: {},
+        concerns: crossExamArtifact?.unresolved || [],
+        dissent: verdictArtifact?.dissent || [],
+        perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
+        cost: {
+          tokens: { input: 0, output: 0, total: 0 }, // Simplified for checkpoint
+          usd: this.actualCostUsd
+        },
+        durationMs: 0, 
+        promptVersions: {
+          mode: 'converge',
+          independentPromptVersion: '1.0',
+          synthesisPromptVersion: '1.0',
+          crossExamPromptVersion: '1.0',
+          verdictPromptVersion: '1.0'
+        },
+        abortReason,
+        cancellationReason
+      };
+  }
+
+  /**
+   * Save checkpoint
+   */
+  private async saveCheckpoint(
+      question: string,
+      context: string,
+      successfulArtifacts: IndependentArtifact[],
+      synthesisArtifact: SynthesisArtifact | null,
+      crossExamArtifact: CrossExamArtifact | null,
+      verdictArtifact: VerdictArtifact | null,
+      agentResponses: AgentResponse[]
+  ): Promise<void> {
+      try {
+        const result = this.constructResultObject(
+            'partial',
+            question,
+            context,
+            successfulArtifacts,
+            synthesisArtifact,
+            crossExamArtifact,
+            verdictArtifact,
+            agentResponses
+        );
+        // Cast to PartialConsultationResult as we verified status is 'partial'
+        await this.partialResultManager.saveCheckpoint(result as PartialConsultationResult);
+      } catch (error) {
+          console.warn(`Failed to save checkpoint: ${(error as any).message}`);
+          // Do not crash consultation
+      }
+  }
+
+  /**
    * Save partial results when consultation is cancelled/aborted
    * (Story 2.5 dependency)
    */
@@ -993,56 +1106,38 @@ export default class ConsultOrchestrator {
     verdictArtifact: VerdictArtifact | null = null,
     agentResponses: AgentResponse[] = []
   ): Promise<void> {
-      // Create partial result object
-      const completedRounds = verdictArtifact ? 4 : (crossExamArtifact ? 3 : (synthesisArtifact ? 2 : (successfulArtifacts.length > 0 ? 1 : 0)));
-      
-      const partialResult: ConsultationResult = {
-        consultationId: this.consultationId,
-        timestamp: new Date().toISOString(),
-        question,
-        context,
-        mode: 'converge',
-        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
-        agentResponses,
-        state: ConsultState.Aborted,
-        rounds: this.maxRounds,
-        completedRounds,
-        responses: {
-          round1: successfulArtifacts.length > 0 ? successfulArtifacts : undefined,
-          round2: synthesisArtifact || undefined,
-          round3: crossExamArtifact || undefined,
-          round4: verdictArtifact || undefined
-        },
-        consensus: synthesisArtifact?.consensusPoints[0]?.point || "Consultation aborted",
-        confidence: 0,
-        recommendation: "Consultation aborted",
-        reasoning: {},
-        concerns: [],
-        dissent: [],
-        perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
-        cost: {
-          tokens: {
-            input: estimate?.inputTokens || 0,
-            output: estimate?.outputTokens || 0,
-            total: estimate?.totalTokens || 0
-          },
-          usd: this.actualCostUsd
-        },
-        durationMs: 0, // Not fully tracked for abort
-        promptVersions: {
-          mode: 'converge',
-          independentPromptVersion: '1.0',
-          synthesisPromptVersion: '1.0',
-          crossExamPromptVersion: '1.0',
-          verdictPromptVersion: '1.0'
-        },
-        abortReason: reason,
-        pulseTriggered: true, // Assuming this called from pulse cancel
-        userCancelledAfterPulse: true,
-        pulseTimestamp: new Date().toISOString()
-      };
+      const partialResult = this.constructResultObject(
+          'partial',
+          question,
+          context,
+          successfulArtifacts,
+          synthesisArtifact,
+          crossExamArtifact,
+          verdictArtifact,
+          agentResponses,
+          reason,
+          reason === 'User cancelled via interactive pulse' ? 'user_pulse_cancel' : 'error'
+      );
 
-      await this.fileLogger.logConsultation(partialResult);
+      // Add specific pulse tracking fields
+      partialResult.pulseTriggered = true;
+      partialResult.userCancelledAfterPulse = true;
+      partialResult.pulseTimestamp = new Date().toISOString();
+      if (estimate) {
+          partialResult.estimatedCost = estimate.estimatedCostUsd;
+          partialResult.cost.tokens = {
+              input: estimate.inputTokens,
+              output: estimate.outputTokens,
+              total: estimate.totalTokens
+          };
+      }
+
+      await this.partialResultManager.savePartialResults(
+          partialResult as PartialConsultationResult,
+          (partialResult.cancellationReason || 'error') as any
+      );
+      
+      console.log(chalk.cyan(`Partial results saved.`));
   }
 
   /**

@@ -13,6 +13,11 @@ interface ConsultStatsOptions {
 interface Metrics {
   periodLabel: string;
   total: number;
+  breakdown: {
+    complete: number;
+    partial: number;
+    aborted: number;
+  };
   dateRange: {
     start: Date;
     end: Date;
@@ -74,9 +79,18 @@ class ConsultStats {
     const activeDays = this.countActiveDays(consultations);
     const totalDays = Math.max(dateRange.totalDays, 1);
 
+    const complete = consultations.filter(c => c.status === 'complete' || !c.status).length;
+    const partial = consultations.filter(c => c.status === 'partial').length;
+    const aborted = consultations.filter(c => c.status === 'aborted' || c.state === 'aborted').length;
+
     return {
       periodLabel: dateRange.label,
       total: consultations.length,
+      breakdown: {
+        complete,
+        partial,
+        aborted
+      },
       dateRange: {
         start: dateRange.start,
         end: dateRange.end,
@@ -113,6 +127,8 @@ class ConsultStats {
     console.log(divider);
     console.log(line('✅ Usage'));
     console.log(metric('Total consultations', metrics.total.toString()));
+    console.log(metric('  • Complete', metrics.breakdown.complete.toString()));
+    console.log(metric('  • Partial/Aborted', (metrics.breakdown.partial + metrics.breakdown.aborted).toString()));
     const activePercent = ((metrics.activeDays / metrics.dateRange.totalDays) * 100).toFixed(0);
     console.log(metric('Active days', `${metrics.activeDays}/${metrics.dateRange.totalDays} (${activePercent}%)`));
     console.log(metric('Avg per day', metrics.avgPerDay.toFixed(2)));

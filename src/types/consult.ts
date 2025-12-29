@@ -216,6 +216,19 @@ export interface ConsultationResult {
   estimatedCost?: number;
   actualCost?: number;
   costExceeded?: boolean;
+
+  // Partial results (Epic 2, Story 5)
+  status?: 'complete' | 'partial' | 'aborted'; // Explicit status for file format
+  completedRoundNames?: string[]; // ["Round1", "Round2"]
+  incompleteRoundNames?: string[]; // ["Round3"]
+  partialAgents?: AgentResponse[]; // In-progress agents
+  cancellationReason?: string;
+  signature?: string; // Cryptographic signature
+}
+
+export interface PartialConsultationResult extends ConsultationResult {
+  status: 'partial';
+  cancellationReason?: string;
 }
 
 export interface CostSummary {
