@@ -5,9 +5,11 @@
  * Handles parsing of JSON blocks embedded in Markdown.
  */
 
-import { IndependentArtifact, SynthesisArtifact } from '../../types/consult';
+import { IndependentArtifact, SynthesisArtifact, CrossExamArtifact, VerdictArtifact } from '../../types/consult';
 import { IndependentSchema } from './schemas/IndependentSchema';
 import { SynthesisSchema } from './schemas/SynthesisSchema';
+import { CrossExamSchema } from './schemas/CrossExamSchema';
+import { VerdictSchema } from './schemas/VerdictSchema';
 
 export class ArtifactExtractor {
   /**
@@ -77,6 +79,60 @@ export class ArtifactExtractor {
       consensusPoints,
       tensions,
       priorityOrder
+    });
+  }
+
+  /**
+   * Extract a CrossExamArtifact (Round 3) from an LLM response
+   * @param responseText The raw text response from the LLM
+   * @returns The validated CrossExamArtifact
+   * @throws Error if extraction or validation fails
+   */
+  public static extractCrossExamArtifact(responseText: string): CrossExamArtifact {
+    const json = this.extractJSON(responseText);
+
+    // Map snake_case to camelCase
+    const challenges = (json.challenges || []).map((c: any) => ({
+      challenger: c.challenger,
+      targetAgent: c.target_agent || c.targetAgent,
+      challenge: c.challenge,
+      evidence: c.evidence || []
+    }));
+
+    const rebuttals = (json.rebuttals || []).map((r: any) => ({
+      agent: r.agent,
+      rebuttal: r.rebuttal
+    }));
+
+    const unresolved = json.unresolved || [];
+
+    return CrossExamSchema.create({
+      challenges,
+      rebuttals,
+      unresolved
+    });
+  }
+
+  /**
+   * Extract a VerdictArtifact (Round 4) from an LLM response
+   * @param responseText The raw text response from the LLM
+   * @returns The validated VerdictArtifact
+   * @throws Error if extraction or validation fails
+   */
+  public static extractVerdictArtifact(responseText: string): VerdictArtifact {
+    const json = this.extractJSON(responseText);
+
+    const dissent = (json.dissent || []).map((d: any) => ({
+      agent: d.agent,
+      concern: d.concern,
+      severity: d.severity
+    }));
+
+    return VerdictSchema.create({
+      recommendation: json.recommendation,
+      confidence: json.confidence,
+      evidence: json.evidence || [],
+      dissent
     });
   }
 

@@ -84,13 +84,19 @@ describe('ConsultOrchestrator Round 2: Synthesis', () => {
       .mockResolvedValueOnce(agentResponse1)
       .mockResolvedValueOnce(agentResponse2)
       .mockResolvedValueOnce(agentResponse3)
-      .mockResolvedValueOnce(judgeResponse);
+      .mockResolvedValueOnce(judgeResponse)
+      // Mock Round 3 responses to allow completion (Agent 1, 2, 3, Judge)
+      .mockResolvedValueOnce({ text: JSON.stringify({ critique: "", challenges: [], defense: "" }), usage: {} })
+      .mockResolvedValueOnce({ text: JSON.stringify({ critique: "", challenges: [], defense: "" }), usage: {} })
+      .mockResolvedValueOnce({ text: JSON.stringify({ critique: "", challenges: [], defense: "" }), usage: {} })
+      .mockResolvedValueOnce({ text: JSON.stringify({ challenges: [], rebuttals: [], unresolved: [] }), usage: {} })
+      .mockResolvedValueOnce({ text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: [], dissent: [] }), usage: {} });
 
     const question = "Test Question";
     const result = await orchestrator.consult(question);
 
-    // Verify 4 calls (3 Agents + 1 Judge)
-    expect(mockProvider.chat).toHaveBeenCalledTimes(4);
+    // Verify 9 calls (3 Agents R1 + 1 Judge R2 + 3 Agents R3 + 1 Judge R3 + 1 Judge R4)
+    expect(mockProvider.chat).toHaveBeenCalledTimes(9);
 
     // Verify Round 2 Artifact
     expect(result.responses.round2).toBeDefined();

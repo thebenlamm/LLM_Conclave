@@ -31,8 +31,8 @@ export class ConsultStateMachine {
     // Synthesis can transition to CrossExam, Complete (early termination), or Aborted
     [ConsultState.Synthesis, [ConsultState.CrossExam, ConsultState.Complete, ConsultState.Aborted]],
 
-    // CrossExam can transition to Verdict or Aborted
-    [ConsultState.CrossExam, [ConsultState.Verdict, ConsultState.Aborted]],
+    // CrossExam can transition to Verdict, Complete (temporary/early exit), or Aborted
+    [ConsultState.CrossExam, [ConsultState.Verdict, ConsultState.Complete, ConsultState.Aborted]],
 
     // Verdict can transition to Complete or Aborted
     [ConsultState.Verdict, [ConsultState.Complete, ConsultState.Aborted]],
