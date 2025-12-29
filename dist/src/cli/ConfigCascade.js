@@ -103,6 +103,10 @@ class ConfigCascade {
                     provider: 'google',
                     systemPrompt: 'You review work from multiple perspectives and identify potential issues.'
                 }
+            },
+            // Consult mode defaults (Epic 2, Story 1)
+            consult: {
+                alwaysAllowUnder: 0.50 // Auto-approve consultations under $0.50
             }
         };
     }

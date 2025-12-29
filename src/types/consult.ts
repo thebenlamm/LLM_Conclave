@@ -194,6 +194,11 @@ export interface ConsultationResult {
 
   // Abort reason
   abortReason?: string;
+
+  // Cost tracking (Epic 2, Story 1)
+  estimatedCost?: number;
+  actualCost?: number;
+  costExceeded?: boolean;
 }
 
 export interface CostSummary {

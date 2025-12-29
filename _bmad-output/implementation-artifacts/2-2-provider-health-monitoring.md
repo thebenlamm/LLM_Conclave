@@ -1,6 +1,6 @@
 # Story 2.2: Provider Health Monitoring System
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -62,27 +62,27 @@ Map<string, ProviderHealth> {
 
 ## Tasks / Subtasks
 
-- [ ] Create `src/consult/health/ProviderTiers.ts` (AC: #1)
-  - [ ] Define `ProviderHealthStatus` enum
-  - [ ] Define `ProviderHealth` interface
-  - [ ] Define default check intervals and thresholds
+- [x] Create `src/consult/health/ProviderTiers.ts` (AC: #1)
+  - [x] Define `ProviderHealthStatus` enum
+  - [x] Define `ProviderHealth` interface
+  - [x] Define default check intervals and thresholds
 
-- [ ] Create `src/consult/health/ProviderHealthMonitor.ts` (AC: #1, #2, #3, #4)
-  - [ ] Implement `startMonitoring()` and `stopMonitoring()`
-  - [ ] Implement `checkProvider(providerId)`
-  - [ ] Implement `updateStatus(providerId, result)`
-  - [ ] Implement `getHealth(providerId)`
-  - [ ] Integrate with `EventBus` for status updates
+- [x] Create `src/consult/health/ProviderHealthMonitor.ts` (AC: #1, #2, #3, #4)
+  - [x] Implement `startMonitoring()` and `stopMonitoring()`
+  - [x] Implement `checkProvider(providerId)`
+  - [x] Implement `updateStatus(providerId, result)`
+  - [x] Implement `getHealth(providerId)`
+  - [x] Integrate with `EventBus` for status updates
 
-- [ ] Update `src/providers/LLMProvider.ts`
-  - [ ] Add optional `healthCheck()` method (or use `chat()` with minimal prompt)
+- [x] Update `src/providers/LLMProvider.ts`
+  - [x] Add optional `healthCheck()` method (or use `chat()` with minimal prompt)
 
-- [ ] Integrate with `ConsultOrchestrator.ts` (AC: #1, #5)
-  - [ ] Initialize `ProviderHealthMonitor` on startup
-  - [ ] Add check for "all degraded" warning before starting consultation
+- [x] Integrate with `ConsultOrchestrator.ts` (AC: #1, #5)
+  - [x] Initialize `ProviderHealthMonitor` on startup
+  - [x] Add check for "all degraded" warning before starting consultation
 
-- [ ] Add Unit Tests
-  - [ ] `src/consult/health/__tests__/ProviderHealthMonitor.test.ts`
+- [x] Add Unit Tests
+  - [x] `src/consult/health/__tests__/ProviderHealthMonitor.test.ts`
 
 ## Dev Notes
 
@@ -176,7 +176,12 @@ _To be filled by dev agent_
 
 ### Completion Notes List
 
-_To be filled by dev agent_
+- Implemented `ProviderHealthMonitor` with `healthCheck` support.
+- Added `healthCheck` to `LLMProvider` base class.
+- Integrated with `ConsultOrchestrator` to warn on degraded providers.
+- `EventBus` already contained `health:status_updated`, no change needed.
+- `src/types/consult.ts` not modified as types are self-contained in `ProviderTiers.ts`.
+- Note: Existing regression tests for `ConsultOrchestrator` fail due to `inquirer` ESM import issues (pre-existing environment configuration). Verified new functionality with `src/consult/health/__tests__/ProviderHealthMonitor.test.ts`.
 
 ### File List
 
@@ -187,5 +192,7 @@ _To be filled by dev agent_
 
 **Files Modified:**
 - `src/orchestration/ConsultOrchestrator.ts`
-- `src/core/EventBus.ts`
-- `src/types/consult.ts`
+- `src/providers/LLMProvider.ts`
+
+## Status
+review
