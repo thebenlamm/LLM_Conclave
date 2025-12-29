@@ -7,7 +7,8 @@ import ProjectContext from '../utils/ProjectContext';
 import ConsultLogger from '../utils/ConsultLogger';
 import { ConsultConsoleLogger } from '../cli/ConsultConsoleLogger';
 import { ArtifactTransformer } from '../consult/artifacts/ArtifactTransformer';
-import { ConsultationResult } from '../types';
+import { ConsultationResult, OutputFormat } from '../types/consult';
+import { FormatterFactory } from '../consult/formatting/FormatterFactory';
 
 /**
  * Consult command - Fast multi-model consultation
@@ -48,16 +49,14 @@ export function createConsultCommand(): Command {
         // Orchestrator emits events which consoleLogger handles
         const result = await orchestrator.consult(question, context);
 
-        // Transform result for persistence (camelCase -> snake_case)
-        const jsonResult = ArtifactTransformer.consultationResultToJSON(result);
-
-        // Persist consultation for analytics
+        // Persist consultation for analytics (handles transformation to snake_case internally)
         const logger = new ConsultLogger();
-        const logPaths = await logger.log(jsonResult);
+        const logPaths = await logger.log(result);
         console.log(chalk.gray(`Logs saved to ${logPaths.jsonPath}`));
 
         // Format and display output
-        displayOutput(result, jsonResult, options.format);
+        const output = FormatterFactory.format(result, options.format as OutputFormat);
+        console.log('\n' + output + '\n');
 
       } catch (error: any) {
         console.error(chalk.red(`\n❌ Consultation failed: ${error.message}\n`));
@@ -105,90 +104,4 @@ async function loadContext(options: any): Promise<string> {
   }
 
   return context;
-}
-
-/**
- * Display output in requested format
- */
-function displayOutput(result: ConsultationResult, jsonResult: any, format: string): void {
-  if (format === 'json' || format === 'both') {
-    console.log('\n' + chalk.bold('JSON Output:') + '\n');
-    console.log(JSON.stringify(jsonResult, null, 2));
-  }
-
-  if (format === 'markdown' || format === 'both') {
-    if (format === 'both') {
-      console.log('\n' + '='.repeat(80) + '\n');
-    }
-    console.log(formatMarkdown(result));
-  }
-}
-
-/**
- * Format consultation result as Markdown
- */
-function formatMarkdown(result: ConsultationResult): string {
-  const output: string[] = [];
-
-  // Header
-  output.push(chalk.bold.blue('# Consultation Summary'));
-  output.push('');
-  output.push(chalk.gray(`**Question:** ${result.question}`));
-  output.push(chalk.gray(`**Date:** ${new Date(result.timestamp).toLocaleString()}`));
-  output.push(chalk.gray(`**Confidence:** ${(result.confidence * 100).toFixed(0)}%`));
-  output.push('');
-
-  // Consensus
-  output.push(chalk.bold.green('## Consensus'));
-  output.push('');
-  output.push(chalk.white(result.consensus));
-  output.push('');
-
-  // Recommendation
-  output.push(chalk.bold.yellow('## Recommendation'));
-  output.push('');
-  output.push(chalk.white(result.recommendation));
-  output.push('');
-
-  // Agent Perspectives
-  output.push(chalk.bold.cyan('## Agent Perspectives'));
-  output.push('');
-
-  for (const perspective of result.perspectives) {
-    output.push(chalk.bold(`### ${perspective.agent} (${perspective.model})`));
-    output.push('');
-    output.push(chalk.white(perspective.opinion));
-    output.push('');
-  }
-
-  // Concerns
-  if (result.concerns.length > 0) {
-    output.push(chalk.bold.red('## Concerns Raised'));
-    output.push('');
-    for (const concern of result.concerns) {
-      output.push(chalk.white(`- ${concern}`));
-    }
-    output.push('');
-  }
-
-  // Dissent
-  if (result.dissent.length > 0) {
-    output.push(chalk.bold.magenta('## Dissenting Views'));
-    output.push('');
-    for (const dissent of result.dissent) {
-      output.push(chalk.white(`- ${dissent}`));
-    }
-    output.push('');
-  }
-
-  // Footer
-  output.push('---');
-  output.push('');
-  output.push(chalk.gray(
-    `**Cost:** $${result.cost.usd.toFixed(4)} | ` +
-    `**Duration:** ${(result.duration_ms / 1000).toFixed(1)}s | ` +
-    `**Tokens:** ${result.cost.tokens.total.toLocaleString()}`
-  ));
-
-  return output.join('\n');
 }

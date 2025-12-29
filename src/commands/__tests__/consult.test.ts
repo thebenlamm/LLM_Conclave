@@ -5,6 +5,7 @@ import { ConsultConsoleLogger } from '../../cli/ConsultConsoleLogger';
 import { ArtifactTransformer } from '../../consult/artifacts/ArtifactTransformer';
 import ConsultLogger from '../../utils/ConsultLogger';
 import { Command } from 'commander';
+import { ConsultationResult } from '../../types/consult';
 
 // Mock dependencies
 jest.mock('../../orchestration/ConsultOrchestrator');
@@ -110,13 +111,13 @@ describe('consult command', () => {
     consoleSpy.mockRestore();
   });
   
-  it('should use ArtifactTransformer before logging', async () => {
+  it('should call ConsultLogger with the result', async () => {
     const cmd = createConsultCommand();
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
     await cmd.parseAsync(['node', 'test', 'consult', 'test question']);
 
-    expect(ArtifactTransformer.consultationResultToJSON).toHaveBeenCalled();
+    expect(mockConsultLoggerInstance.log).toHaveBeenCalledWith(expect.any(Object));
     
     consoleSpy.mockRestore();
   });

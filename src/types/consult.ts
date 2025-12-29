@@ -362,3 +362,17 @@ export interface CostGateTriggeredPayload {
   threshold: number;
   requiresConsent: boolean;
 }
+
+// ============================================================================
+// Output Formatting Types
+// ============================================================================
+
+export enum OutputFormat {
+  Markdown = 'markdown',
+  JSON = 'json',
+  Both = 'both'
+}
+
+export interface IOutputFormatter {
+  format(result: ConsultationResult): string;
+}
