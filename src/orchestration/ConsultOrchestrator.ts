@@ -346,7 +346,7 @@ export default class ConsultOrchestrator {
           this.interactivePulse.cleanup();
 
           await this.savePartialResults(
-            'User cancelled via interactive pulse',
+            'user_pulse_cancel',
             question,
             context,
             estimate,
@@ -362,62 +362,35 @@ export default class ConsultOrchestrator {
       }
 
       if (error?.message?.includes('Cost threshold exceeded')) {
-        const durationMs = Date.now() - startTime;
-        const completedRounds = verdictArtifact ? 4 : (crossExamArtifact ? 3 : (synthesisArtifact ? 2 : (successfulArtifacts.length > 0 ? 1 : 0)));
-        const consensusText = verdictArtifact
-          ? verdictArtifact.recommendation
-          : (synthesisArtifact?.consensusPoints[0]?.point || 'Consultation aborted due to cost threshold');
-        const confidence = verdictArtifact ? verdictArtifact.confidence : 0;
-        const recommendation = verdictArtifact ? verdictArtifact.recommendation : 'Consultation aborted due to cost threshold';
-        const dissent = verdictArtifact ? verdictArtifact.dissent : [];
+          await this.savePartialResults(
+            'cost_exceeded_estimate',
+            question,
+            context,
+            estimate,
+            successfulArtifacts,
+            synthesisArtifact,
+            crossExamArtifact,
+            verdictArtifact,
+            agentResponses
+          );
+          throw error;
+      }
 
-        const partialResult: ConsultationResult = {
-          consultationId: this.consultationId,
-          timestamp: new Date().toISOString(),
-          question,
-          context,
-          mode: 'converge',
-          agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
-          agentResponses,
-          state: ConsultState.Aborted,
-          rounds: this.maxRounds,
-          completedRounds,
-          responses: {
-            round1: successfulArtifacts.length > 0 ? successfulArtifacts : undefined,
-            round2: synthesisArtifact || undefined,
-            round3: crossExamArtifact || undefined,
-            round4: verdictArtifact || undefined
-          },
-          consensus: consensusText,
-          confidence,
-          recommendation,
-          reasoning: {},
-          concerns: crossExamArtifact?.unresolved || [],
-          dissent,
-          perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
-          cost: {
-            tokens: {
-              input: estimate?.inputTokens || 0,
-              output: estimate?.outputTokens || 0,
-              total: estimate?.totalTokens || 0
-            },
-            usd: this.actualCostUsd
-          },
-          durationMs,
-          promptVersions: {
-            mode: 'converge',
-            independentPromptVersion: '1.0',
-            synthesisPromptVersion: '1.0',
-            crossExamPromptVersion: '1.0',
-            verdictPromptVersion: '1.0'
-          },
-          abortReason: 'Cost exceeded estimate by >50%',
-          estimatedCost: this.estimatedCostUsd,
-          actualCost: this.actualCostUsd,
-          costExceeded: true
-        };
-
-        await this.fileLogger.logConsultation(partialResult);
+      // Generic error handling (Story 2.5 requirement: partial save on error/exception)
+      if (this.stateMachine.getCurrentState() !== ConsultState.Complete) {
+          this.stateMachine.transition(ConsultState.Aborted, error.message);
+          await this.savePartialResults(
+            'error',
+            question,
+            context,
+            estimate,
+            successfulArtifacts,
+            synthesisArtifact,
+            crossExamArtifact,
+            verdictArtifact,
+            agentResponses,
+            error.message
+          );
       }
 
       throw error;
@@ -1016,6 +989,14 @@ export default class ConsultOrchestrator {
       const allRounds = ['Round1', 'Round2', 'Round3', 'Round4'];
       const incompleteRoundNames = allRounds.filter(r => !completedRoundNames.includes(r));
 
+      // Calculate actual tokens consumed so far (Story 2.5 Medium finding)
+      const actualTokens = agentResponses.reduce((acc, resp) => {
+          acc.input += resp.tokens?.input || 0;
+          acc.output += resp.tokens?.output || 0;
+          acc.total += resp.tokens?.total || 0;
+          return acc;
+      }, { input: 0, output: 0, total: 0 });
+
       return {
         consultationId: this.consultationId,
         timestamp: new Date().toISOString(),
@@ -1044,7 +1025,7 @@ export default class ConsultOrchestrator {
         dissent: verdictArtifact?.dissent || [],
         perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
         cost: {
-          tokens: { input: 0, output: 0, total: 0 }, // Simplified for checkpoint
+          tokens: actualTokens,
           usd: this.actualCostUsd
         },
         durationMs: 0, 
@@ -1083,11 +1064,9 @@ export default class ConsultOrchestrator {
             verdictArtifact,
             agentResponses
         );
-        // Cast to PartialConsultationResult as we verified status is 'partial'
         await this.partialResultManager.saveCheckpoint(result as PartialConsultationResult);
       } catch (error) {
           console.warn(`Failed to save checkpoint: ${(error as any).message}`);
-          // Do not crash consultation
       }
   }
 
@@ -1096,7 +1075,7 @@ export default class ConsultOrchestrator {
    * (Story 2.5 dependency)
    */
   private async savePartialResults(
-    reason: string,
+    reason: 'user_pulse_cancel' | 'timeout' | 'error' | 'cost_exceeded_estimate',
     question: string,
     context: string,
     estimate: CostEstimate | null,
@@ -1104,7 +1083,8 @@ export default class ConsultOrchestrator {
     synthesisArtifact: SynthesisArtifact | null = null,
     crossExamArtifact: CrossExamArtifact | null = null,
     verdictArtifact: VerdictArtifact | null = null,
-    agentResponses: AgentResponse[] = []
+    agentResponses: AgentResponse[] = [],
+    errorDetail?: string
   ): Promise<void> {
       const partialResult = this.constructResultObject(
           'partial',
@@ -1115,29 +1095,22 @@ export default class ConsultOrchestrator {
           crossExamArtifact,
           verdictArtifact,
           agentResponses,
-          reason,
-          reason === 'User cancelled via interactive pulse' ? 'user_pulse_cancel' : 'error'
+          errorDetail || reason,
+          reason
       );
 
-      // Add specific pulse tracking fields
-      partialResult.pulseTriggered = true;
-      partialResult.userCancelledAfterPulse = true;
+      // Add specific tracking fields
+      partialResult.pulseTriggered = reason === 'user_pulse_cancel';
+      partialResult.userCancelledAfterPulse = reason === 'user_pulse_cancel';
       partialResult.pulseTimestamp = new Date().toISOString();
       if (estimate) {
           partialResult.estimatedCost = estimate.estimatedCostUsd;
-          partialResult.cost.tokens = {
-              input: estimate.inputTokens,
-              output: estimate.outputTokens,
-              total: estimate.totalTokens
-          };
       }
 
       await this.partialResultManager.savePartialResults(
           partialResult as PartialConsultationResult,
-          (partialResult.cancellationReason || 'error') as any
+          reason
       );
-      
-      console.log(chalk.cyan(`Partial results saved.`));
   }
 
   /**

@@ -1,10 +1,11 @@
 import { ConsultationResult, ConsultState, AgentResponse, PartialConsultationResult } from '../../types/consult';
 import { ArtifactTransformer } from '../artifacts/ArtifactTransformer';
-import { writeFile, readFile, rename, unlink } from 'fs/promises';
+import { appendFile, writeFile, readFile, rename, unlink } from 'fs/promises';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { createHmac } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
+import chalk from 'chalk';
 
 export class PartialResultManager {
   private logDir: string;
@@ -22,47 +23,63 @@ export class PartialResultManager {
   }
 
   /**
-   * Save partial results when consultation is cancelled or fails
+   * Save partial results when consultation is cancelled or fails.
+   * Format: JSONL (one JSON object per line)
    */
   async savePartialResults(
     partialResult: PartialConsultationResult,
-    reason: 'user_pulse_cancel' | 'timeout' | 'error'
+    reason: 'user_pulse_cancel' | 'timeout' | 'error' | 'cost_exceeded_estimate'
   ): Promise<string> {
     const filename = this.getPartialFilePath(partialResult.consultationId);
     
-    // Transform to JSON format
+    // Transform to JSON format (snake_case)
     const jsonResult = ArtifactTransformer.consultationResultToJSON(partialResult);
 
-    // Add partial-specific fields explicitly (overwriting or extending base transformer output)
+    // Map internal reason to schema-compliant abort_reason
+    const abortReasonMap: Record<string, string> = {
+      'user_pulse_cancel': 'user_pulse_cancel',
+      'timeout': 'timeout',
+      'error': 'error',
+      'cost_exceeded_estimate': 'cost_exceeded_estimate'
+    };
+
+    // Add partial-specific fields compliant with Story 2.5 schema
     const finalResult = {
       ...jsonResult,
       status: 'partial',
-      completed_rounds: partialResult.completedRoundNames || [], // Array of strings e.g. ["Round1"]
-      incomplete_rounds: partialResult.incompleteRoundNames || [],
+      abort_reason: abortReasonMap[reason] || reason,
+      resume_token: this.generateResumeToken(),
+      // Ensure completed_rounds is artifacts, not just names (handled by transformer in responses)
+      // but we add the explicit round names for clarity in partial files
+      completed_round_names: partialResult.completedRoundNames || [],
+      incomplete_round_names: partialResult.incompleteRoundNames || [],
       partial_agents: partialResult.partialAgents ? partialResult.partialAgents.map((a: AgentResponse) => ({
           agent_id: a.agentId,
+          round: partialResult.completedRounds + 1,
           response: a.content,
           completed: false
       })) : [],
-      cancellation_reason: reason,
       schema_version: '1.0'
     };
 
     // Add signature
     finalResult.signature = this.signResult(finalResult);
 
-    // Atomic write
-    await this.atomicWrite(filename, JSON.stringify(finalResult, null, 2));
+    // JSONL Format: Each consultation is one line
+    const jsonLine = JSON.stringify(finalResult) + '\n';
 
+    // Append to JSONL file (Story 2.5 requirement)
+    await appendFile(filename, jsonLine, 'utf-8');
+
+    console.log(chalk.cyan(`💾 Partial results saved to: ${filename}`));
     return filename;
   }
 
   /**
-   * Save checkpoint after successful round completion
-   * Uses consultation ID + round number as unique key
+   * Save checkpoint after successful round completion.
+   * Uses consultation ID + round number as unique key.
    */
   async saveCheckpoint(consultation: PartialConsultationResult): Promise<void> {
-    // Current round is inferred from completed rounds
     const roundNumber = consultation.completedRounds; 
     const checkpointId = `${consultation.consultationId}-round${roundNumber}`;
     const checkpointPath = path.join(this.logDir, `${checkpointId}.checkpoint.json`);
@@ -77,11 +94,12 @@ export class PartialResultManager {
       consultation_id: consultation.consultationId,
       round: roundNumber,
       state: consultation.state,
-      // Store the result up to this point
       result: ArtifactTransformer.consultationResultToJSON(consultation),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      resume_token: this.generateResumeToken()
     };
 
+    // Checkpoints remain as independent JSON files for fast recovery
     await this.atomicWrite(checkpointPath, JSON.stringify(checkpoint, null, 2));
   }
 
@@ -91,11 +109,11 @@ export class PartialResultManager {
   async loadPartialResults(sessionId: string): Promise<PartialConsultationResult | null> {
     const filePath = this.getPartialFilePath(sessionId);
     try {
+      // Since it's JSONL, we read the last line or parse assuming one line for now
       const data = await readFile(filePath, 'utf-8');
-      const json = JSON.parse(data);
-      // We assume it matches the structure. 
-      // Reversing the transformation fully is complex, but we can verify it loads.
-      // For now, return the JSON cast as any or implement full fromJSON if needed later.
+      const lines = data.trim().split('\n');
+      const lastLine = lines[lines.length - 1];
+      const json = JSON.parse(lastLine);
       return json as any as PartialConsultationResult; 
     } catch (error) {
       return null;
@@ -103,12 +121,7 @@ export class PartialResultManager {
   }
 
   private getPartialFilePath(consultationId: string): string {
-    // Story pattern: YYYY-MM-DD-[id]-partial.jsonl
-    // Use the ID which typically already includes timestamp or uniqueness
-    // But story says "Same base name, add -partial suffix"
-    // ConsultationFileLogger uses `consult-[id].json`
-    // So we use `consult-[id]-partial.json`
-    return path.join(this.logDir, `consult-${consultationId}-partial.json`);
+    return path.join(this.logDir, `consult-${consultationId}-partial.jsonl`);
   }
 
   private async atomicWrite(filePath: string, content: string): Promise<void> {
@@ -127,9 +140,12 @@ export class PartialResultManager {
   private signResult(result: any): string {
     const secret = process.env.CONCLAVE_SECRET || 'default-secret';
     const hmac = createHmac('sha256', secret);
-    // Remove signature field if present to avoid circular dependency in signing
     const { signature, ...dataToSign } = result;
     hmac.update(JSON.stringify(dataToSign));
     return hmac.digest('hex');
+  }
+
+  private generateResumeToken(): string {
+    return randomBytes(16).toString('hex');
   }
 }

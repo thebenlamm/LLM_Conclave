@@ -64,14 +64,17 @@ describe('PartialResultManager', () => {
     );
 
     expect(fs.existsSync(filePath)).toBe(true);
-    expect(filePath).toContain('-partial.json');
+    expect(filePath).toContain('-partial.jsonl');
 
     const fileContent = fs.readFileSync(filePath, 'utf-8');
-    const savedResult = JSON.parse(fileContent);
+    // Verify JSONL (last line contains the JSON object)
+    const lines = fileContent.trim().split('\n');
+    const savedResult = JSON.parse(lines[lines.length - 1]);
 
     expect(savedResult.status).toBe('partial');
-    expect(savedResult.cancellation_reason).toBe('user_pulse_cancel');
+    expect(savedResult.abort_reason).toBe('user_pulse_cancel');
     expect(savedResult.consultation_id).toBe(consultationId);
+    expect(savedResult.resume_token).toBeDefined();
     expect(savedResult.signature).toBeDefined();
   });
 
