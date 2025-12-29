@@ -146,4 +146,23 @@ export default abstract class LLMProvider {
   getModelName(): string {
     return this.modelName;
   }
+
+  /**
+   * Check the health of the provider.
+   * Defaults to a minimal chat request ("ping").
+   * Concrete implementations can override this for optimized checks.
+   */
+  async healthCheck(): Promise<boolean> {
+    try {
+      // Use a very short timeout if possible, or minimal tokens
+      // We pass a system prompt to be explicit
+      await this.chat(
+        [{ role: 'user', content: 'ping' }],
+        'Reply with "pong" only. Do not explain.'
+      );
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
 }

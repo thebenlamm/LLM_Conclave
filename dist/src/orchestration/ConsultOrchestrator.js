@@ -17,14 +17,20 @@ const EventBus_1 = require("../core/EventBus");
 const ConsultStateMachine_1 = require("./ConsultStateMachine");
 const ArtifactExtractor_1 = require("../consult/artifacts/ArtifactExtractor");
 const CostEstimator_1 = require("../consult/cost/CostEstimator");
+const CostGate_1 = require("../consult/cost/CostGate");
+const ConfigCascade_1 = require("../cli/ConfigCascade");
 const ConsultationFileLogger_1 = require("../consult/logging/ConsultationFileLogger");
+const chalk_1 = __importDefault(require("chalk"));
 const consult_1 = require("../types/consult");
 class ConsultOrchestrator {
     constructor(options = {}) {
+        this.estimatedCostUsd = 0;
+        this.actualCostUsd = 0;
         this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
         this.verbose = options.verbose || false;
         this.eventBus = EventBus_1.EventBus.getInstance();
         this.costEstimator = new CostEstimator_1.CostEstimator();
+        this.costGate = new CostGate_1.CostGate();
         this.fileLogger = new ConsultationFileLogger_1.ConsultationFileLogger();
         // Generate ID first so state machine can use it
         this.consultationId = this.generateId('consult');
@@ -81,6 +87,7 @@ class ConsultOrchestrator {
         }
         // --- State: Estimating ---
         const estimate = this.costEstimator.estimateCost(question, this.agents, this.maxRounds);
+        this.estimatedCostUsd = estimate.estimatedCostUsd; // Store for later comparison
         this.eventBus.emitEvent('consultation:cost_estimated', {
             consultation_id: this.consultationId,
             estimated_cost: estimate.estimatedCostUsd,
@@ -89,15 +96,45 @@ class ConsultOrchestrator {
         });
         // --- State: AwaitingConsent ---
         this.stateMachine.transition(consult_1.ConsultState.AwaitingConsent);
-        this.eventBus.emitEvent('consultation:user_consent', {
-            consultation_id: this.consultationId,
-            approved: true
-        }); // Auto-approve for Epic 1 MVP
+        // Get configuration for cost threshold
+        const config = ConfigCascade_1.ConfigCascade.resolve({}, process.env);
+        // Check if user consent is needed
+        if (this.costGate.shouldPromptUser(estimate, config)) {
+            // Cost exceeds threshold - prompt user
+            const consent = await this.costGate.getUserConsent(estimate, this.agents.length, this.maxRounds);
+            if (consent === 'denied') {
+                this.stateMachine.transition(consult_1.ConsultState.Aborted, 'User cancelled');
+                console.log(chalk_1.default.yellow('\n⚠️  Consultation cancelled by user'));
+                throw new Error('Consultation cancelled by user');
+            }
+            // Consent given (either 'approved' or 'always' which also approves current consultation)
+            this.eventBus.emitEvent('consultation:user_consent', {
+                consultation_id: this.consultationId,
+                approved: true,
+                auto_approved: false
+            });
+        }
+        else {
+            // Cost under threshold - auto-approve
+            this.costGate.displayAutoApproved(estimate.estimatedCostUsd);
+            this.eventBus.emitEvent('consultation:user_consent', {
+                consultation_id: this.consultationId,
+                approved: true,
+                auto_approved: true
+            });
+        }
         // --- State: Independent (Round 1) ---
         this.stateMachine.transition(consult_1.ConsultState.Independent);
         if (this.verbose)
             console.log(`\n--- Round 1: Independent Analysis ---\n`);
         const round1Results = await this.executeRound1Independent(question, context);
+        // Track costs from Round 1
+        for (const result of round1Results) {
+            if (result.response.tokens) {
+                this.trackActualCost(result.response.tokens, result.response.model);
+            }
+        }
+        this.checkCostThreshold(); // Check after Round 1
         // Track failed agents
         const successfulArtifacts = round1Results.map(result => result.artifact).filter(a => !!a);
         const agentResponses = round1Results.map(result => result.response);
@@ -115,6 +152,7 @@ class ConsultOrchestrator {
         if (this.verbose)
             console.log(`\n--- Round 2: Synthesis ---\n`);
         const synthesisArtifact = await this.executeRound2Synthesis(question, successfulArtifacts);
+        this.checkCostThreshold(); // Check after Round 2
         // --- State: CrossExam (Round 3) ---
         this.stateMachine.transition(consult_1.ConsultState.CrossExam);
         if (this.verbose)
@@ -122,6 +160,7 @@ class ConsultOrchestrator {
         let crossExamArtifact = null;
         if (synthesisArtifact) {
             crossExamArtifact = await this.executeRound3CrossExam(successfulArtifacts, synthesisArtifact);
+            this.checkCostThreshold(); // Check after Round 3
         }
         else {
             console.warn("Skipping Round 3 due to missing Synthesis artifact");
@@ -135,6 +174,7 @@ class ConsultOrchestrator {
         // But we need at least Synthesis
         if (synthesisArtifact) {
             verdictArtifact = await this.executeRound4Verdict(question, successfulArtifacts, synthesisArtifact, crossExamArtifact);
+            this.checkCostThreshold(); // Check after Round 4
         }
         else {
             throw new Error("Cannot generate Verdict without Synthesis artifact");
@@ -146,6 +186,8 @@ class ConsultOrchestrator {
         const confidence = verdictArtifact ? verdictArtifact.confidence : 0;
         const recommendation = verdictArtifact ? verdictArtifact.recommendation : "Consultation incomplete";
         const dissent = verdictArtifact ? verdictArtifact.dissent : [];
+        // Determine if cost was exceeded
+        const costExceeded = this.actualCostUsd > (this.estimatedCostUsd * 1.5);
         const result = {
             consultationId: this.consultationId,
             timestamp: new Date().toISOString(),
@@ -170,7 +212,7 @@ class ConsultOrchestrator {
             concerns: crossExamArtifact?.unresolved || [],
             dissent,
             perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
-            cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: estimate.estimatedCostUsd },
+            cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: this.actualCostUsd },
             durationMs,
             promptVersions: {
                 mode: 'converge',
@@ -178,7 +220,11 @@ class ConsultOrchestrator {
                 synthesisPromptVersion: '1.0',
                 crossExamPromptVersion: '1.0',
                 verdictPromptVersion: '1.0'
-            }
+            },
+            // Cost tracking fields (Epic 2, Story 1)
+            estimatedCost: this.estimatedCostUsd,
+            actualCost: this.actualCostUsd,
+            costExceeded
         };
         this.eventBus.emitEvent('consultation:completed', {
             consultation_id: this.consultationId,
@@ -229,6 +275,10 @@ class ConsultOrchestrator {
             ];
             const response = await judgeAgent.provider.chat(messages, judgeAgent.systemPrompt);
             const duration = Date.now() - startTime;
+            // Track cost from synthesis
+            if (response.usage) {
+                this.trackActualCost(response.usage, judgeAgent.model);
+            }
             if (this.verbose)
                 console.log(`✓ Synthesis complete in ${(duration / 1000).toFixed(1)}s`);
             const artifact = ArtifactExtractor_1.ArtifactExtractor.extractSynthesisArtifact(response.text || '');
@@ -276,6 +326,10 @@ class ConsultOrchestrator {
             const response = await judgeAgent.provider.chat([
                 { role: 'user', content: 'Render your final verdict.' }
             ], judgeAgent.systemPrompt);
+            // Track cost from verdict
+            if (response.usage) {
+                this.trackActualCost(response.usage, judgeAgent.model);
+            }
             const artifact = ArtifactExtractor_1.ArtifactExtractor.extractVerdictArtifact(response.text || '');
             this.eventBus.emitEvent('consultation:round_artifact', {
                 consultation_id: this.consultationId,
@@ -351,6 +405,12 @@ class ConsultOrchestrator {
             }
         });
         const agentResponses = (await Promise.all(promises)).filter(r => r !== null);
+        // Track costs from agent responses
+        for (const agentResponse of agentResponses) {
+            if (agentResponse.tokens) {
+                this.trackActualCost(agentResponse.tokens, agentResponse.model);
+            }
+        }
         if (agentResponses.length === 0) {
             throw new Error("All agents failed in Round 3 Cross-Exam");
         }
@@ -372,6 +432,10 @@ class ConsultOrchestrator {
             const response = await judgeAgent.provider.chat([
                 { role: 'user', content: 'Analyze the cross-examination.' }
             ], judgeAgent.systemPrompt);
+            // Track cost from judge synthesis
+            if (response.usage) {
+                this.trackActualCost(response.usage, judgeAgent.model);
+            }
             const artifact = ArtifactExtractor_1.ArtifactExtractor.extractCrossExamArtifact(response.text || '');
             this.eventBus.emitEvent('consultation:round_artifact', {
                 consultation_id: this.consultationId,
@@ -475,6 +539,54 @@ class ConsultOrchestrator {
         const timestamp = Date.now().toString(36);
         const random = Math.random().toString(36).substring(2, 9);
         return `${prefix}-${timestamp}-${random}`;
+    }
+    /**
+     * Track actual cost from agent response
+     * (Epic 2, Story 1: In-flight cost monitoring)
+     */
+    trackActualCost(usage, model) {
+        // Get pricing for model
+        const pricing = this.getPricingForModel(model);
+        const inputCost = (usage.input / 1000) * pricing.input;
+        const outputCost = (usage.output / 1000) * pricing.output;
+        this.actualCostUsd += inputCost + outputCost;
+    }
+    /**
+     * Check if actual cost has exceeded estimate by >50%
+     * (Epic 2, Story 1: In-flight cost monitoring)
+     */
+    checkCostThreshold() {
+        if (this.estimatedCostUsd === 0)
+            return; // No estimate, skip check
+        const threshold = this.estimatedCostUsd * 1.5; // 50% over estimate
+        if (this.actualCostUsd > threshold) {
+            const percentOver = ((this.actualCostUsd - this.estimatedCostUsd) / this.estimatedCostUsd) * 100;
+            console.log(chalk_1.default.red(`\n⚠️  Cost exceeded estimate by ${percentOver.toFixed(1)}%. Aborting consultation.`));
+            console.log(chalk_1.default.gray(`   Estimated: $${this.estimatedCostUsd.toFixed(4)}`));
+            console.log(chalk_1.default.gray(`   Actual: $${this.actualCostUsd.toFixed(4)}`));
+            this.stateMachine.transition(consult_1.ConsultState.Aborted, 'Cost exceeded estimate by >50%');
+            throw new Error('Cost threshold exceeded - consultation aborted');
+        }
+    }
+    /**
+     * Get pricing for a model
+     * (Reuses pricing from CostEstimator)
+     */
+    getPricingForModel(model) {
+        const PRICING = {
+            'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
+            'gpt-4o': { input: 0.0025, output: 0.01 },
+            'gemini-2.5-pro': { input: 0.00125, output: 0.005 },
+            'default': { input: 0.003, output: 0.015 }
+        };
+        // Normalize model name
+        if (model.includes('claude'))
+            return PRICING['claude-sonnet-4-5'];
+        if (model.includes('gpt-4o'))
+            return PRICING['gpt-4o'];
+        if (model.includes('gemini'))
+            return PRICING['gemini-2.5-pro'];
+        return PRICING['default'];
     }
     /**
      * Common JSON instruction for all agents
