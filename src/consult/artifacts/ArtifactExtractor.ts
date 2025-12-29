@@ -5,8 +5,9 @@
  * Handles parsing of JSON blocks embedded in Markdown.
  */
 
-import { IndependentArtifact } from '../../types/consult';
+import { IndependentArtifact, SynthesisArtifact } from '../../types/consult';
 import { IndependentSchema } from './schemas/IndependentSchema';
+import { SynthesisSchema } from './schemas/SynthesisSchema';
 
 export class ArtifactExtractor {
   /**
@@ -43,6 +44,39 @@ export class ArtifactExtractor {
       rationale,
       confidence,
       proseExcerpt
+    });
+  }
+
+  /**
+   * Extract a SynthesisArtifact (Round 2) from an LLM response
+   * @param responseText The raw text response from the LLM
+   * @returns The validated SynthesisArtifact
+   * @throws Error if extraction or validation fails
+   */
+  public static extractSynthesisArtifact(responseText: string): SynthesisArtifact {
+    const json = this.extractJSON(responseText);
+
+    // Map snake_case to camelCase
+    const consensusPoints = (json.consensus_points || json.consensusPoints || []).map((cp: any) => ({
+      point: cp.point,
+      supportingAgents: cp.supporting_agents || cp.supportingAgents,
+      confidence: cp.confidence
+    }));
+
+    const tensions = (json.tensions || []).map((t: any) => ({
+      topic: t.topic,
+      viewpoints: (t.viewpoints || []).map((vp: any) => ({
+        agent: vp.agent,
+        viewpoint: vp.viewpoint
+      }))
+    }));
+
+    const priorityOrder = json.priority_order || json.priorityOrder || [];
+
+    return SynthesisSchema.create({
+      consensusPoints,
+      tensions,
+      priorityOrder
     });
   }
 

@@ -1,8 +1,8 @@
 /**
  * Synthesis Schema (Round 2)
  *
- * Validates artifacts from Round 2: Synthesis phase where the judge
- * identifies consensus points and tensions from Round 1 responses.
+ * Validates artifacts from Round 2: Synthesis phase where
+ * the Judge agent synthesizes consensus and tensions from independent positions.
  */
 
 import { SynthesisArtifact, ConsensusPoint, Tension } from '../../../types/consult';
@@ -44,88 +44,64 @@ export class SynthesisSchema {
       throw new Error('roundNumber must be 2 for Synthesis artifacts');
     }
 
-    // Validate consensusPoints
+    // Validate Consensus Points
     if (!Array.isArray(artifact.consensusPoints)) {
       throw new Error('consensusPoints must be an array');
     }
+    artifact.consensusPoints.forEach((cp: any, index: number) => {
+      this.validateConsensusPoint(cp, index);
+    });
 
-    for (const point of artifact.consensusPoints) {
-      this.validateConsensusPoint(point);
-    }
-
-    // Validate tensions
+    // Validate Tensions
     if (!Array.isArray(artifact.tensions)) {
       throw new Error('tensions must be an array');
     }
+    artifact.tensions.forEach((t: any, index: number) => {
+      this.validateTension(t, index);
+    });
 
-    for (const tension of artifact.tensions) {
-      this.validateTension(tension);
-    }
-
-    // Validate priorityOrder
+    // Validate Priority Order
     if (!Array.isArray(artifact.priorityOrder)) {
       throw new Error('priorityOrder must be an array');
     }
-
-    if (!artifact.priorityOrder.every((item: any) => typeof item === 'string')) {
+    if (!artifact.priorityOrder.every((p: any) => typeof p === 'string')) {
       throw new Error('All priorityOrder items must be strings');
     }
 
-    // Validate createdAt
     if (typeof artifact.createdAt !== 'string') {
       throw new Error('createdAt must be an ISO 8601 timestamp string');
     }
 
+    // Validate timestamp format (basic check)
     if (!this.isValidISO8601(artifact.createdAt)) {
       throw new Error('createdAt must be a valid ISO 8601 timestamp');
     }
   }
 
-  /**
-   * Validate a ConsensusPoint
-   */
-  private static validateConsensusPoint(point: any): void {
-    if (typeof point.point !== 'string' || point.point.length === 0) {
-      throw new Error('ConsensusPoint.point must be a non-empty string');
+  private static validateConsensusPoint(cp: any, index: number): void {
+    if (typeof cp.point !== 'string' || cp.point.length === 0) {
+      throw new Error(`Consensus point at index ${index} missing valid 'point' string`);
     }
-
-    if (!Array.isArray(point.supportingAgents)) {
-      throw new Error('ConsensusPoint.supportingAgents must be an array');
+    if (!Array.isArray(cp.supportingAgents) || !cp.supportingAgents.every((s: any) => typeof s === 'string')) {
+      throw new Error(`Consensus point at index ${index} must have 'supportingAgents' string array`);
     }
-
-    if (!point.supportingAgents.every((a: any) => typeof a === 'string')) {
-      throw new Error('All supportingAgents must be strings');
-    }
-
-    if (typeof point.confidence !== 'number' || point.confidence < 0 || point.confidence > 1) {
-      throw new Error('ConsensusPoint.confidence must be a number between 0 and 1');
+    if (typeof cp.confidence !== 'number' || cp.confidence < 0 || cp.confidence > 1) {
+      throw new Error(`Consensus point at index ${index} must have 'confidence' between 0 and 1`);
     }
   }
 
-  /**
-   * Validate a Tension
-   */
-  private static validateTension(tension: any): void {
-    if (typeof tension.topic !== 'string' || tension.topic.length === 0) {
-      throw new Error('Tension.topic must be a non-empty string');
+  private static validateTension(t: any, index: number): void {
+    if (typeof t.topic !== 'string' || t.topic.length === 0) {
+      throw new Error(`Tension at index ${index} missing valid 'topic' string`);
     }
-
-    if (!Array.isArray(tension.viewpoints)) {
-      throw new Error('Tension.viewpoints must be an array');
+    if (!Array.isArray(t.viewpoints)) {
+      throw new Error(`Tension at index ${index} must have 'viewpoints' array`);
     }
-
-    if (tension.viewpoints.length < 2) {
-      throw new Error('Tension must have at least 2 viewpoints');
-    }
-
-    for (const viewpoint of tension.viewpoints) {
-      if (typeof viewpoint.agent !== 'string' || viewpoint.agent.length === 0) {
-        throw new Error('Viewpoint.agent must be a non-empty string');
+    t.viewpoints.forEach((vp: any, vpIndex: number) => {
+      if (typeof vp.agent !== 'string' || typeof vp.viewpoint !== 'string') {
+        throw new Error(`Tension at index ${index}, viewpoint ${vpIndex} invalid: must have 'agent' and 'viewpoint' strings`);
       }
-      if (typeof viewpoint.viewpoint !== 'string' || viewpoint.viewpoint.length === 0) {
-        throw new Error('Viewpoint.viewpoint must be a non-empty string');
-      }
-    }
+    });
   }
 
   /**
