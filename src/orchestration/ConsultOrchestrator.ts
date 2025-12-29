@@ -29,6 +29,11 @@ import {
   PromptVersions
 } from '../types/consult';
 
+type Round1ExecutionResult = {
+  artifact: IndependentArtifact | null;
+  response: AgentResponse;
+};
+
 export default class ConsultOrchestrator {
   private agents: Agent[];
   private maxRounds: number;
@@ -124,10 +129,11 @@ export default class ConsultOrchestrator {
     this.stateMachine.transition(ConsultState.Independent);
     if (this.verbose) console.log(`\n--- Round 1: Independent Analysis ---\n`);
     
-    const round1Artifacts = await this.executeRound1Independent(question, context);
+    const round1Results = await this.executeRound1Independent(question, context);
     
     // Track failed agents
-    const successfulArtifacts = (round1Artifacts.filter(a => !!a) as IndependentArtifact[]);
+    const successfulArtifacts = (round1Results.map(result => result.artifact).filter(a => !!a) as IndependentArtifact[]);
+    const agentResponses = round1Results.map(result => result.response);
     if (successfulArtifacts.length === 0) {
       this.stateMachine.transition(ConsultState.Aborted, 'All agents failed in Round 1');
       throw new Error('All agents failed. Unable to provide consultation.');
@@ -155,6 +161,12 @@ export default class ConsultOrchestrator {
 
     const durationMs = Date.now() - startTime;
     
+    const consensusText = synthesisArtifact
+      ? synthesisArtifact.consensusPoints
+          .map(point => `${point.point} (${Math.round(point.confidence * 100)}%)`)
+          .join('\n')
+      : 'Pending Round 2 implementation';
+
     const result: ConsultationResult = {
       consultationId: this.consultationId,
       timestamp: new Date().toISOString(),
@@ -162,6 +174,7 @@ export default class ConsultOrchestrator {
       context,
       mode: 'converge',
       agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+      agentResponses,
       state: ConsultState.Complete,
       rounds: this.maxRounds,
       completedRounds: 2,
@@ -169,7 +182,7 @@ export default class ConsultOrchestrator {
         round1: successfulArtifacts,
         round2: synthesisArtifact || undefined
       },
-      consensus: 'Pending Round 2 implementation',
+      consensus: consensusText,
       confidence: 0,
       recommendation: 'Pending Round 4 implementation',
       reasoning: {},
@@ -203,7 +216,7 @@ export default class ConsultOrchestrator {
   private async executeRound1Independent(
     question: string,
     context: string
-  ): Promise<(IndependentArtifact | null)[]> {
+  ): Promise<Round1ExecutionResult[]> {
     const promises = this.agents.map(agent =>
       this.executeAgentIndependent(agent, question, context)
     );
@@ -280,7 +293,7 @@ export default class ConsultOrchestrator {
     agent: Agent,
     question: string,
     context: string
-  ): Promise<IndependentArtifact | null> {
+  ): Promise<Round1ExecutionResult> {
     const startTime = Date.now();
 
     try {
@@ -307,6 +320,10 @@ export default class ConsultOrchestrator {
       const duration = Date.now() - startTime;
       if (this.verbose) console.log(`✓ ${agent.name} responded in ${(duration / 1000).toFixed(1)}s`);
 
+      const usage = response.usage || {};
+      const inputTokens = usage.input_tokens || 0;
+      const outputTokens = usage.output_tokens || 0;
+
       // Extract Artifact
       const artifact = ArtifactExtractor.extractIndependentArtifact(
         response.text || '',
@@ -320,15 +337,46 @@ export default class ConsultOrchestrator {
         tokens: response.usage
       });
 
-      return artifact;
+      const agentResponse: AgentResponse = {
+        agentId: agent.name,
+        agentName: agent.name,
+        model: agent.model,
+        provider: 'unknown',
+        content: response.text || '',
+        tokens: {
+          input: inputTokens,
+          output: outputTokens,
+          total: inputTokens + outputTokens
+        },
+        durationMs: duration,
+        timestamp: new Date().toISOString()
+      };
+
+      return { artifact, response: agentResponse };
 
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      if (this.verbose) console.warn(`⚠️  Agent ${agent.name} failed: ${error.message}`);
+      console.warn(`⚠️  Agent ${agent.name} failed: ${error.message}`);
       
       // Story: Failed agent response includes error field (handled in logging/warning)
       // We return null here and filter later, but ideally we should preserve the error state in the result
-      return null;
+      const agentResponse: AgentResponse = {
+        agentId: agent.name,
+        agentName: agent.name,
+        model: agent.model,
+        provider: 'unknown',
+        content: '',
+        tokens: {
+          input: 0,
+          output: 0,
+          total: 0
+        },
+        durationMs: duration,
+        timestamp: new Date().toISOString(),
+        error: error.message
+      };
+
+      return { artifact: null, response: agentResponse };
     }
   }
 

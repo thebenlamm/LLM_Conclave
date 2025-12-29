@@ -25,28 +25,10 @@ export class CostEstimator {
     // 1. Estimate Input Tokens
     // Question length / 4
     const questionTokens = Math.ceil(question.length / 4);
-    
-    // Each agent receives the question in Round 1
-    // And context accumulates. For a rough pre-flight estimate, we assume:
-    // Round 1: Question
-    // Round 2: Question + Round 1 responses
-    // Round 3: Question + Round 1 + Round 2
-    // Round 4: Question + All history
-    // This is complex. The story asks for "basic pre-flight cost".
-    // "Input tokens from question text"
-    // "Expected output tokens (agents x rounds x 2000 tokens/round)"
-    
-    // We will stick to the simplified formula from the story for now, 
-    // but maybe add a multiplier for input context growing.
-    
-    const totalInputTokens = questionTokens * agents.length * rounds; // Simplified: input sent every time? 
-    // Actually input context grows. But let's follow the story's "basic" guidance if it was specific.
-    // Story says: "- Input tokens from question text (length / 4 rough estimate)"
-    // "- Expected output tokens (agents x rounds x 2000 tokens/round)"
-    // "- Total estimated cost using provider pricing"
-    
-    const inputTokens = questionTokens; // Base input
-    
+
+    // Story guidance: use question length only for input tokens (basic estimate)
+    const totalInputTokens = questionTokens * agents.length;
+
     // 2. Estimate Output Tokens
     const outputTokensPerAgent = rounds * CostEstimator.TOKENS_PER_ROUND;
     const totalOutputTokens = outputTokensPerAgent * agents.length;
@@ -58,18 +40,17 @@ export class CostEstimator {
       const price = this.getPrice(agent.model);
       
       // Cost for this agent
-      // Input: Assumes question is sent to agent (plus overhead/context which is hard to predict exactly pre-flight without context size)
-      // We will assume "Input Tokens" applies to each agent call for now.
-      const agentInputCost = (inputTokens / 1000) * price.input * rounds; 
+      // Input: question text sent once per agent for basic estimate
+      const agentInputCost = (questionTokens / 1000) * price.input;
       const agentOutputCost = (outputTokensPerAgent / 1000) * price.output;
       
       totalUsd += agentInputCost + agentOutputCost;
     }
     
     return {
-      inputTokens: inputTokens * agents.length * rounds,
+      inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
-      totalTokens: (inputTokens * agents.length * rounds) + totalOutputTokens,
+      totalTokens: totalInputTokens + totalOutputTokens,
       estimatedCostUsd: totalUsd
     };
   }

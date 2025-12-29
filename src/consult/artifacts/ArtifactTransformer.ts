@@ -288,6 +288,23 @@ export class ArtifactTransformer {
       context: result.context,
       mode: result.mode,
       agents: result.agents,
+      agent_responses: result.agentResponses
+        ? result.agentResponses.map(response => ({
+            agent_id: response.agentId,
+            agent_name: response.agentName,
+            model: response.model,
+            provider: response.provider,
+            content: response.content,
+            tokens: {
+              input: response.tokens.input,
+              output: response.tokens.output,
+              total: response.tokens.total
+            },
+            duration_ms: response.durationMs,
+            timestamp: response.timestamp,
+            error: response.error
+          }))
+        : undefined,
       state: result.state,
       rounds: result.rounds,
       completed_rounds: result.completedRounds,

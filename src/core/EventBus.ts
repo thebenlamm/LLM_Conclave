@@ -8,6 +8,7 @@ export type EventType =
   | 'agent:response'
   | 'round:start'
   | 'round:complete'
+  | 'round:completed'
   | 'status'
   | 'error'
   | 'cost:update'

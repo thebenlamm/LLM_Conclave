@@ -1,6 +1,6 @@
 # Story 1.4: Round 2 - Synthesis with Consensus Building
 
-**Status:** review
+**Status:** in-progress
 **Story Type:** Feature
 **Epic:** Epic 1: 4-Round Multi-Model Consultation Engine
 **Sprint:** 1
@@ -81,6 +81,8 @@ So that the debate builds structured understanding before cross-examination.
 - Added `getSynthesisPrompt` with specific JSON schema instructions for the Judge.
 - Verified with new test suite `src/orchestration/__tests__/ConsultOrchestratorRound2.test.ts` and existing tests.
 - Note: Transition logic temporarily goes Synthesis -> Complete to allow testing of this story in isolation without implementing Round 3 yet.
+- Tightened `SynthesisSchema` validation to enforce consensus confidence bounds and multi-viewpoint tensions.
+- Derived consultation consensus text from synthesis output for partial implementation.
 
 ## File List
 - src/consult/artifacts/schemas/SynthesisSchema.ts
@@ -92,3 +94,4 @@ So that the debate builds structured understanding before cross-examination.
 ## Change Log
 - [2025-12-29] Story created.
 - [2025-12-29] Implemented Round 2 Synthesis logic and tests.
+- [2025-12-29] Tightened schema validation and surfaced synthesis consensus in result output.

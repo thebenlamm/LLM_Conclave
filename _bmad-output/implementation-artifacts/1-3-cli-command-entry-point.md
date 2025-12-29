@@ -2,7 +2,7 @@
 
 **Story Key:** 1-3-cli-command-entry-point
 **Epic:** Epic 1: 4-Round Multi-Model Consultation Engine
-**Status:** ready-for-dev
+**Status:** in-progress
 
 ## Story
 
@@ -70,6 +70,10 @@ So that consultations work end-to-end following the validated architecture and s
 - Implemented `CostEstimator` with hardcoded pricing for Claude, GPT-4o, and Gemini.
 - Added `ArtifactTransformer.consultationResultToJSON` to bridge the gap between `consult.ts` camelCase types and `index.ts` snake_case types required by logging.
 - Added unit tests for `consult` command verification.
+- Fixed EventBus payload handling in console logger and added `round:completed` event type support.
+- Aligned cost estimation input token math with story guidance.
+- Enforced non-empty question and restored default 4-round max.
+- Captured failed agent responses with error metadata for auditability.
 
 ## File List
 - src/commands/consult.ts
@@ -78,11 +82,14 @@ So that consultations work end-to-end following the validated architecture and s
 - src/orchestration/ConsultOrchestrator.ts
 - src/consult/artifacts/ArtifactTransformer.ts
 - src/commands/__tests__/consult.test.ts
+- src/core/EventBus.ts
+- src/types/consult.ts
 
 ## Change Log
 - Refactored ConsultOrchestrator for event-driven output
 - Added CostEstimator logic
 - Added ConsultConsoleLogger
+- [2025-12-29] Fixed cost estimation math, console event payload handling, and question validation.
 
 ## Status
-review
+in-progress

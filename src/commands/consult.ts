@@ -26,6 +26,9 @@ export function createConsultCommand(): Command {
     .option('-v, --verbose', 'Show full agent conversation', false)
     .action(async (questionArgs: string[], options: any) => {
       const question = questionArgs.join(' ');
+      if (!question.trim()) {
+        throw new Error('Question is required. Usage: llm-conclave consult "your question"');
+      }
 
       // Initialize real-time console logger
       const consoleLogger = new ConsultConsoleLogger();
@@ -37,7 +40,7 @@ export function createConsultCommand(): Command {
 
         // Initialize orchestrator
         const orchestrator = new ConsultOrchestrator({
-          maxRounds: options.quick ? 1 : 2,
+          maxRounds: options.quick ? 1 : 4,
           verbose: options.verbose
         });
 
@@ -54,7 +57,7 @@ export function createConsultCommand(): Command {
         console.log(chalk.gray(`Logs saved to ${logPaths.jsonPath}`));
 
         // Format and display output
-        displayOutput(jsonResult, options.format);
+        displayOutput(result, jsonResult, options.format);
 
       } catch (error: any) {
         console.error(chalk.red(`\n❌ Consultation failed: ${error.message}\n`));
@@ -107,10 +110,10 @@ async function loadContext(options: any): Promise<string> {
 /**
  * Display output in requested format
  */
-function displayOutput(result: ConsultationResult, format: string): void {
+function displayOutput(result: ConsultationResult, jsonResult: any, format: string): void {
   if (format === 'json' || format === 'both') {
     console.log('\n' + chalk.bold('JSON Output:') + '\n');
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(jsonResult, null, 2));
   }
 
   if (format === 'markdown' || format === 'both') {
