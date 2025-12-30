@@ -4,6 +4,7 @@ import * as path from 'path';
 import { ConsultationResult } from '../types/consult';
 import { ArtifactTransformer } from '../consult/artifacts/ArtifactTransformer';
 import { MarkdownFormatter } from '../consult/formatting/MarkdownFormatter';
+import { AnalyticsIndexer } from '../consult/analytics/AnalyticsIndexer';
 
 interface ConsultationIndexEntry {
   id: string;
@@ -26,9 +27,11 @@ interface ConsultationIndex {
  */
 export default class ConsultLogger {
   private logDir: string;
+  private indexer: AnalyticsIndexer;
 
   constructor() {
     this.logDir = path.join(os.homedir(), '.llm-conclave', 'consult-logs');
+    this.indexer = new AnalyticsIndexer();
   }
 
   /**
@@ -52,6 +55,9 @@ export default class ConsultLogger {
     await fs.promises.writeFile(markdownPath, formatter.format(result), 'utf-8');
 
     const indexPath = await this.updateMonthlyIndex(result);
+
+    // Index for SQLite analytics (Write-Through Pattern from Epic 3, Story 3.1)
+    this.indexer.indexConsultation(result);
 
     return { jsonPath, markdownPath, indexPath };
   }

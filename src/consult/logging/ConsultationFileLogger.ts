@@ -4,13 +4,16 @@ import * as os from 'os';
 import { ConsultationResult } from '../../types/consult';
 import { ArtifactTransformer } from '../artifacts/ArtifactTransformer';
 import { MarkdownFormatter } from '../formatting/MarkdownFormatter';
+import { AnalyticsIndexer } from '../analytics/AnalyticsIndexer';
 
 export class ConsultationFileLogger {
   private readonly logDir: string;
+  private readonly indexer: AnalyticsIndexer;
 
-  constructor(logDir?: string) {
+  constructor(logDir?: string, dbPath?: string) {
     // Default log directory: ~/.llm-conclave/consult-logs/
     this.logDir = logDir || path.join(os.homedir(), '.llm-conclave', 'consult-logs');
+    this.indexer = new AnalyticsIndexer(dbPath);
   }
 
   /**
@@ -26,6 +29,9 @@ export class ConsultationFileLogger {
 
       // Write Markdown log
       await this.writeMarkdownLog(result);
+
+      // Index for analytics (Write-Through Pattern from Epic 3, Story 3.1)
+      this.indexer.indexConsultation(result);
     } catch (error: any) {
       // Logging failures should NOT block consultation completion
       console.error(`Failed to write consultation log: ${error.message}`);
