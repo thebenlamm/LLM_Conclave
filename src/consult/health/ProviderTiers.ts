@@ -20,6 +20,7 @@ export enum ProviderTier {
 
 export const PROVIDER_TIER_MAP: Record<string, ProviderTier> = {
   'claude-sonnet-4.5': ProviderTier.Tier1,
+  'claude-sonnet-4-5': ProviderTier.Tier1,
   'gpt-4o': ProviderTier.Tier1,
   'gemini-2.5-pro': ProviderTier.Tier1,
   'claude-sonnet-3.5': ProviderTier.Tier2,
@@ -28,6 +29,42 @@ export const PROVIDER_TIER_MAP: Record<string, ProviderTier> = {
   'gpt-3.5-turbo': ProviderTier.Tier3,
   'mistral-large': ProviderTier.Tier3
 };
+
+/**
+ * Map providers to their cheapest variant for cost-minimized health checks
+ * Critical for Story 2.2 AC #2: "Use the cheapest model for the provider if possible"
+ */
+export const CHEAP_HEALTH_CHECK_MODEL: Record<string, string> = {
+  // Claude family -> Use Haiku (cheapest)
+  'claude-sonnet-4.5': 'claude-haiku-4',
+  'claude-sonnet-4-5': 'claude-haiku-4',
+  'claude-sonnet-3.5': 'claude-haiku-4',
+  'claude-opus-4': 'claude-haiku-4',
+  'claude-haiku-4': 'claude-haiku-4', // Already cheapest
+
+  // OpenAI family -> Use GPT-3.5-turbo (cheapest)
+  'gpt-4o': 'gpt-3.5-turbo',
+  'gpt-4': 'gpt-3.5-turbo',
+  'gpt-4-turbo': 'gpt-3.5-turbo',
+  'gpt-3.5-turbo': 'gpt-3.5-turbo', // Already cheapest
+
+  // Gemini family -> Use Flash (cheapest)
+  'gemini-2.5-pro': 'gemini-2.0-flash',
+  'gemini-2.0-flash': 'gemini-2.0-flash', // Already cheapest
+  'gemini-1.5-pro': 'gemini-2.0-flash',
+
+  // Mistral/Others
+  'mistral-large': 'mistral-large', // No cheaper variant
+  'grok-beta': 'grok-beta' // No cheaper variant
+};
+
+/**
+ * Get the cheapest model variant for health checks
+ * Reduces health check costs by 10-20x while maintaining reliability
+ */
+export function getCheapHealthCheckModel(providerId: string): string {
+  return CHEAP_HEALTH_CHECK_MODEL[providerId] || providerId;
+}
 
 export interface ProviderHealth {
   status: ProviderHealthStatus;

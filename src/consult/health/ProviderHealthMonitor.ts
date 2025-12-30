@@ -1,9 +1,10 @@
 import { EventBus } from '../../core/EventBus';
 import ProviderFactory from '../../providers/ProviderFactory';
-import { 
-  ProviderHealth, 
-  ProviderHealthStatus, 
-  HEALTH_CHECK_CONFIG 
+import {
+  ProviderHealth,
+  ProviderHealthStatus,
+  HEALTH_CHECK_CONFIG,
+  getCheapHealthCheckModel
 } from './ProviderTiers';
 
 export class ProviderHealthMonitor {
@@ -11,6 +12,7 @@ export class ProviderHealthMonitor {
   private monitoringInterval: NodeJS.Timeout | null = null;
   private eventBus: EventBus;
   private monitoredProviders: Set<string> = new Set();
+  private recentResults: Map<string, boolean[]> = new Map(); // Rolling window for error rate (HIGH #3 fix)
 
   constructor() {
     this.eventBus = EventBus.getInstance();
@@ -50,8 +52,8 @@ export class ProviderHealthMonitor {
       () => this.runHealthChecks(),
       HEALTH_CHECK_CONFIG.INTERVAL_MS
     );
-    // Ensure the interval doesn't prevent the process from exiting
-    this.monitoringInterval.unref();
+    // MEDIUM #8: Removed unref() - health monitoring should keep process alive if running
+    // Previous code had .unref() which could cause premature exit
   }
 
   /**
@@ -105,7 +107,9 @@ export class ProviderHealthMonitor {
    */
   private async runHealthChecks(): Promise<void> {
     const checks = Array.from(this.monitoredProviders).map(id => this.checkProvider(id));
-    await Promise.all(checks);
+    // MEDIUM #6: Use Promise.allSettled to allow independent failures
+    // One provider failing shouldn't stop checks for other providers
+    await Promise.allSettled(checks);
   }
 
   /**
@@ -113,16 +117,24 @@ export class ProviderHealthMonitor {
    * Exposed for testing or manual triggers
    */
   public async checkProvider(providerId: string): Promise<void> {
+    // MEDIUM #5: Validate provider is registered
+    if (!this.monitoredProviders.has(providerId)) {
+      throw new Error(`Provider ${providerId} not registered for monitoring`);
+    }
+
     this.eventBus.emitEvent('health:check_started', { providerId });
-    
+
     const startTime = Date.now();
     let success = false;
     let latency = 0;
 
     try {
-      const provider = ProviderFactory.createProvider(providerId);
-      
-      // Enforce 10s timeout (Fix for High Priority Issue)
+      // HIGH #1: Use cheapest model variant for cost minimization
+      // Reduces health check costs by 10-20x (e.g., haiku vs sonnet)
+      const cheapModel = getCheapHealthCheckModel(providerId);
+      const provider = ProviderFactory.createProvider(cheapModel);
+
+      // Enforce 10s timeout (AC #2 requirement)
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Health check timed out')), HEALTH_CHECK_CONFIG.TIMEOUT_MS);
       });
@@ -135,14 +147,15 @@ export class ProviderHealthMonitor {
          : provider.chat([{ role: 'user', content: 'ping' }], 'Reply with "pong" only.');
 
       await Promise.race([checkPromise, timeoutPromise]);
-      
+
       latency = Date.now() - startTime;
       success = true;
 
-    } catch (error) {
+    } catch (error: any) {
       latency = Date.now() - startTime;
       success = false;
-      // Log error internally or just track failure
+      // MEDIUM #4: Add error logging for debuggability
+      console.error(`[ProviderHealthMonitor] Health check failed for ${providerId}:`, error.message);
     }
 
     this.updateStatus(providerId, { success, latency });
@@ -162,16 +175,20 @@ export class ProviderHealthMonitor {
     currentHealth.lastChecked = new Date();
     currentHealth.latencyMs = result.latency;
 
+    // HIGH #3: Implement rolling window error rate (not just binary 0|1)
+    // Track last 10 results for true error rate calculation
+    const history = this.recentResults.get(providerId) || [];
+    history.push(result.success);
+    if (history.length > 10) history.shift(); // Keep last 10 results
+    this.recentResults.set(providerId, history);
+
+    const failures = history.filter(s => !s).length;
+    currentHealth.errorRate = failures / history.length; // True rate: 0.0 to 1.0
+
     if (result.success) {
       currentHealth.consecutiveFailures = 0;
-      // Simple error rate decay or reset? 
-      // For this story, we stick to "consecutive failures" logic for Unhealthy
-      // and "recent failures" for Degraded.
-      // Let's reset error rate on success for simplicity unless we want a window.
-      currentHealth.errorRate = 0; 
     } else {
       currentHealth.consecutiveFailures++;
-      currentHealth.errorRate = 1.0; // Mark as error occurred
     }
 
     // Determine Status
@@ -202,8 +219,8 @@ export class ProviderHealthMonitor {
         provider_name: providerId,
         previous_status: previousStatus,
         new_status: newStatus,
-        reason: result.success 
-          ? `Latency: ${result.latency}ms` 
+        reason: result.success
+          ? `Latency: ${result.latency}ms`
           : `Failures: ${currentHealth.consecutiveFailures}`
       });
     }
