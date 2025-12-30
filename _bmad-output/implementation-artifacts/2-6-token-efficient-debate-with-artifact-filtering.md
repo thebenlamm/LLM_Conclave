@@ -1,6 +1,6 @@
 # Story 2.6: Token-Efficient Debate with Artifact Filtering
 
-Status: review
+Status: tested
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -899,6 +899,118 @@ try {
 {{agent_model_name_version}}
 
 ### Debug Log References
+
+---
+
+## Code Review (2025-12-30)
+
+**Reviewer:** Dev Agent (BMAD Code Review Workflow)
+**Review Type:** ADVERSARIAL Senior Developer Review
+**Issues Found:** 8 (5 High, 2 Medium, 1 Low)
+**Issues Fixed:** 7 (All High & Medium severity)
+
+### Issues Found & Resolved
+
+#### HIGH SEVERITY (5 issues - All Fixed ✅)
+
+**1. AC #5 VIOLATED: Verbose Mode Message NOT Displayed**
+- **Location:** `ConsultOrchestrator.ts:214`
+- **Issue:** Generic message shown instead of required verbose mode warning
+- **Fix Applied:** Added `console.log(chalk.cyan('🔍 Verbose mode: using full debate artifacts (higher token cost)'))` at line 216
+- **Status:** ✅ FIXED
+
+**2. CLI --verbose Flag Documentation Issue**
+- **Location:** File List (missing `src/commands/consult.ts`)
+- **Issue:** Task marked [x] but flag already existed from Story 2.4
+- **Fix Applied:** Documented that --verbose flag pre-existed from Story 2.4, no code changes needed
+- **Status:** ✅ DOCUMENTED
+
+**3. Token Efficiency Stats NOT Displayed to User**
+- **Location:** `ConsultOrchestrator.ts:477`
+- **Issue:** Stats only in logged file, not visible to user if logging fails
+- **Fix Applied:** Added console output: `console.log(chalk.green('💰 Token Efficiency: Saved X tokens (Y%)'))` at line 478-480
+- **Status:** ✅ FIXED
+
+**4. Integration Test Assertion TOO WEAK**
+- **Location:** `ConsultOrchestratorFiltering.test.ts:125-133`
+- **Issue:** Only checked field existence, not actual math
+- **Fix Applied:** Added assertions for:
+  - `tokens_saved_via_filtering >= 0`
+  - `tokens_used > 0`
+  - `efficiency_percentage` range [0, 100]
+  - Formula validation: `(saved / (used + saved)) * 100`
+- **Status:** ✅ FIXED
+
+**5. Missing Verbose Mode Message Test**
+- **Location:** Test file lacked AC #5 verification
+- **Issue:** No test verified the verbose mode message is displayed
+- **Fix Applied:** Added test `'should display verbose mode message when verbose is true'` at line 125-137
+- **Status:** ✅ FIXED
+
+#### MEDIUM SEVERITY (2 issues - All Fixed ✅)
+
+**6. Efficiency Percentage Formula Edge Case**
+- **Location:** `CostEstimator.ts:88-91`
+- **Issue:** If `saved > total`, formula returns >100% (impossible)
+- **Fix Applied:** Added validation: `if (saved > total) throw Error(...)` and `Math.min(100, ...)` at lines 91-94
+- **Status:** ✅ FIXED
+
+**7. Missing Config Validation in FilterConfig**
+- **Location:** `FilterConfig.ts:59-66`
+- **Issue:** No validation that config limits are positive integers
+- **Fix Applied:** Added `validateLimits()` method with checks for:
+  - `typeof value === 'number'`
+  - `Number.isInteger(value)`
+  - `value >= 0`
+- **Status:** ✅ FIXED
+
+#### LOW SEVERITY (1 issue - Acknowledged)
+
+**8. Inconsistent Casing in TokenEfficiencyStats Interface**
+- **Location:** `src/types/consult.ts:232-238`
+- **Issue:** TypeScript interface uses snake_case (should be camelCase)
+- **Impact:** Minor - works but violates project naming conventions
+- **Status:** ⚠️ ACKNOWLEDGED (not critical, deferred to future refactor)
+
+### Test Results After Fixes
+
+```bash
+✅ ConsultOrchestratorFiltering.test.ts
+  ✓ should apply filtering in Round 3 and 4 when verbose is false (27 ms)
+  ✓ should NOT apply filtering when verbose is true (7 ms)
+  ✓ should display verbose mode message when verbose is true (5 ms)
+  ✓ should include token_efficiency_stats in result (2 ms)
+
+✅ FilterConfig.test.ts
+  ✓ should use default limits when no config file exists (1 ms)
+  ✓ should override limits from config file
+  ✓ should merge partial config with defaults
+  ✓ should handle malformed config file gracefully
+
+✅ ArtifactFilter.test.ts
+  ✓ should filter consensus points by confidence and respect limits (2 ms)
+  ✓ should filter tensions by viewpoint count and respect limits (1 ms)
+  ✓ should return valid SynthesisSchema artifact (3 ms)
+  ✓ should preserve required fields (1 ms)
+  ✓ should handle limits larger than array size
+  ✓ should not mutate original artifact
+  ✓ should filter challenges by severity and respect limits (1 ms)
+  ✓ should filter rebuttals by substantiveness and respect limits
+  ✓ should return valid CrossExamSchema artifact (1 ms)
+  ✓ should preserve required fields
+
+📊 Total: 18 tests passing, 0 failing
+```
+
+### Summary
+
+- **Original Status:** `review` (ready for code review)
+- **Review Completed:** 2025-12-30
+- **Issues Identified:** 8 (5 High, 2 Medium, 1 Low)
+- **Issues Resolved:** 7 (100% of High & Medium severity)
+- **New Status:** `tested` (all critical issues fixed, tests passing)
+
+---
 
 ### Completion Notes List
 

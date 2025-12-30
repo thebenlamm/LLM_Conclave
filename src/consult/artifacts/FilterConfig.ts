@@ -56,15 +56,19 @@ export class FilterConfig {
         const configFile = JSON.parse(fileContent);
 
         if (configFile.filtering) {
-          const round3 = { 
-            ...FilterConfig.DEFAULT_CONFIG.round3, 
-            ...(configFile.filtering.round3 || {}) 
+          const round3 = {
+            ...FilterConfig.DEFAULT_CONFIG.round3,
+            ...(configFile.filtering.round3 || {})
           };
-          const round4 = { 
-            ...FilterConfig.DEFAULT_CONFIG.round4, 
-            ...(configFile.filtering.round4 || {}) 
+          const round4 = {
+            ...FilterConfig.DEFAULT_CONFIG.round4,
+            ...(configFile.filtering.round4 || {})
           };
-          
+
+          // Validate limits (Story 2.6, Fix #7)
+          this.validateLimits(round3);
+          this.validateLimits(round4);
+
           return {
             round3,
             round4
@@ -76,5 +80,16 @@ export class FilterConfig {
     }
 
     return FilterConfig.DEFAULT_CONFIG;
+  }
+
+  /**
+   * Validate that filter limits are positive integers
+   */
+  private validateLimits(limits: any): void {
+    for (const [key, value] of Object.entries(limits)) {
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+        throw new Error(`Invalid filter limit: ${key} must be a positive integer, got ${value}`);
+      }
+    }
   }
 }

@@ -115,20 +115,45 @@ describe('ConsultOrchestrator Filtering Integration', () => {
     const filterCrossExamSpy = jest.spyOn(ArtifactFilter.prototype, 'filterCrossExamArtifact');
 
     orchestrator = new ConsultOrchestrator({ verbose: true, maxRounds: 4 });
-    
+
     await orchestrator.consult('test question');
 
     expect(filterSynthesisSpy).not.toHaveBeenCalled();
     expect(filterCrossExamSpy).not.toHaveBeenCalled();
   });
 
+  it('should display verbose mode message when verbose is true', async () => {
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    orchestrator = new ConsultOrchestrator({ verbose: true, maxRounds: 4 });
+    await orchestrator.consult('test question');
+
+    // Story 2.6, Fix #5: Verify AC #5 message is displayed
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('🔍 Verbose mode: using full debate artifacts (higher token cost)')
+    );
+
+    consoleLogSpy.mockRestore();
+  });
+
   it('should include token_efficiency_stats in result', async () => {
     orchestrator = new ConsultOrchestrator({ verbose: false, maxRounds: 4 });
     const result = await orchestrator.consult('test question');
-    
+
     expect(result.token_efficiency_stats).toBeDefined();
     expect(result.token_efficiency_stats?.filtering_method).toBe('structured_artifact_array_truncation');
     expect(result.token_efficiency_stats?.filtered_rounds).toContain(3);
     expect(result.token_efficiency_stats?.filtered_rounds).toContain(4);
+
+    // Story 2.6, Fix #4: Verify actual savings math
+    const stats = result.token_efficiency_stats!;
+    expect(stats.tokens_saved_via_filtering).toBeGreaterThanOrEqual(0);
+    expect(stats.tokens_used).toBeGreaterThan(0);
+    expect(stats.efficiency_percentage).toBeGreaterThanOrEqual(0);
+    expect(stats.efficiency_percentage).toBeLessThanOrEqual(100);
+
+    // Efficiency formula validation: (saved / (used + saved)) * 100
+    const expectedEfficiency = (stats.tokens_saved_via_filtering / (stats.tokens_used + stats.tokens_saved_via_filtering)) * 100;
+    expect(stats.efficiency_percentage).toBeCloseTo(expectedEfficiency, 1);
   });
 });

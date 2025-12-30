@@ -211,7 +211,9 @@ export default class ConsultOrchestrator {
         mode: 'converge' // Default for now
       });
 
+      // Display verbose mode message (AC #5)
       if (this.verbose) {
+        console.log(chalk.cyan('🔍 Verbose mode: using full debate artifacts (higher token cost)'));
         console.log(`\n${'='.repeat(80)}`);
         console.log(`CONSULTATION: ${question}`);
         console.log(`${'='.repeat(80)}\n`);
@@ -471,6 +473,11 @@ export default class ConsultOrchestrator {
       consultation_id: this.consultationId,
       result
     });
+
+    // Display token efficiency stats to user (Story 2.6, Fix #3)
+    if (!this.verbose && efficiencyStats.tokens_saved_via_filtering > 0) {
+      console.log(chalk.green(`\n💰 Token Efficiency: Saved ${efficiencyStats.tokens_saved_via_filtering} tokens (${efficiencyStats.efficiency_percentage.toFixed(1)}%) via artifact filtering`));
+    }
 
     // Log consultation to files (Story 1.8)
     // This is async but we don't await to avoid blocking result delivery
