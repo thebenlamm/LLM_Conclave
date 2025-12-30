@@ -14,7 +14,7 @@ export function createConsultStatsCommand(): Command {
   cmd
     .description('Display consultation usage, performance, and cost analytics')
     .option('--week', 'Show stats for the last 7 days')
-    .option('--month', 'Show stats for the last 30 days')
+    .option('--month [YYYY-MM]', 'Show stats for specific month (e.g., 2025-12) or last 30 days if no value')
     .option('--all-time', 'Show all-time stats (default)')
     .option('--json', 'Output raw JSON metrics')
     .option('--rebuild-index', 'Rebuild the analytics index from JSONL logs')
@@ -30,9 +30,18 @@ export function createConsultStatsCommand(): Command {
         return;
       }
 
-      let timeRange: 'week' | 'month' | 'all-time' = 'all-time';
-      if (options.week) timeRange = 'week';
-      else if (options.month) timeRange = 'month';
+      // Fix Issue #10: Support --month YYYY-MM for specific month filtering
+      let timeRange: 'week' | 'month' | 'all-time' | string = 'all-time';
+      if (options.week) {
+        timeRange = 'week';
+      } else if (options.month !== undefined) {
+        // If --month has a value and matches YYYY-MM format, use it
+        if (typeof options.month === 'string' && /^\d{4}-\d{2}$/.test(options.month)) {
+          timeRange = options.month; // Specific month like "2025-12"
+        } else {
+          timeRange = 'month'; // Rolling 30 days (backward compatible)
+        }
+      }
 
       const query = new StatsQuery(dbPath);
       const metrics = query.computeMetrics(timeRange);
@@ -58,7 +67,8 @@ function displayDashboard(metrics: any, timeRange: string): void {
   }
 
   const title = `LLM Conclave Consult Stats (${timeRange})`;
-  const width = 50;
+  // Fix Issue #13: Dynamic dashboard width based on terminal size
+  const width = Math.max(60, Math.min(process.stdout.columns || 80, 80));
   
   console.log(chalk.cyan('┌' + '─'.repeat(width - 2) + '┐'));
   console.log(chalk.cyan('│  ') + chalk.bold(title.padEnd(width - 6)) + chalk.cyan('  │'));
@@ -90,12 +100,27 @@ function displayDashboard(metrics: any, timeRange: string): void {
   console.log(chalk.cyan('│  ') + `• Avg per Consultation: $${metrics.cost.avgPerConsultation.toFixed(3)}`.padEnd(width - 6) + chalk.cyan('  │'));
   console.log(chalk.cyan('│  ') + `• Total Tokens: ${metrics.cost.totalTokens.toLocaleString()}`.padEnd(width - 6) + chalk.cyan('  │'));
   console.log(chalk.cyan('│  ') + '• By Provider:'.padEnd(width - 6) + chalk.cyan('  │'));
-  
-  for (const [provider, data] of Object.entries(metrics.cost.byProvider)) {
+
+  // Fix Issue #12: Calculate shares to sum to exactly 100%
+  const providerEntries = Object.entries(metrics.cost.byProvider);
+  const shares = providerEntries.map(([_, data]) => {
     const provData = data as any;
-    const share = Math.round((provData.cost / metrics.cost.total) * 100);
-    console.log(chalk.cyan('│  ') + `    - ${provider}: $${provData.cost.toFixed(2)} (${share}%)`.padEnd(width - 6) + chalk.cyan('  │'));
+    return (provData.cost / metrics.cost.total) * 100;
+  });
+
+  // Round shares and adjust largest to ensure sum = 100%
+  const roundedShares = shares.map(s => Math.round(s));
+  const diff = 100 - roundedShares.reduce((sum, s) => sum + s, 0);
+  if (diff !== 0) {
+    const maxIndex = shares.indexOf(Math.max(...shares));
+    roundedShares[maxIndex] += diff;
   }
+
+  providerEntries.forEach(([provider, data], index) => {
+    const provData = data as any;
+    const share = roundedShares[index];
+    console.log(chalk.cyan('│  ') + `    - ${provider}: $${provData.cost.toFixed(2)} (${share}%)`.padEnd(width - 6) + chalk.cyan('  │'));
+  });
   console.log(chalk.cyan('├' + '─'.repeat(width - 2) + '┤'));
 
   // Quality Metrics
@@ -107,7 +132,7 @@ function displayDashboard(metrics: any, timeRange: string): void {
 
   // Success Criteria Validation
   console.log('\n' + chalk.bold('📊 Progress toward Success Criteria:'));
-  
+
   if (metrics.totalConsultations >= 150) {
     console.log(chalk.green('• Usage: 150+ consultations ✅'));
   } else {
@@ -125,5 +150,16 @@ function displayDashboard(metrics: any, timeRange: string): void {
   } else {
     console.log(chalk.red(`• Cost: $${metrics.cost.total.toFixed(2)}/$20.00 budget`));
   }
+
+  // Fix Issue #11: Add dissent rate quality check
+  const dissentRate = metrics.totalConsultations > 0
+    ? (metrics.quality.withDissent / metrics.totalConsultations)
+    : 0;
+  if (dissentRate > 0.4) {
+    console.log(chalk.yellow(`⚠️ Quality: High dissent rate (${Math.round(dissentRate * 100)}%) - agents frequently disagree`));
+  } else if (dissentRate > 0) {
+    console.log(chalk.green(`• Quality: Healthy dissent rate (${Math.round(dissentRate * 100)}%) ✅`));
+  }
+
   console.log('');
 }

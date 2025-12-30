@@ -17,6 +17,14 @@ export class StatsQuery {
     try {
       this.db = new Database(this.dbPath, { readonly: true, fileMustExist: true });
     } catch (error: any) {
+      // Fix Issue #9: Cleanup database connection on init failure
+      if (this.db) {
+        try {
+          this.db.close();
+        } catch (closeError: any) {
+          // Ignore close errors during cleanup
+        }
+      }
       // If DB doesn't exist, we'll return empty metrics
       this.db = null;
     }
@@ -25,24 +33,24 @@ export class StatsQuery {
   /**
    * Compute all metrics
    */
-  public computeMetrics(timeRange: 'week' | 'month' | 'all-time' = 'all-time'): ConsultMetrics {
+  public computeMetrics(timeRange: 'week' | 'month' | 'all-time' | string = 'all-time'): ConsultMetrics {
     if (!this.db) {
       return this.getEmptyMetrics();
     }
 
-    const whereClause = this.getWhereClause(timeRange);
-    
+    const where = this.getWhereClause(timeRange);
+
     // 1. Usage Metrics
-    const usage = this.queryUsage(whereClause);
-    
+    const usage = this.queryUsage(where);
+
     // 2. Performance Metrics
-    const performance = this.queryPerformance(whereClause);
-    
+    const performance = this.queryPerformance(where);
+
     // 3. Cost Metrics
-    const cost = this.queryCost(whereClause);
-    
+    const cost = this.queryCost(where);
+
     // 4. Quality Metrics
-    const quality = this.queryQuality(whereClause);
+    const quality = this.queryQuality(where);
 
     return {
       totalConsultations: usage.total,
@@ -56,24 +64,37 @@ export class StatsQuery {
     };
   }
 
-  private getWhereClause(timeRange: 'week' | 'month' | 'all-time'): string {
-    if (timeRange === 'all-time') return '1=1';
-    
+  private getWhereClause(timeRange: 'week' | 'month' | 'all-time' | string): { clause: string; params: any[] } {
+    if (timeRange === 'all-time') return { clause: '1=1', params: [] };
+
+    // Fix Issue #10: Support specific month format YYYY-MM
+    if (typeof timeRange === 'string' && /^\d{4}-\d{2}$/.test(timeRange)) {
+      // Specific month: YYYY-MM format
+      const [year, month] = timeRange.split('-').map(Number);
+      const startDate = new Date(year, month - 1, 1); // First day of month
+      const endDate = new Date(year, month, 0, 23, 59, 59, 999); // Last day of month
+      return {
+        clause: 'created_at >= ? AND created_at <= ?',
+        params: [startDate.toISOString(), endDate.toISOString()]
+      };
+    }
+
     const date = new Date();
     if (timeRange === 'week') {
       date.setDate(date.getDate() - 7);
     } else if (timeRange === 'month') {
       date.setMonth(date.getMonth() - 1);
     }
-    
-    return `created_at >= '${date.toISOString()}'`;
+
+    // Fix Issue #7: Use parameterized queries instead of string interpolation
+    return { clause: 'created_at >= ?', params: [date.toISOString()] };
   }
 
-  private queryUsage(whereClause: string): any {
-    const total = this.db!.prepare(`SELECT count(*) as count FROM consultations WHERE ${whereClause}`).get() as any;
-    const dateRange = this.db!.prepare(`SELECT min(created_at) as start, max(created_at) as end FROM consultations WHERE ${whereClause}`).get() as any;
-    const activeDays = this.db!.prepare(`SELECT count(distinct date(created_at)) as count FROM consultations WHERE ${whereClause}`).get() as any;
-    const byState = this.db!.prepare(`SELECT state, count(*) as count FROM consultations WHERE ${whereClause} GROUP BY state`).all() as any[];
+  private queryUsage(where: { clause: string; params: any[] }): any {
+    const total = this.db!.prepare(`SELECT count(*) as count FROM consultations WHERE ${where.clause}`).get(...where.params) as any;
+    const dateRange = this.db!.prepare(`SELECT min(created_at) as start, max(created_at) as end FROM consultations WHERE ${where.clause}`).get(...where.params) as any;
+    const activeDays = this.db!.prepare(`SELECT count(distinct date(created_at)) as count FROM consultations WHERE ${where.clause}`).get(...where.params) as any;
+    const byState = this.db!.prepare(`SELECT state, count(*) as count FROM consultations WHERE ${where.clause} GROUP BY state`).all(...where.params) as any[];
 
     const start = dateRange.start || new Date().toISOString();
     const end = dateRange.end || new Date().toISOString();
@@ -98,18 +119,23 @@ export class StatsQuery {
     };
   }
 
-  private queryPerformance(whereClause: string): any {
-    const durations = this.db!.prepare(`SELECT duration_ms FROM consultations WHERE ${whereClause} AND state = 'complete' ORDER BY duration_ms`).all() as any[];
-    
+  private queryPerformance(where: { clause: string; params: any[] }): any {
+    const durations = this.db!.prepare(`SELECT duration_ms FROM consultations WHERE ${where.clause} AND state = 'complete' ORDER BY duration_ms`).all(...where.params) as any[];
+
     if (durations.length === 0) {
       return { p50: 0, p95: 0, p99: 0, avgDuration: 0, fastest: { id: '', durationMs: 0 }, slowest: { id: '', durationMs: 0 } };
     }
 
-    const getPercentile = (p: number) => durations[Math.floor(durations.length * p)].duration_ms;
+    // Fix Issue #6: Correct percentile calculation to avoid off-by-one errors
+    const getPercentile = (p: number) => {
+      const index = Math.ceil(durations.length * p) - 1;
+      const clampedIndex = Math.max(0, Math.min(index, durations.length - 1));
+      return durations[clampedIndex].duration_ms;
+    };
     const avg = durations.reduce((sum, d) => sum + d.duration_ms, 0) / durations.length;
-    
-    const fastest = this.db!.prepare(`SELECT id, duration_ms FROM consultations WHERE ${whereClause} AND state = 'complete' ORDER BY duration_ms ASC LIMIT 1`).get() as any;
-    const slowest = this.db!.prepare(`SELECT id, duration_ms FROM consultations WHERE ${whereClause} AND state = 'complete' ORDER BY duration_ms DESC LIMIT 1`).get() as any;
+
+    const fastest = this.db!.prepare(`SELECT id, duration_ms FROM consultations WHERE ${where.clause} AND state = 'complete' ORDER BY duration_ms ASC LIMIT 1`).get(...where.params) as any;
+    const slowest = this.db!.prepare(`SELECT id, duration_ms FROM consultations WHERE ${where.clause} AND state = 'complete' ORDER BY duration_ms DESC LIMIT 1`).get(...where.params) as any;
 
     return {
       p50: getPercentile(0.5),
@@ -121,25 +147,33 @@ export class StatsQuery {
     };
   }
 
-  private queryCost(whereClause: string): any {
-    const totals = this.db!.prepare(`SELECT sum(total_cost) as usd, sum(total_tokens) as tokens, count(*) as count FROM consultations WHERE ${whereClause}`).get() as any;
-    
+  private queryCost(where: { clause: string; params: any[] }): any {
+    const totals = this.db!.prepare(`SELECT sum(total_cost) as usd, sum(total_tokens) as tokens, count(*) as count FROM consultations WHERE ${where.clause}`).get(...where.params) as any;
+
+    // Fix Issue #5: Optimize O(n²) subquery with CTE for O(n) performance
     const byProviderRows = this.db!.prepare(`
-      SELECT ca.provider, sum(c.total_cost / (SELECT count(*) FROM consultation_agents WHERE consultation_id = c.id)) as cost, 
-             sum(c.total_tokens / (SELECT count(*) FROM consultation_agents WHERE consultation_id = c.id)) as tokens
+      WITH agent_counts AS (
+        SELECT consultation_id, count(*) as num_agents
+        FROM consultation_agents
+        GROUP BY consultation_id
+      )
+      SELECT ca.provider,
+             sum(c.total_cost / ac.num_agents) as cost,
+             sum(c.total_tokens / ac.num_agents) as tokens
       FROM consultations c
       JOIN consultation_agents ca ON c.id = ca.consultation_id
-      WHERE ${whereClause}
+      JOIN agent_counts ac ON c.id = ac.consultation_id
+      WHERE ${where.clause}
       GROUP BY ca.provider
-    `).all() as any[];
+    `).all(...where.params) as any[];
 
     const byProvider: any = {};
     byProviderRows.forEach(r => {
       byProvider[r.provider] = { cost: Number(r.cost.toFixed(4)), tokens: Math.round(r.tokens) };
     });
 
-    const mostExpensive = this.db!.prepare(`SELECT id, total_cost FROM consultations WHERE ${whereClause} ORDER BY total_cost DESC LIMIT 1`).get() as any;
-    const cheapest = this.db!.prepare(`SELECT id, total_cost FROM consultations WHERE ${whereClause} ORDER BY total_cost ASC LIMIT 1`).get() as any;
+    const mostExpensive = this.db!.prepare(`SELECT id, total_cost FROM consultations WHERE ${where.clause} ORDER BY total_cost DESC LIMIT 1`).get(...where.params) as any;
+    const cheapest = this.db!.prepare(`SELECT id, total_cost FROM consultations WHERE ${where.clause} ORDER BY total_cost ASC LIMIT 1`).get(...where.params) as any;
 
     return {
       total: Number((totals.usd || 0).toFixed(2)),
@@ -151,14 +185,14 @@ export class StatsQuery {
     };
   }
 
-  private queryQuality(whereClause: string): any {
+  private queryQuality(where: { clause: string; params: any[] }): any {
     const stats = this.db!.prepare(`
       SELECT avg(confidence) as avg_conf,
              count(CASE WHEN confidence >= 0.85 THEN 1 END) as high,
              count(CASE WHEN confidence < 0.70 THEN 1 END) as low,
              sum(has_dissent) as with_dissent
-      FROM consultations WHERE ${whereClause} AND state = 'complete'
-    `).get() as any;
+      FROM consultations WHERE ${where.clause} AND state = 'complete'
+    `).get(...where.params) as any;
 
     return {
       avgConfidence: Number(((stats.avg_conf || 0) * 100).toFixed(0)),

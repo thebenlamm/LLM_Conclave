@@ -29,10 +29,64 @@ export class AnalyticsIndexer {
       }
 
       this.db = new Database(this.dbPath);
+      this.runMigrations();
       this.createTables();
     } catch (error: any) {
       console.error(`Failed to initialize analytics database: ${error.message}`);
       this.db = null;
+    }
+  }
+
+  /**
+   * Run pending database migrations
+   */
+  private runMigrations(): void {
+    if (!this.db) return;
+
+    // Create schema_version table if it doesn't exist
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+    `);
+
+    // Get current schema version
+    const currentVersion = this.db.prepare('SELECT MAX(version) as version FROM schema_version').get() as any;
+    const version = currentVersion?.version || 0;
+
+    // Define migrations
+    // Fix Issue #2: Robust path resolution for both ts-node (dev) and compiled (prod)
+    // In development (ts-node): __dirname = /path/to/project/src/consult/analytics
+    // In production (compiled): __dirname = /path/to/project/dist/src/consult/analytics
+    const migrationsPath = __dirname.includes('/dist/')
+      ? path.join(__dirname, '../../../../src/consult/analytics/schemas/migrations') // Compiled: go back to root, then to src
+      : path.join(__dirname, 'schemas/migrations'); // ts-node: relative to current dir
+
+    const migrations = [
+      {
+        version: 1,
+        sql: fs.readFileSync(path.join(migrationsPath, '001_initial_schema.sql'), 'utf8')
+      }
+      // Future migrations go here:
+      // { version: 2, sql: fs.readFileSync(path.join(migrationsPath, '002_...')) }
+    ];
+
+    // Run pending migrations
+    for (const migration of migrations) {
+      if (migration.version > version) {
+        try {
+          this.db.exec(migration.sql);
+          this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
+            migration.version,
+            new Date().toISOString()
+          );
+          console.log(`✅ Applied migration ${migration.version}`);
+        } catch (error: any) {
+          console.error(`❌ Failed to apply migration ${migration.version}: ${error.message}`);
+          throw error;
+        }
+      }
     }
   }
 
@@ -84,10 +138,34 @@ export class AnalyticsIndexer {
   }
 
   /**
+   * Check available disk space
+   */
+  private checkDiskSpace(): void {
+    try {
+      // Fix Issue #8: Explicit disk space check before large operations
+      const stats = fs.statfsSync(path.dirname(this.dbPath));
+      const availableBytes = stats.bavail * stats.bsize;
+      const minRequired = 10 * 1024 * 1024; // 10MB minimum
+
+      if (availableBytes < minRequired) {
+        throw new Error(`Insufficient disk space for indexing: ${Math.round(availableBytes / 1024 / 1024)}MB available, ${Math.round(minRequired / 1024 / 1024)}MB required`);
+      }
+    } catch (error: any) {
+      // statfsSync not available on all platforms, fail gracefully
+      if (error.code !== 'ENOSYS') {
+        console.warn(`Unable to check disk space: ${error.message}`);
+      }
+    }
+  }
+
+  /**
    * Index a consultation result
    */
   public indexConsultation(result: ConsultationResult): void {
     if (!this.db) return;
+
+    // Check disk space before large write operations
+    this.checkDiskSpace();
 
     const insertConsultation = this.db.prepare(`
       INSERT OR REPLACE INTO consultations (
@@ -106,47 +184,57 @@ export class AnalyticsIndexer {
       VALUES (?, ?, ?, ?, ?)
     `);
 
-    // Use a transaction for atomic writes
+    // Prepare delete statements (will be executed inside transaction)
+    const deleteAgents = this.db.prepare('DELETE FROM consultation_agents WHERE consultation_id = ?');
+    const deleteRounds = this.db.prepare('DELETE FROM consultation_rounds WHERE consultation_id = ?');
+
+    // Use a transaction for atomic writes - all deletes and inserts happen atomically
     const transaction = this.db.transaction((res: ConsultationResult) => {
-      // 1. Insert consultation
+      // 1. Insert consultation (with defensive checks for old/incomplete logs)
       insertConsultation.run(
         res.consultationId,
-        res.question,
-        res.mode,
+        res.question || '',
+        res.mode || 'consensus', // Default mode for old logs
         res.recommendation || null,
         res.confidence || 0,
         res.actualCost || res.estimatedCost || 0,
-        res.cost.tokens.total,
-        res.durationMs,
+        res.cost?.tokens?.total || 0, // Safe navigation for missing cost data
+        res.durationMs || 0,
         res.timestamp,
         '1.0',
-        res.state,
+        res.state || 'complete', // Default state for old logs
         (res.dissent && res.dissent.length > 0) ? 1 : 0
       );
 
-      // 2. Clear and insert agents
-      this.db?.prepare('DELETE FROM consultation_agents WHERE consultation_id = ?').run(res.consultationId);
-      for (const agent of res.agents) {
-        insertAgent.run(res.consultationId, agent.name, agent.model, agent.provider);
+      // 2. Clear and insert agents atomically (defensive check for old logs without agents array)
+      deleteAgents.run(res.consultationId);
+      if (res.agents && Array.isArray(res.agents)) {
+        for (const agent of res.agents) {
+          insertAgent.run(res.consultationId, agent.name, agent.model, agent.provider);
+        }
       }
 
-      // 3. Clear and insert rounds
-      this.db?.prepare('DELETE FROM consultation_rounds WHERE consultation_id = ?').run(res.consultationId);
-      
-      // Round 1
-      if (res.responses.round1) {
-        const round1Tokens = res.responses.round1.reduce((sum, art) => sum + (res.agentResponses?.find(r => r.agentId === art.agentId)?.tokens.total || 0), 0);
-        insertRound.run(res.consultationId, 1, 'independent', 0, round1Tokens); // Duration per round not explicitly tracked in top-level result yet
+      // 3. Clear and insert rounds atomically
+      deleteRounds.run(res.consultationId);
+
+      // Round 1 - Fix Issue #10: Calculate tokens from agentResponses (defensive for old logs)
+      if (res.responses && res.responses.round1) {
+        const round1Tokens = res.responses.round1.reduce((sum, art) => {
+          // Find matching agent response to get token count
+          const agentResp = res.agentResponses?.find(r => r.agentId === art.agentId);
+          return sum + (agentResp?.tokens?.total || 0);
+        }, 0);
+        insertRound.run(res.consultationId, 1, 'independent', 0, round1Tokens);
       }
 
-      // Rounds 2-4
-      if (res.responses.round2) {
+      // Rounds 2-4 (defensive checks for old logs)
+      if (res.responses && res.responses.round2) {
         insertRound.run(res.consultationId, 2, 'synthesis', 0, 0);
       }
-      if (res.responses.round3) {
+      if (res.responses && res.responses.round3) {
         insertRound.run(res.consultationId, 3, 'cross_exam', 0, 0);
       }
-      if (res.responses.round4) {
+      if (res.responses && res.responses.round4) {
         insertRound.run(res.consultationId, 4, 'verdict', 0, 0);
       }
     });
@@ -177,18 +265,32 @@ export class AnalyticsIndexer {
         try {
           const filePath = path.join(logDir, file);
           const content = fs.readFileSync(filePath, 'utf8');
-          const data = JSON.parse(content);
-          
-          // We need to map snake_case JSON to camelCase TypeScript if possible, 
+
+          // Fix Issue #9: Validate JSON before parsing
+          let data: any;
+          try {
+            data = JSON.parse(content);
+          } catch (parseError: any) {
+            console.error(`❌ Invalid JSON in ${file}: ${parseError.message}`);
+            continue; // Skip this file
+          }
+
+          // Fix Issue #9: Validate required fields before indexing
+          if (!data.consultation_id || !data.question || !data.timestamp) {
+            console.error(`❌ Missing required fields in ${file} (needs: consultation_id, question, timestamp)`);
+            continue; // Skip this file
+          }
+
+          // We need to map snake_case JSON to camelCase TypeScript if possible,
           // but for indexing we can just use the fields directly if we know them.
           // Actually, using ArtifactTransformer would be better if available.
           // For now, let's assume we can parse it.
-          
+
           // Basic mapping for indexing (this might need to be more robust)
           const result: any = {
             consultationId: data.consultation_id,
             question: data.question,
-            mode: data.mode,
+            mode: data.mode || 'consensus', // Default for old logs
             recommendation: data.recommendation,
             confidence: data.confidence,
             actualCost: data.actual_cost,
@@ -196,10 +298,11 @@ export class AnalyticsIndexer {
             cost: data.cost,
             durationMs: data.duration_ms,
             timestamp: data.timestamp,
-            state: data.state,
-            agents: data.agents,
+            state: data.state || 'complete', // Default for old logs
+            agents: data.agents || [],
             responses: data.responses || {},
-            dissent: data.dissent || []
+            dissent: data.dissent || [],
+            agentResponses: data.agent_responses || []
           };
 
           this.indexConsultation(result as ConsultationResult);
@@ -208,7 +311,8 @@ export class AnalyticsIndexer {
             process.stdout.write(`Rebuilding index... [${indexedCount}/${files.length}] consultations\r`);
           }
         } catch (err: any) {
-          console.error(`Failed to index file ${file}: ${err.message}`);
+          // Generic error (not JSON parse or validation)
+          console.error(`❌ Failed to index ${file}: ${err.message}`);
         }
       }
       console.log(`\n✅ Index rebuilt successfully. [${indexedCount}] consultations indexed.`);

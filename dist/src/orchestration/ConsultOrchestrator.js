@@ -36,6 +36,9 @@ class ConsultOrchestrator {
         this.totalTokensUsed = 0;
         this.tokenSavings = { round3: 0, round4: 0 };
         this.substitutions = []; // Track provider substitutions for AC #4
+        // Pulse tracking (Story 2.4, AC #3)
+        this.pulseTriggered = false;
+        this.userCancelledViaPulse = false;
         this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
         this.verbose = options.verbose || false;
         this.eventBus = EventBus_1.EventBus.getInstance();
@@ -63,6 +66,14 @@ class ConsultOrchestrator {
         this.eventBus.on('consultation:provider_substituted', (data) => {
             this.substitutions.push(data);
         });
+        // Setup graceful cleanup on process termination (Story 2.4, Code Review Fix)
+        // Ensures pulse timers are cleaned up when process is killed (Ctrl+C, SIGTERM, etc.)
+        const cleanupHandler = () => {
+            this.interactivePulse.cleanup();
+            this.healthMonitor.stopMonitoring();
+        };
+        process.once('SIGINT', cleanupHandler);
+        process.once('SIGTERM', cleanupHandler);
     }
     /**
      * Initialize the 3 consultation agents
@@ -150,6 +161,10 @@ class ConsultOrchestrator {
         let synthesisArtifact = null;
         let crossExamArtifact = null;
         let verdictArtifact = null;
+        // Pulse tracking (Story 2.4, AC #3)
+        let pulseTriggered = false;
+        let pulseTimestamp;
+        let userCancelledAfterPulse = false;
         try {
             // Start consultation lifecycle
             this.stateMachine.transition(consult_1.ConsultState.Estimating);
@@ -281,6 +296,8 @@ class ConsultOrchestrator {
                     : 0;
                 console.log(chalk_1.default.yellow(`\n⚠️  Consultation cancelled by user after ${maxElapsed}s`));
                 this.stateMachine.transition(consult_1.ConsultState.Aborted, `User cancelled after ${maxElapsed}s`);
+                // Track cancellation (Story 2.4, AC #3)
+                this.userCancelledViaPulse = true;
                 // Cleanup all pulse timers
                 this.interactivePulse.cleanup();
                 await this.savePartialResults('user_pulse_cancel', question, context, estimate, successfulArtifacts, synthesisArtifact, crossExamArtifact, verdictArtifact, agentResponses);
@@ -355,7 +372,11 @@ class ConsultOrchestrator {
             // Token efficiency (Epic 2, Story 6)
             token_efficiency_stats: efficiencyStats,
             // Provider substitutions (Epic 2, Story 2.3 AC #4)
-            substitutions: this.substitutions
+            substitutions: this.substitutions,
+            // Pulse tracking (Epic 2, Story 2.4, AC #3)
+            pulseTriggered: this.pulseTriggered,
+            userCancelledAfterPulse: this.userCancelledViaPulse,
+            pulseTimestamp: this.pulseTimestamp
         };
         this.eventBus.emitEvent('consultation:completed', {
             consultation_id: this.consultationId,
@@ -562,6 +583,11 @@ class ConsultOrchestrator {
                     });
                     const startRecursivePulse = () => {
                         this.interactivePulse.startTimer(agent.name, async () => {
+                            // Track at orchestrator level (Story 2.4, AC #3)
+                            this.pulseTriggered = true;
+                            if (!this.pulseTimestamp) {
+                                this.pulseTimestamp = new Date().toISOString();
+                            }
                             const runningAgents = this.interactivePulse.getRunningAgents();
                             const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
                             if (!shouldContinue) {
@@ -712,6 +738,11 @@ class ConsultOrchestrator {
                 const startRecursivePulse = () => {
                     this.interactivePulse.startTimer(agent.name, async () => {
                         pulseTriggered = true;
+                        // Track at orchestrator level (Story 2.4, AC #3)
+                        this.pulseTriggered = true;
+                        if (!this.pulseTimestamp) {
+                            this.pulseTimestamp = new Date().toISOString();
+                        }
                         const runningAgents = this.interactivePulse.getRunningAgents();
                         const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
                         if (!shouldContinue) {

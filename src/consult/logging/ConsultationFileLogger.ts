@@ -20,21 +20,57 @@ export class ConsultationFileLogger {
    * Log a consultation to both JSON and Markdown files
    */
   public async logConsultation(result: ConsultationResult): Promise<void> {
+    let jsonSuccess = false;
+    let markdownSuccess = false;
+    let indexSuccess = false;
+
     try {
       // Ensure log directory exists
       this.ensureLogDirectory();
 
-      // Write JSON log
-      await this.writeJsonLog(result);
+      // Write JSON log (source of truth)
+      try {
+        await this.writeJsonLog(result);
+        jsonSuccess = true;
+      } catch (error: any) {
+        console.error(`❌ Failed to write JSON log for ${result.consultationId}: ${error.message}`);
+        throw error; // JSON is critical, must succeed
+      }
 
-      // Write Markdown log
-      await this.writeMarkdownLog(result);
+      // Write Markdown log (best-effort)
+      try {
+        await this.writeMarkdownLog(result);
+        markdownSuccess = true;
+      } catch (error: any) {
+        console.warn(`⚠️ Failed to write Markdown log for ${result.consultationId}: ${error.message}`);
+        // Continue - Markdown is nice-to-have
+      }
 
       // Index for analytics (Write-Through Pattern from Epic 3, Story 3.1)
-      this.indexer.indexConsultation(result);
+      // Per AC: "If SQLite write fails, error is logged but JSONL write still succeeds"
+      try {
+        this.indexer.indexConsultation(result);
+        indexSuccess = true;
+      } catch (error: any) {
+        console.error(`⚠️ Failed to index consultation ${result.consultationId} in analytics database: ${error.message}`);
+        console.error(`   Consultation saved to JSON but won't appear in consult-stats dashboard.`);
+        console.error(`   Run 'llm-conclave consult-stats --rebuild-index' to fix.`);
+        // Don't throw - indexing failure should not prevent consultation completion
+      }
     } catch (error: any) {
-      // Logging failures should NOT block consultation completion
-      console.error(`Failed to write consultation log: ${error.message}`);
+      // Only thrown if JSON write fails (critical failure)
+      console.error(`❌ CRITICAL: Failed to save consultation ${result.consultationId}`);
+      throw error;
+    }
+
+    // Success summary (only if JSON succeeded)
+    if (jsonSuccess) {
+      const status = [
+        jsonSuccess ? '✅ JSON' : '❌ JSON',
+        markdownSuccess ? '✅ Markdown' : '⚠️ Markdown',
+        indexSuccess ? '✅ Indexed' : '⚠️ Index failed'
+      ].join(' | ');
+      console.log(`📝 Consultation logged: ${status}`);
     }
   }
 
