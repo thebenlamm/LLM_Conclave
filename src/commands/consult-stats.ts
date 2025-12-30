@@ -1,305 +1,129 @@
 import { Command } from 'commander';
-import * as fs from 'fs';
-import * as os from 'os';
+import chalk from 'chalk';
+import { StatsQuery } from '../consult/analytics/StatsQuery';
+import { AnalyticsIndexer } from '../consult/analytics/AnalyticsIndexer';
 import * as path from 'path';
-import { ConsultationResult } from '../types';
-
-interface ConsultStatsOptions {
-  month?: string;
-  week?: boolean;
-  allTime?: boolean;
-}
-
-interface Metrics {
-  periodLabel: string;
-  total: number;
-  breakdown: {
-    complete: number;
-    partial: number;
-    aborted: number;
-  };
-  dateRange: {
-    start: Date;
-    end: Date;
-    totalDays: number;
-  };
-  activeDays: number;
-  avgPerDay: number;
-  performance: {
-    p50: number;
-    p95: number;
-    p99: number;
-  };
-  cost: {
-    total: number;
-    avgPerConsultation: number;
-    totalTokens: number;
-  };
-}
+import * as os from 'os';
 
 /**
- * Create the consult-stats CLI command.
+ * consult-stats command - Display consultation usage analytics
  */
 export function createConsultStatsCommand(): Command {
   const cmd = new Command('consult-stats');
 
   cmd
-    .description('Show consultation statistics and metrics')
-    .option('-m, --month <YYYY-MM>', 'Show stats for a specific month')
-    .option('-w, --week', 'Show stats for the last 7 days')
-    .option('-a, --all-time', 'Show all-time stats')
-    .action(async (options: ConsultStatsOptions) => {
-      const stats = new ConsultStats();
-      const metrics = await stats.compute(options);
-      await stats.display(metrics);
+    .description('Display consultation usage, performance, and cost analytics')
+    .option('--week', 'Show stats for the last 7 days')
+    .option('--month', 'Show stats for the last 30 days')
+    .option('--all-time', 'Show all-time stats (default)')
+    .option('--json', 'Output raw JSON metrics')
+    .option('--rebuild-index', 'Rebuild the analytics index from JSONL logs')
+    .action(async (options: any) => {
+      const logDir = path.join(os.homedir(), '.llm-conclave', 'consult-logs');
+      const dbPath = path.join(os.homedir(), '.llm-conclave', 'consult-analytics.db');
+
+      if (options.rebuildIndex) {
+        console.log(chalk.cyan('Rebuilding analytics index...'));
+        const indexer = new AnalyticsIndexer(dbPath);
+        indexer.rebuildIndex(logDir);
+        indexer.close();
+        return;
+      }
+
+      let timeRange: 'week' | 'month' | 'all-time' = 'all-time';
+      if (options.week) timeRange = 'week';
+      else if (options.month) timeRange = 'month';
+
+      const query = new StatsQuery(dbPath);
+      const metrics = query.computeMetrics(timeRange);
+      query.close();
+
+      if (options.json) {
+        console.log(JSON.stringify(metrics, null, 2));
+        return;
+      }
+
+      displayDashboard(metrics, timeRange);
     });
 
   return cmd;
 }
 
-class ConsultStats {
-  private logDir: string;
-
-  constructor() {
-    this.logDir = path.join(os.homedir(), '.llm-conclave', 'consult-logs');
+function displayDashboard(metrics: any, timeRange: string): void {
+  if (metrics.totalConsultations === 0) {
+    console.log(chalk.yellow('\n📭 No consultations found.\n'));
+    console.log('Run your first consultation:');
+    console.log(chalk.cyan('  llm-conclave consult "Your question here"\n'));
+    return;
   }
 
-  async compute(options: ConsultStatsOptions): Promise<Metrics | null> {
-    const consultations = await this.loadConsultations(options);
+  const title = `LLM Conclave Consult Stats (${timeRange})`;
+  const width = 50;
+  
+  console.log(chalk.cyan('┌' + '─'.repeat(width - 2) + '┐'));
+  console.log(chalk.cyan('│  ') + chalk.bold(title.padEnd(width - 6)) + chalk.cyan('  │'));
+  console.log(chalk.cyan('├' + '─'.repeat(width - 2) + '┤'));
 
-    if (consultations.length === 0) {
-      return null;
-    }
+  // Usage Metrics
+  console.log(chalk.cyan('│  ') + chalk.bold('Usage Metrics'.padEnd(width - 6)) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Total Consultations: ${metrics.totalConsultations}`.padEnd(width - 6) + chalk.cyan('  │'));
+  const activePercent = Math.round((metrics.activeDays / Math.max(1, metrics.dateRange.totalDays)) * 100);
+  console.log(chalk.cyan('│  ') + `• Active Days: ${metrics.activeDays}/${metrics.dateRange.totalDays} (${activePercent}%)`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Avg per Day: ${metrics.avgPerDay}`.padEnd(width - 6) + chalk.cyan('  │'));
+  const completedPercent = Math.round((metrics.byState.completed / metrics.totalConsultations) * 100);
+  console.log(chalk.cyan('│  ') + `• Completed: ${metrics.byState.completed} (${completedPercent}%)`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Aborted: ${metrics.byState.aborted}`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('├' + '─'.repeat(width - 2) + '┤'));
 
-    const durations = consultations.map(c => c.durationMs || 0);
-    const costs = consultations.map(c => c.cost?.usd || 0);
-    const tokens = consultations.map(c => c.cost?.tokens?.total || 0);
+  // Performance Metrics
+  console.log(chalk.cyan('│  ') + chalk.bold('Performance Metrics'.padEnd(width - 6)) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Median Response Time: ${(metrics.performance.p50 / 1000).toFixed(1)}s (p50)`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• p95 Response Time: ${(metrics.performance.p95 / 1000).toFixed(1)}s`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• p99 Response Time: ${(metrics.performance.p99 / 1000).toFixed(1)}s`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Fastest: ${(metrics.performance.fastest.durationMs / 1000).toFixed(1)}s`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Slowest: ${(metrics.performance.slowest.durationMs / 1000).toFixed(1)}s`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('├' + '─'.repeat(width - 2) + '┤'));
 
-    const dateRange = this.resolveDateRangeForMetrics(consultations, options);
-    const activeDays = this.countActiveDays(consultations);
-    const totalDays = Math.max(dateRange.totalDays, 1);
+  // Cost Metrics
+  console.log(chalk.cyan('│  ') + chalk.bold('Cost Metrics'.padEnd(width - 6)) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Total Cost: $${metrics.cost.total.toFixed(2)}`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Avg per Consultation: $${metrics.cost.avgPerConsultation.toFixed(3)}`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Total Tokens: ${metrics.cost.totalTokens.toLocaleString()}`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + '• By Provider:'.padEnd(width - 6) + chalk.cyan('  │'));
+  
+  for (const [provider, data] of Object.entries(metrics.cost.byProvider)) {
+    const provData = data as any;
+    const share = Math.round((provData.cost / metrics.cost.total) * 100);
+    console.log(chalk.cyan('│  ') + `    - ${provider}: $${provData.cost.toFixed(2)} (${share}%)`.padEnd(width - 6) + chalk.cyan('  │'));
+  }
+  console.log(chalk.cyan('├' + '─'.repeat(width - 2) + '┤'));
 
-    const complete = consultations.filter(c => c.status === 'complete' || !c.status).length;
-    const partial = consultations.filter(c => c.status === 'partial').length;
-    const aborted = consultations.filter(c => c.status === 'aborted' || c.state === 'aborted').length;
+  // Quality Metrics
+  console.log(chalk.cyan('│  ') + chalk.bold('Quality Metrics'.padEnd(width - 6)) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Avg Confidence: ${metrics.quality.avgConfidence}%`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• High Confidence (≥85%): ${metrics.quality.highConfidence}`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('│  ') + `• Low Confidence (<70%): ${metrics.quality.lowConfidence}`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('└' + '─'.repeat(width - 2) + '┘'));
 
-    return {
-      periodLabel: dateRange.label,
-      total: consultations.length,
-      breakdown: {
-        complete,
-        partial,
-        aborted
-      },
-      dateRange: {
-        start: dateRange.start,
-        end: dateRange.end,
-        totalDays
-      },
-      activeDays,
-      avgPerDay: consultations.length / totalDays,
-      performance: {
-        p50: this.percentile(durations, 50),
-        p95: this.percentile(durations, 95),
-        p99: this.percentile(durations, 99)
-      },
-      cost: {
-        total: costs.reduce((sum, value) => sum + value, 0),
-        avgPerConsultation: costs.reduce((sum, value) => sum + value, 0) / consultations.length,
-        totalTokens: tokens.reduce((sum, value) => sum + value, 0)
-      }
-    };
+  // Success Criteria Validation
+  console.log('\n' + chalk.bold('📊 Progress toward Success Criteria:'));
+  
+  if (metrics.totalConsultations >= 150) {
+    console.log(chalk.green('• Usage: 150+ consultations ✅'));
+  } else {
+    console.log(`• Usage: ${metrics.totalConsultations}/150 consultations (${Math.round((metrics.totalConsultations/150)*100)}%)`);
   }
 
-  async display(metrics: Metrics | null): Promise<void> {
-    if (!metrics) {
-      console.log('\nNo consultation logs found for the selected period. Run a consultation to generate stats.\n');
-      return;
-    }
-
-    const width = 66;
-    const divider = '+' + '-'.repeat(width - 2) + '+';
-    const line = (text = '') => `| ${text.padEnd(width - 4)} |`;
-    const metric = (label: string, value: string) => line(`${label}: ${value}`);
-
-    console.log('\n' + divider);
-    console.log(line(`Consult Stats ${metrics.periodLabel ? `(${metrics.periodLabel})` : ''}`));
-    console.log(divider);
-    console.log(line('✅ Usage'));
-    console.log(metric('Total consultations', metrics.total.toString()));
-    console.log(metric('  • Complete', metrics.breakdown.complete.toString()));
-    console.log(metric('  • Partial/Aborted', (metrics.breakdown.partial + metrics.breakdown.aborted).toString()));
-    const activePercent = ((metrics.activeDays / metrics.dateRange.totalDays) * 100).toFixed(0);
-    console.log(metric('Active days', `${metrics.activeDays}/${metrics.dateRange.totalDays} (${activePercent}%)`));
-    console.log(metric('Avg per day', metrics.avgPerDay.toFixed(2)));
-    console.log(divider);
-    console.log(line('⚡ Performance'));
-    console.log(metric('p50 response time', this.formatSeconds(metrics.performance.p50)));
-    console.log(metric('p95 response time', this.formatSeconds(metrics.performance.p95)));
-    console.log(metric('p99 response time', this.formatSeconds(metrics.performance.p99)));
-    console.log(divider);
-    console.log(line('💰 Cost'));
-    console.log(metric('Total cost', `$${metrics.cost.total.toFixed(2)}`));
-    console.log(metric('Avg per consultation', `$${metrics.cost.avgPerConsultation.toFixed(4)}`));
-    console.log(metric('Total tokens', metrics.cost.totalTokens.toLocaleString()));
-    console.log(divider);
-    console.log(line('🎯 Tips'));
-
-    if (metrics.total >= 10 && metrics.activeDays >= 5) {
-      console.log(line('Great consistency! Keep the cadence going.'));
-    } else {
-      console.log(line('Consider a daily consult to build momentum.'));
-    }
-
-    if (metrics.performance.p50 < 15000) {
-      console.log(line('Speed looks good (<15s median).'));
-    } else {
-      console.log(line('Try quick mode for faster turnarounds.'));
-    }
-
-    if (metrics.cost.avgPerConsultation < 0.5) {
-      console.log(line('Costs are healthy (<$0.50 per consult).'));
-    } else {
-      console.log(line('Watch long contexts; they drive token spend.'));
-    }
-
-    console.log(divider + '\n');
+  if (metrics.performance.p50 < 15000) {
+    console.log(chalk.green('• Speed: median < 15s ✅'));
+  } else {
+    console.log(chalk.yellow(`• Speed: ${(metrics.performance.p50/1000).toFixed(1)}s median (target: <15s)`));
   }
 
-  private async loadConsultations(options: ConsultStatsOptions): Promise<ConsultationResult[]> {
-    if (!fs.existsSync(this.logDir)) {
-      return [];
-    }
-
-    const files = await fs.promises.readdir(this.logDir);
-    const consultationFiles = files.filter(f => f.endsWith('.json') && !f.startsWith('index-'));
-
-    const consultations: ConsultationResult[] = [];
-
-    for (const file of consultationFiles) {
-      const fullPath = path.join(this.logDir, file);
-      try {
-        const content = await fs.promises.readFile(fullPath, 'utf-8');
-        const parsed = JSON.parse(content) as ConsultationResult;
-        consultations.push(parsed);
-      } catch {
-        // Skip malformed logs; keep stats resilient.
-        continue;
-      }
-    }
-
-    return this.filterByDateRange(consultations, options);
+  if (metrics.cost.total < 20) {
+    console.log(chalk.green('• Cost: < $20 total ✅'));
+  } else {
+    console.log(chalk.red(`• Cost: $${metrics.cost.total.toFixed(2)}/$20.00 budget`));
   }
-
-  private filterByDateRange(
-    consultations: ConsultationResult[],
-    options: ConsultStatsOptions
-  ): ConsultationResult[] {
-    const range = this.resolveDateRange(options, consultations);
-    if (!range.start && !range.end) {
-      return consultations;
-    }
-
-    return consultations.filter(c => {
-      const ts = new Date(c.timestamp).getTime();
-      const afterStart = range.start ? ts >= range.start.getTime() : true;
-      const beforeEnd = range.end ? ts <= range.end.getTime() : true;
-      return afterStart && beforeEnd;
-    });
-  }
-
-  private resolveDateRange(
-    options: ConsultStatsOptions,
-    consultations: ConsultationResult[]
-  ): { start: Date | null; end: Date | null; label: string } {
-    if (options.week) {
-      const end = this.endOfDay(new Date());
-      const start = this.startOfDay(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
-      return { start, end, label: 'Last 7 days' };
-    }
-
-    if (options.month) {
-      const [year, month] = options.month.split('-').map(Number);
-      if (year && month) {
-        const start = this.startOfDay(new Date(year, month - 1, 1));
-        const end = this.endOfDay(new Date(year, month, 0));
-        return { start, end, label: options.month };
-      }
-    }
-
-    if (options.allTime) {
-      return { start: null, end: null, label: 'All time' };
-    }
-
-    // Default to current month
-    const now = new Date();
-    const start = this.startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
-    const end = this.endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
-    const label = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
-    return { start, end, label };
-  }
-
-  private resolveDateRangeForMetrics(
-    consultations: ConsultationResult[],
-    options: ConsultStatsOptions
-  ): { start: Date; end: Date; totalDays: number; label: string } {
-    const range = this.resolveDateRange(options, consultations);
-
-    if (!range.start || !range.end) {
-      // All-time: derive bounds from data.
-      const timestamps = consultations.map(c => new Date(c.timestamp).getTime());
-      const minTs = Math.min(...timestamps);
-      const maxTs = Math.max(...timestamps);
-      const start = this.startOfDay(new Date(minTs));
-      const end = this.endOfDay(new Date(maxTs));
-      return { start, end, totalDays: this.daysBetween(start, end), label: range.label };
-    }
-
-    return {
-      start: range.start,
-      end: range.end,
-      totalDays: this.daysBetween(range.start, range.end),
-      label: range.label
-    };
-  }
-
-  private countActiveDays(consultations: ConsultationResult[]): number {
-    const daySet = new Set<string>();
-    consultations.forEach(c => {
-      const d = new Date(c.timestamp);
-      const key = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-      daySet.add(key);
-    });
-    return daySet.size;
-  }
-
-  private percentile(values: number[], percentile: number): number {
-    if (values.length === 0) return 0;
-    const sorted = [...values].sort((a, b) => a - b);
-    const index = (percentile / 100) * (sorted.length - 1);
-    const lower = Math.floor(index);
-    const upper = Math.ceil(index);
-    if (lower === upper) return sorted[lower];
-    const weight = index - lower;
-    return sorted[lower] * (1 - weight) + sorted[upper] * weight;
-  }
-
-  private daysBetween(start: Date, end: Date): number {
-    const msPerDay = 24 * 60 * 60 * 1000;
-    const startMs = this.startOfDay(start).getTime();
-    const endMs = this.startOfDay(end).getTime();
-    return Math.floor((endMs - startMs) / msPerDay) + 1;
-  }
-
-  private startOfDay(date: Date): Date {
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-  }
-
-  private endOfDay(date: Date): Date {
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
-  }
-
-  private formatSeconds(ms: number): string {
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
+  console.log('');
 }
