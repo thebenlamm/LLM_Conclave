@@ -87,7 +87,11 @@ export class CostEstimator {
    */
   public calculateEfficiencyPercentage(saved: number, total: number): number {
     if (total === 0) return 0;
-    return (saved / total) * 100;
+    // Edge case: saved should never exceed total (Story 2.6, Fix #6)
+    if (saved > total) {
+      throw new Error(`Invalid token savings calculation: saved (${saved}) exceeds total (${total})`);
+    }
+    return Math.min(100, (saved / total) * 100);
   }
 
   private estimateTokens(text: string): number {
