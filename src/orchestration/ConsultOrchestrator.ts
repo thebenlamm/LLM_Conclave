@@ -71,6 +71,11 @@ export default class ConsultOrchestrator {
   private tokenSavings: { round3: number; round4: number } = { round3: 0, round4: 0 };
   private substitutions: any[] = []; // Track provider substitutions for AC #4
 
+  // Pulse tracking (Story 2.4, AC #3)
+  private pulseTriggered: boolean = false;
+  private pulseTimestamp: string | undefined;
+  private userCancelledViaPulse: boolean = false;
+
   constructor(options: ConsultOrchestratorOptions = {}) {
     this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
     this.verbose = options.verbose || false;
@@ -105,6 +110,15 @@ export default class ConsultOrchestrator {
     this.eventBus.on('consultation:provider_substituted', (data: any) => {
       this.substitutions.push(data);
     });
+
+    // Setup graceful cleanup on process termination (Story 2.4, Code Review Fix)
+    // Ensures pulse timers are cleaned up when process is killed (Ctrl+C, SIGTERM, etc.)
+    const cleanupHandler = () => {
+      this.interactivePulse.cleanup();
+      this.healthMonitor.stopMonitoring();
+    };
+    process.once('SIGINT', cleanupHandler);
+    process.once('SIGTERM', cleanupHandler);
   }
 
   /**
@@ -204,6 +218,11 @@ export default class ConsultOrchestrator {
     let synthesisArtifact: SynthesisArtifact | null = null;
     let crossExamArtifact: CrossExamArtifact | null = null;
     let verdictArtifact: VerdictArtifact | null = null;
+
+    // Pulse tracking (Story 2.4, AC #3)
+    let pulseTriggered = false;
+    let pulseTimestamp: string | undefined;
+    let userCancelledAfterPulse = false;
     
     try {
       // Start consultation lifecycle
@@ -359,6 +378,9 @@ export default class ConsultOrchestrator {
           console.log(chalk.yellow(`\n⚠️  Consultation cancelled by user after ${maxElapsed}s`));
           this.stateMachine.transition(ConsultState.Aborted, `User cancelled after ${maxElapsed}s`);
 
+          // Track cancellation (Story 2.4, AC #3)
+          this.userCancelledViaPulse = true;
+
           // Cleanup all pulse timers
           this.interactivePulse.cleanup();
 
@@ -474,7 +496,11 @@ export default class ConsultOrchestrator {
       // Token efficiency (Epic 2, Story 6)
       token_efficiency_stats: efficiencyStats,
       // Provider substitutions (Epic 2, Story 2.3 AC #4)
-      substitutions: this.substitutions
+      substitutions: this.substitutions,
+      // Pulse tracking (Epic 2, Story 2.4, AC #3)
+      pulseTriggered: this.pulseTriggered,
+      userCancelledAfterPulse: this.userCancelledViaPulse,
+      pulseTimestamp: this.pulseTimestamp
     };
 
     this.eventBus.emitEvent('consultation:completed' as any, {
@@ -742,6 +768,11 @@ export default class ConsultOrchestrator {
 
           const startRecursivePulse = () => {
               this.interactivePulse.startTimer(agent.name, async () => {
+                  // Track at orchestrator level (Story 2.4, AC #3)
+                  this.pulseTriggered = true;
+                  if (!this.pulseTimestamp) {
+                      this.pulseTimestamp = new Date().toISOString();
+                  }
                   const runningAgents = this.interactivePulse.getRunningAgents();
                   const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
 
@@ -924,6 +955,11 @@ export default class ConsultOrchestrator {
           const startRecursivePulse = () => {
               this.interactivePulse.startTimer(agent.name, async () => {
                   pulseTriggered = true;
+                  // Track at orchestrator level (Story 2.4, AC #3)
+                  this.pulseTriggered = true;
+                  if (!this.pulseTimestamp) {
+                      this.pulseTimestamp = new Date().toISOString();
+                  }
                   const runningAgents = this.interactivePulse.getRunningAgents();
                   const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
 
