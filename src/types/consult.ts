@@ -217,6 +217,9 @@ export interface ConsultationResult {
   actualCost?: number;
   costExceeded?: boolean;
 
+  // Token efficiency (Epic 2, Story 6)
+  token_efficiency_stats?: TokenEfficiencyStats;
+
   // Partial results (Epic 2, Story 5)
   status?: 'complete' | 'partial' | 'aborted'; // Explicit status for file format
   completedRoundNames?: string[]; // ["Round1", "Round2"]
@@ -224,6 +227,14 @@ export interface ConsultationResult {
   partialAgents?: AgentResponse[]; // In-progress agents
   cancellationReason?: string;
   signature?: string; // Cryptographic signature
+}
+
+export interface TokenEfficiencyStats {
+  tokens_used: number;
+  tokens_saved_via_filtering: number;
+  efficiency_percentage: number;
+  filtering_method: string;
+  filtered_rounds: number[];
 }
 
 export interface PartialConsultationResult extends ConsultationResult {
@@ -410,4 +421,13 @@ export enum OutputFormat {
 
 export interface IOutputFormatter {
   format(result: ConsultationResult): string;
+}
+
+// ============================================================================
+// Orchestrator Options Types
+// ============================================================================
+
+export interface ConsultOrchestratorOptions {
+  maxRounds?: number;
+  verbose?: boolean;
 }

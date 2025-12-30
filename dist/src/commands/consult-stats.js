@@ -64,15 +64,23 @@ class ConsultStats {
         if (consultations.length === 0) {
             return null;
         }
-        const durations = consultations.map(c => c.duration_ms || 0);
+        const durations = consultations.map(c => c.durationMs || 0);
         const costs = consultations.map(c => c.cost?.usd || 0);
         const tokens = consultations.map(c => c.cost?.tokens?.total || 0);
         const dateRange = this.resolveDateRangeForMetrics(consultations, options);
         const activeDays = this.countActiveDays(consultations);
         const totalDays = Math.max(dateRange.totalDays, 1);
+        const complete = consultations.filter(c => c.status === 'complete' || !c.status).length;
+        const partial = consultations.filter(c => c.status === 'partial').length;
+        const aborted = consultations.filter(c => c.status === 'aborted' || c.state === 'aborted').length;
         return {
             periodLabel: dateRange.label,
             total: consultations.length,
+            breakdown: {
+                complete,
+                partial,
+                aborted
+            },
             dateRange: {
                 start: dateRange.start,
                 end: dateRange.end,
@@ -106,6 +114,8 @@ class ConsultStats {
         console.log(divider);
         console.log(line('✅ Usage'));
         console.log(metric('Total consultations', metrics.total.toString()));
+        console.log(metric('  • Complete', metrics.breakdown.complete.toString()));
+        console.log(metric('  • Partial/Aborted', (metrics.breakdown.partial + metrics.breakdown.aborted).toString()));
         const activePercent = ((metrics.activeDays / metrics.dateRange.totalDays) * 100).toFixed(0);
         console.log(metric('Active days', `${metrics.activeDays}/${metrics.dateRange.totalDays} (${activePercent}%)`));
         console.log(metric('Avg per day', metrics.avgPerDay.toFixed(2)));

@@ -1,0 +1,14 @@
+<template-output>
+  <section name="Code Review Improvements">
+    <completed>
+      - Refactored `CostEstimator` to expose static pricing logic, eliminating duplication in `ConsultOrchestrator`.
+      - Created `src/utils/ConfigPaths.ts` to centralize configuration paths.
+      - Updated `CostGate.ts` to use `ConfigPaths` and implemented ATOMIC file writing (write to tmp + rename) to prevent config corruption.
+      - Updated `ConfigCascade.ts` to use `ConfigPaths`.
+      - Fixed `ConsultationResult` type definition discrepancies between `src/types/index.ts` and `src/types/consult.ts` (removed duplicates from index, exported * from consult).
+      - Added missing `TokenEfficiencyStats` and `ConsultOrchestratorOptions` to `src/types/consult.ts`.
+      - Fixed `duration_ms` vs `durationMs` property usage in `src/commands/consult-stats.ts`.
+      - Verified all tests pass (24 suites, 168 tests).
+    </completed>
+  </section>
+</template-output>

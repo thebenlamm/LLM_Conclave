@@ -71,7 +71,7 @@ class ConsultStats {
       return null;
     }
 
-    const durations = consultations.map(c => c.duration_ms || 0);
+    const durations = consultations.map(c => c.durationMs || 0);
     const costs = consultations.map(c => c.cost?.usd || 0);
     const tokens = consultations.map(c => c.cost?.tokens?.total || 0);
 

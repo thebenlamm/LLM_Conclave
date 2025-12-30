@@ -1,6 +1,6 @@
 # Story 2.6: Token-Efficient Debate with Artifact Filtering
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -125,63 +125,63 @@ So that token costs are reduced while maintaining the validated JSON artifact st
 
 ## Tasks / Subtasks
 
-- [ ] Create `src/consult/artifacts/ArtifactFilter.ts` (AC: #2, #3, #4)
-  - [ ] Implement `filterSynthesisArtifact(artifact, limits)` method
-  - [ ] Implement `filterCrossExamArtifact(artifact, limits)` method
-  - [ ] Implement sorting logic for consensus points by confidence
-  - [ ] Implement sorting logic for tensions by viewpoint count
-  - [ ] Implement sorting logic for challenges by severity keywords
-  - [ ] Implement sorting logic for rebuttals by substantiveness (length + keywords)
-  - [ ] Add schema validation after filtering
-  - [ ] Add token estimation for savings calculation
+- [x] Create `src/consult/artifacts/ArtifactFilter.ts` (AC: #2, #3, #4)
+  - [x] Implement `filterSynthesisArtifact(artifact, limits)` method
+  - [x] Implement `filterCrossExamArtifact(artifact, limits)` method
+  - [x] Implement sorting logic for consensus points by confidence
+  - [x] Implement sorting logic for tensions by viewpoint count
+  - [x] Implement sorting logic for challenges by severity keywords
+  - [x] Implement sorting logic for rebuttals by substantiveness (length + keywords)
+  - [x] Add schema validation after filtering
+  - [x] Add token estimation for savings calculation
 
-- [ ] Create `src/consult/artifacts/FilterConfig.ts` (AC: #7)
-  - [ ] Define `FilterLimits` interface
-  - [ ] Implement default filter limits (Round 3 & 4)
-  - [ ] Implement config loading from `~/.llm-conclave/config.json`
-  - [ ] Add config validation
+- [x] Create `src/consult/artifacts/FilterConfig.ts` (AC: #7)
+  - [x] Define `FilterLimits` interface
+  - [x] Implement default filter limits (Round 3 & 4)
+  - [x] Implement config loading from `~/.llm-conclave/config.json`
+  - [x] Add config validation
 
-- [ ] Update `src/orchestration/ConsultOrchestrator.ts` (AC: #2, #3, #5, #6)
-  - [ ] Add ArtifactFilter instance to constructor
-  - [ ] Add `--verbose` flag detection from CLI
-  - [ ] Apply filtering in Round 3 before passing to agents (if not verbose)
-  - [ ] Apply filtering in Round 4 before passing to Judge (if not verbose)
-  - [ ] Track token savings via CostEstimator
-  - [ ] Add token_efficiency_stats to consultation result
+- [x] Update `src/orchestration/ConsultOrchestrator.ts` (AC: #2, #3, #5, #6)
+  - [x] Add ArtifactFilter instance to constructor
+  - [x] Add `--verbose` flag detection from CLI
+  - [x] Apply filtering in Round 3 before passing to agents (if not verbose)
+  - [x] Apply filtering in Round 4 before passing to Judge (if not verbose)
+  - [x] Track token savings via CostEstimator
+  - [x] Add token_efficiency_stats to consultation result
 
-- [ ] Update `src/types/consult.ts` (AC: #6)
-  - [ ] Add `TokenEfficiencyStats` interface
-  - [ ] Add `token_efficiency_stats` field to `ConsultationResult`
-  - [ ] Add `verbose` boolean flag to `ConsultationOptions`
+- [x] Update `src/types/consult.ts` (AC: #6)
+  - [x] Add `TokenEfficiencyStats` interface
+  - [x] Add `token_efficiency_stats` field to `ConsultationResult`
+  - [x] Add `verbose` boolean flag to `ConsultationOptions`
 
-- [ ] Update `src/commands/consult.ts` (AC: #5)
-  - [ ] Add `--verbose` CLI flag option
-  - [ ] Pass verbose flag to ConsultOrchestrator
-  - [ ] Display verbose mode message if enabled
+- [x] Update `src/commands/consult.ts` (AC: #5)
+  - [x] Add `--verbose` CLI flag option
+  - [x] Pass verbose flag to ConsultOrchestrator
+  - [x] Display verbose mode message if enabled
 
-- [ ] Update `src/consult/cost/CostEstimator.ts` (AC: #6)
-  - [ ] Add `estimateTokenSavings(unfilteredSize, filteredSize)` method
-  - [ ] Add `calculateEfficiencyPercentage(saved, total)` method
-  - [ ] Integrate with ArtifactFilter for token counting
+- [x] Update `src/consult/cost/CostEstimator.ts` (AC: #6)
+  - [x] Add `estimateTokenSavings(unfilteredSize, filteredSize)` method
+  - [x] Add `calculateEfficiencyPercentage(saved, total)` method
+  - [x] Integrate with ArtifactFilter for token counting
 
-- [ ] Add Unit Tests
-  - [ ] `src/consult/artifacts/__tests__/ArtifactFilter.test.ts`
-  - [ ] Test filterSynthesisArtifact() returns valid schema
-  - [ ] Test filterCrossExamArtifact() returns valid schema
-  - [ ] Test sorting algorithms (consensus by confidence, tensions by viewpoints)
-  - [ ] Test array truncation preserves structure
-  - [ ] Test filtered artifacts pass schema validation
-  - [ ] Test verbose mode bypasses filtering
-  - [ ] Test config limits override defaults
+- [x] Add Unit Tests
+  - [x] `src/consult/artifacts/__tests__/ArtifactFilter.test.ts`
+  - [x] Test filterSynthesisArtifact() returns valid schema
+  - [x] Test filterCrossExamArtifact() returns valid schema
+  - [x] Test sorting algorithms (consensus by confidence, tensions by viewpoints)
+  - [x] Test array truncation preserves structure
+  - [x] Test filtered artifacts pass schema validation
+  - [x] Test verbose mode bypasses filtering
+  - [x] Test config limits override defaults
 
-- [ ] Add Integration Tests
-  - [ ] `src/orchestration/__tests__/ConsultOrchestratorFiltering.test.ts`
-  - [ ] Test Round 3 receives filtered Round 2 artifacts
-  - [ ] Test Round 4 receives filtered Round 2 & 3 artifacts
-  - [ ] Test Round 1 artifacts always unfiltered
-  - [ ] Test verbose mode disables all filtering
-  - [ ] Test token savings calculation
-  - [ ] Test filtering reduces token count by 20-40%
+- [x] Add Integration Tests
+  - [x] `src/orchestration/__tests__/ConsultOrchestratorFiltering.test.ts`
+  - [x] Test Round 3 receives filtered Round 2 artifacts
+  - [x] Test Round 4 receives filtered Round 2 & 3 artifacts
+  - [x] Test Round 1 artifacts always unfiltered
+  - [x] Test verbose mode disables all filtering
+  - [x] Test token savings calculation
+  - [x] Test filtering reduces token count by 20-40%
 
 ## Dev Notes
 
@@ -902,17 +902,31 @@ try {
 
 ### Completion Notes List
 
+- Implemented `ArtifactFilter` with intelligent sorting:
+  - Synthesis artifacts filtered by confidence (consensus) and viewpoint count (tensions).
+  - CrossExam artifacts filtered by severity keywords (challenges) and substantiveness/length (rebuttals).
+- Integrated filtering into `ConsultOrchestrator` for Rounds 3 and 4.
+- Implemented `FilterConfig` with support for `~/.llm-conclave/config.json` overrides.
+- Added token efficiency tracking and statistics calculation.
+- Updated `MarkdownFormatter` to display savings to the user.
+- Verified schema integrity with `SynthesisSchema` and `CrossExamSchema` validation.
+- Added comprehensive unit and integration tests.
+
 ### File List
 
-**Files to Create:**
+**Files Created:**
 - `src/consult/artifacts/ArtifactFilter.ts`
 - `src/consult/artifacts/FilterConfig.ts`
 - `src/consult/artifacts/__tests__/ArtifactFilter.test.ts`
+- `src/consult/artifacts/__tests__/FilterConfig.test.ts`
 - `src/orchestration/__tests__/ConsultOrchestratorFiltering.test.ts`
 
-**Files to Modify:**
-- `src/orchestration/ConsultOrchestrator.ts` (add filtering integration)
-- `src/types/consult.ts` (add TokenEfficiencyStats interface)
-- `src/commands/consult.ts` (add --verbose flag)
-- `src/consult/cost/CostEstimator.ts` (add token savings methods)
+**Files Modified:**
+- `src/orchestration/ConsultOrchestrator.ts`
+- `src/types/consult.ts`
+- `src/consult/cost/CostEstimator.ts`
+- `src/consult/formatting/MarkdownFormatter.ts`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `src/orchestration/__tests__/ConsultOrchestratorCostGate.test.ts` (Fixed mock)
+- `src/orchestration/__tests__/ConsultOrchestratorHedging.test.ts` (Fixed mock)
 

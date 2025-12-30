@@ -56,7 +56,15 @@ export class MarkdownFormatter implements IOutputFormatter {
     const costUsd = result.cost.usd.toFixed(4);
     const durationSec = (result.durationMs / 1000).toFixed(1);
     const totalTokens = result.cost.tokens.total.toLocaleString();
-    lines.push(`**Cost:** $${costUsd} | **Duration:** ${durationSec}s | **Tokens:** ${totalTokens}`);
+    let statsLine = `**Cost:** $${costUsd} | **Duration:** ${durationSec}s | **Tokens:** ${totalTokens}`;
+
+    if (result.token_efficiency_stats && result.token_efficiency_stats.tokens_saved_via_filtering > 0) {
+      const saved = result.token_efficiency_stats.tokens_saved_via_filtering.toLocaleString();
+      const pct = result.token_efficiency_stats.efficiency_percentage.toFixed(1);
+      statsLine += ` | **Savings:** ${saved} tokens (${pct}%)`;
+    }
+
+    lines.push(statsLine);
 
     return lines.join('\n');
   }

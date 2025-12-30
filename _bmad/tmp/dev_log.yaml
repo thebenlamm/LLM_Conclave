@@ -1,0 +1,6 @@
+dev_agent_log:
+  - date: 2025-12-29
+    event: start_implementation
+    story: 2-3-hedged-requests-with-provider-substitution
+    status: backlog -> in-progress
+    notes: "Starting fresh implementation. Story was in backlog but file existed. Proceeding."

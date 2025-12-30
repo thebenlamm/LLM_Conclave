@@ -8,7 +8,7 @@ export interface CostEstimate {
 }
 
 export class CostEstimator {
-  private static readonly PRICING = {
+  public static readonly PRICING = {
     'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
     'gpt-4o': { input: 0.0025, output: 0.01 },
     'gemini-2.5-pro': { input: 0.00125, output: 0.005 },
@@ -37,7 +37,7 @@ export class CostEstimator {
     let totalUsd = 0;
     
     for (const agent of agents) {
-      const price = this.getPrice(agent.model);
+      const price = CostEstimator.getPrice(agent.model);
       
       // Cost for this agent
       // Input: question text sent once per agent for basic estimate
@@ -55,7 +55,7 @@ export class CostEstimator {
     };
   }
 
-  private getPrice(model: string): { input: number; output: number } {
+  public static getPrice(model: string): { input: number; output: number } {
     // Normalize model name if needed
     if (model.includes('claude')) return this.getPricing('claude-sonnet-4-5');
     if (model.includes('gpt-4o')) return this.getPricing('gpt-4o');
@@ -64,7 +64,34 @@ export class CostEstimator {
     return this.getPricing('default');
   }
   
-  private getPricing(key: keyof typeof CostEstimator.PRICING) {
+  public static getPricing(key: keyof typeof CostEstimator.PRICING) {
       return CostEstimator.PRICING[key] || CostEstimator.PRICING['default'];
+  }
+
+  /**
+   * Estimate token savings between unfiltered and filtered artifacts
+   */
+  public estimateTokenSavings(
+    unfilteredArtifacts: any[],
+    filteredArtifacts: any[]
+  ): number {
+    const unfilteredTokens = this.estimateTokens(JSON.stringify(unfilteredArtifacts));
+    const filteredTokens = this.estimateTokens(JSON.stringify(filteredArtifacts));
+    return Math.max(0, unfilteredTokens - filteredTokens);
+  }
+
+  /**
+   * Calculate efficiency percentage
+   * @param saved Tokens saved via filtering
+   * @param total Theoretical total tokens without filtering (used + saved)
+   */
+  public calculateEfficiencyPercentage(saved: number, total: number): number {
+    if (total === 0) return 0;
+    return (saved / total) * 100;
+  }
+
+  private estimateTokens(text: string): number {
+    // Rough estimate: 1 token ≈ 4 characters for English
+    return Math.ceil(text.length / 4);
   }
 }

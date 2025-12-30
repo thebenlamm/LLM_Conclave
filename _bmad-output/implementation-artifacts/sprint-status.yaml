@@ -59,7 +59,7 @@ development_status:
   2-3-hedged-requests-with-provider-substitution: review
   2-4-60-second-interactive-pulse-with-soft-timeouts: review
   2-5-session-persistence-with-partial-consensus-artifacts: done
-  2-6-token-efficient-debate-with-artifact-filtering: ready-for-dev
+  2-6-token-efficient-debate-with-artifact-filtering: review
   epic-2-retrospective: optional
 
   # Epic 3: Usage Analytics & Cost Visibility

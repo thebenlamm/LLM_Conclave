@@ -88,6 +88,9 @@ function createConsultCommand() {
             console.log('\n' + output + '\n');
         }
         catch (error) {
+            if (error?.message === 'Consultation cancelled by user') {
+                process.exit(0);
+            }
             console.error(chalk_1.default.red(`\n❌ Consultation failed: ${error.message}\n`));
             if (options.verbose) {
                 console.error(error.stack);
