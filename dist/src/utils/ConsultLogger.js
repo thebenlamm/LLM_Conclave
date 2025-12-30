@@ -38,6 +38,7 @@ const os = __importStar(require("os"));
 const path = __importStar(require("path"));
 const ArtifactTransformer_1 = require("../consult/artifacts/ArtifactTransformer");
 const MarkdownFormatter_1 = require("../consult/formatting/MarkdownFormatter");
+const AnalyticsIndexer_1 = require("../consult/analytics/AnalyticsIndexer");
 /**
  * ConsultLogger - persists consultation results for analytics
  * Saves both JSON (full result) and Markdown (summary) and maintains
@@ -46,6 +47,7 @@ const MarkdownFormatter_1 = require("../consult/formatting/MarkdownFormatter");
 class ConsultLogger {
     constructor() {
         this.logDir = path.join(os.homedir(), '.llm-conclave', 'consult-logs');
+        this.indexer = new AnalyticsIndexer_1.AnalyticsIndexer();
     }
     /**
      * Persist a consultation result to disk.
@@ -60,6 +62,8 @@ class ConsultLogger {
         const formatter = new MarkdownFormatter_1.MarkdownFormatter();
         await fs.promises.writeFile(markdownPath, formatter.format(result), 'utf-8');
         const indexPath = await this.updateMonthlyIndex(result);
+        // Index for SQLite analytics (Write-Through Pattern from Epic 3, Story 3.1)
+        this.indexer.indexConsultation(result);
         return { jsonPath, markdownPath, indexPath };
     }
     async ensureLogDir() {
