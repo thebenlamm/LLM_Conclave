@@ -53,7 +53,8 @@ jest.mock('../../consult/health/ProviderHealthMonitor', () => ({
     registerProvider: jest.fn(),
     startMonitoring: jest.fn(),
     stopMonitoring: jest.fn(),
-    hasHealthyProviders: jest.fn().mockReturnValue(true)
+    hasHealthyProviders: jest.fn().mockReturnValue(true),
+    hasCompletedFirstCheck: jest.fn().mockReturnValue(true)
   }))
 }));
 
@@ -245,15 +246,15 @@ describe('ConsultOrchestrator + CostGate Integration', () => {
         estimatedCostUsd: 0.001
       });
 
-      const logSpy = jest
-        .spyOn(orchestratorAny.fileLogger, 'logConsultation')
+      const partialSpy = jest
+        .spyOn(orchestratorAny.partialResultManager, 'savePartialResults')
         .mockResolvedValue(undefined);
 
       await expect(localOrchestrator.consult('test question')).rejects.toThrow(
         'Cost threshold exceeded'
       );
 
-      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(partialSpy).toHaveBeenCalledTimes(1);
     });
   });
 

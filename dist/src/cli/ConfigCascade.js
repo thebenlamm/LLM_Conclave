@@ -38,16 +38,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConfigCascade = void 0;
 const fs = __importStar(require("fs"));
-const path = __importStar(require("path"));
-const os = __importStar(require("os"));
 const ConfigLoader_1 = __importDefault(require("../core/ConfigLoader"));
+const ConfigPaths_1 = require("../utils/ConfigPaths");
 /**
  * Configuration cascading system following 12-Factor App principles
  * Priority (highest to lowest):
  * 1. CLI flags
  * 2. Environment variables (CONCLAVE_*)
  * 3. Project config (.llm-conclave.json)
- * 4. Global config (~/.config/llm-conclave/config.json)
+ * 4. Global config (~/.llm-conclave/config.json)
  * 5. Smart defaults (built-in)
  */
 class ConfigCascade {
@@ -114,7 +113,7 @@ class ConfigCascade {
      * Load global configuration from user's home directory
      */
     static loadGlobalConfig() {
-        const globalConfigPath = path.join(os.homedir(), '.config', 'llm-conclave', 'config.json');
+        const globalConfigPath = ConfigPaths_1.ConfigPaths.globalConfig;
         if (!fs.existsSync(globalConfigPath)) {
             return {};
         }
@@ -209,7 +208,7 @@ class ConfigCascade {
      */
     static shouldUseZeroConfig() {
         const projectConfigExists = fs.existsSync('.llm-conclave.json');
-        const globalConfigPath = path.join(os.homedir(), '.config', 'llm-conclave', 'config.json');
+        const globalConfigPath = ConfigPaths_1.ConfigPaths.globalConfig;
         const globalConfigExists = fs.existsSync(globalConfigPath);
         return !projectConfigExists && !globalConfigExists;
     }

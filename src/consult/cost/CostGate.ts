@@ -3,7 +3,7 @@ import { CostEstimate } from './CostEstimator';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { ConfigPaths } from '../../utils/ConfigPaths';
 
 export type ConsentResult = 'approved' | 'denied' | 'always';
 
@@ -100,7 +100,7 @@ export class CostGate {
    * @param amount - USD threshold amount
    */
   async saveAutoApproveThreshold(amount: number): Promise<void> {
-    const configPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
+    const configPath = ConfigPaths.globalConfig;
 
     // Ensure directory exists
     const configDir = path.dirname(configPath);
@@ -126,8 +126,18 @@ export class CostGate {
     }
     config.consult.alwaysAllowUnder = amount;
 
-    // Write back with pretty formatting
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    // Atomic write: write to temp file then rename
+    const tempPath = `${configPath}.tmp.${Date.now()}`;
+    try {
+      fs.writeFileSync(tempPath, JSON.stringify(config, null, 2), 'utf-8');
+      fs.renameSync(tempPath, configPath);
+    } catch (error: any) {
+      // Clean up temp file if it exists
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+      throw new Error(`Failed to save config atomically: ${error.message}`);
+    }
   }
 
   /**

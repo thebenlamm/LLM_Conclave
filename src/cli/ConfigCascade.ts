@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import ConfigLoader from '../core/ConfigLoader';
+import { ConfigPaths } from '../utils/ConfigPaths';
 
 /**
  * Configuration cascading system following 12-Factor App principles
@@ -79,7 +80,7 @@ export class ConfigCascade {
    * Load global configuration from user's home directory
    */
   private static loadGlobalConfig(): any {
-    const globalConfigPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
+    const globalConfigPath = ConfigPaths.globalConfig;
 
     if (!fs.existsSync(globalConfigPath)) {
       return {};
@@ -185,7 +186,7 @@ export class ConfigCascade {
    */
   static shouldUseZeroConfig(): boolean {
     const projectConfigExists = fs.existsSync('.llm-conclave.json');
-    const globalConfigPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
+    const globalConfigPath = ConfigPaths.globalConfig;
     const globalConfigExists = fs.existsSync(globalConfigPath);
 
     return !projectConfigExists && !globalConfigExists;

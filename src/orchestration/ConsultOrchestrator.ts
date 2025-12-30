@@ -12,6 +12,8 @@ import ProviderFactory from '../providers/ProviderFactory';
 import { EventBus } from '../core/EventBus';
 import { ConsultStateMachine } from './ConsultStateMachine';
 import { ArtifactExtractor } from '../consult/artifacts/ArtifactExtractor';
+import { ArtifactFilter } from '../consult/artifacts/ArtifactFilter';
+import { FilterConfig } from '../consult/artifacts/FilterConfig';
 import { CostEstimator, CostEstimate } from '../consult/cost/CostEstimator';
 import { CostGate } from '../consult/cost/CostGate';
 import { ConfigCascade } from '../cli/ConfigCascade';
@@ -38,7 +40,8 @@ import {
   CrossExamArtifact,
   VerdictArtifact,
   AgentResponse,
-  PromptVersions
+  PromptVersions,
+  TokenEfficiencyStats
 } from '../types/consult';
 
 type Round1ExecutionResult = {
@@ -54,6 +57,8 @@ export default class ConsultOrchestrator {
   private eventBus: EventBus;
   private consultationId: string;
   private costEstimator: CostEstimator;
+  private artifactFilter: ArtifactFilter;
+  private filterConfig: FilterConfig;
   private costGate: CostGate;
   private fileLogger: ConsultationFileLogger;
   private healthMonitor: ProviderHealthMonitor;
@@ -62,12 +67,16 @@ export default class ConsultOrchestrator {
   private partialResultManager: PartialResultManager;
   private estimatedCostUsd: number = 0;
   private actualCostUsd: number = 0;
+  private totalTokensUsed: number = 0;
+  private tokenSavings: { round3: number; round4: number } = { round3: 0, round4: 0 };
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
     this.verbose = options.verbose || false;
     this.eventBus = EventBus.getInstance();
     this.costEstimator = new CostEstimator();
+    this.artifactFilter = new ArtifactFilter();
+    this.filterConfig = new FilterConfig();
     this.costGate = new CostGate();
     this.fileLogger = new ConsultationFileLogger();
     this.hedgedRequestManager = new HedgedRequestManager(this.eventBus);
@@ -377,7 +386,7 @@ export default class ConsultOrchestrator {
       }
 
       // Generic error handling (Story 2.5 requirement: partial save on error/exception)
-      if (this.stateMachine.getCurrentState() !== ConsultState.Complete) {
+      if (this.stateMachine.getCurrentState() !== ConsultState.Complete && this.stateMachine.getCurrentState() !== ConsultState.Aborted) {
           this.stateMachine.transition(ConsultState.Aborted, error.message);
           await this.savePartialResults(
             'error',
@@ -406,6 +415,16 @@ export default class ConsultOrchestrator {
 
     // Determine if cost was exceeded
     const costExceeded = this.actualCostUsd > (this.estimatedCostUsd * 1.5);
+
+    // Calculate efficiency stats
+    const totalSaved = this.tokenSavings.round3 + this.tokenSavings.round4;
+    const efficiencyStats: TokenEfficiencyStats = {
+        tokens_used: this.totalTokensUsed,
+        tokens_saved_via_filtering: totalSaved,
+        efficiency_percentage: this.costEstimator.calculateEfficiencyPercentage(totalSaved, this.totalTokensUsed + totalSaved),
+        filtering_method: 'structured_artifact_array_truncation',
+        filtered_rounds: this.verbose ? [] : [3, 4]
+    };
 
     const result: ConsultationResult = {
       consultationId: this.consultationId,
@@ -443,7 +462,9 @@ export default class ConsultOrchestrator {
       // Cost tracking fields (Epic 2, Story 1)
       estimatedCost: this.estimatedCostUsd,
       actualCost: this.actualCostUsd,
-      costExceeded
+      costExceeded,
+      // Token efficiency (Epic 2, Story 6)
+      token_efficiency_stats: efficiencyStats
     };
 
     this.eventBus.emitEvent('consultation:completed' as any, {
@@ -557,11 +578,41 @@ export default class ConsultOrchestrator {
     
     if (this.verbose) console.log(`⚡ Judge (GPT-4o) generating Final Verdict...`);
 
+    // Apply filtering to R2 & R3 artifacts if not verbose (Round 4 Filter)
+    let filteredSynthesis = synthesisArtifact;
+    let filteredCrossExam = crossExamArtifact;
+
+    if (!this.verbose) {
+      const limits = this.filterConfig.getRound4Limits();
+      
+      // Filter Round 2
+      filteredSynthesis = this.artifactFilter.filterSynthesisArtifact(
+        synthesisArtifact, 
+        { consensusPoints: limits.consensus_points, tensions: limits.tensions }
+      );
+
+      // Filter Round 3 (if exists)
+      if (crossExamArtifact) {
+        filteredCrossExam = this.artifactFilter.filterCrossExamArtifact(
+          crossExamArtifact,
+          { challenges: limits.challenges, rebuttals: limits.rebuttals }
+        );
+
+        // Track savings
+        const r2Savings = this.costEstimator.estimateTokenSavings([synthesisArtifact], [filteredSynthesis]);
+        const r3Savings = this.costEstimator.estimateTokenSavings([crossExamArtifact], [filteredCrossExam]);
+        this.tokenSavings.round4 = r2Savings + r3Savings;
+      } else {
+        // Just R2 savings
+        this.tokenSavings.round4 = this.costEstimator.estimateTokenSavings([synthesisArtifact], [filteredSynthesis]);
+      }
+    }
+
     const judgeAgent = {
       name: 'Judge (Verdict)',
       model: 'gpt-4o',
       provider: ProviderFactory.createProvider('gpt-4o'),
-      systemPrompt: this.getVerdictPrompt(question, round1Artifacts, synthesisArtifact, crossExamArtifact)
+      systemPrompt: this.getVerdictPrompt(question, round1Artifacts, filteredSynthesis, filteredCrossExam)
     };
 
     this.eventBus.emitEvent('agent:thinking' as any, {
@@ -618,6 +669,19 @@ export default class ConsultOrchestrator {
     
     if (this.verbose) console.log(`⚡ Agents starting Cross-Examination...`);
 
+    // Apply filtering to R2 artifact if not verbose (Round 3 Filter)
+    let filteredSynthesis = synthesisArtifact;
+    if (!this.verbose) {
+        const limits = this.filterConfig.getRound3Limits();
+        filteredSynthesis = this.artifactFilter.filterSynthesisArtifact(
+            synthesisArtifact,
+            { consensusPoints: limits.consensus_points, tensions: limits.tensions }
+        );
+        
+        // Track savings
+        this.tokenSavings.round3 = this.costEstimator.estimateTokenSavings([synthesisArtifact], [filteredSynthesis]);
+    }
+
     // 1. Parallel execution of all agents
     const promises = this.agents.map(async (agent) => {
       // Find this agent's Round 1 artifact
@@ -627,7 +691,7 @@ export default class ConsultOrchestrator {
           return null;
       }
       
-      const systemPrompt = this.getCrossExamPrompt(agent.name, r1Artifact, synthesisArtifact);
+      const systemPrompt = this.getCrossExamPrompt(agent.name, r1Artifact, filteredSynthesis);
       
       this.eventBus.emitEvent('agent:thinking' as any, {
         consultation_id: this.consultationId,
@@ -1138,10 +1202,11 @@ export default class ConsultOrchestrator {
     model: string
   ): void {
     const normalized = this.normalizeUsage(usage);
-    const pricing = this.getPricingForModel(model);
+    const pricing = CostEstimator.getPrice(model);
     const inputCost = (normalized.input / 1000) * pricing.input;
     const outputCost = (normalized.output / 1000) * pricing.output;
     this.actualCostUsd += inputCost + outputCost;
+    this.totalTokensUsed += normalized.total;
   }
 
   /**
@@ -1163,25 +1228,7 @@ export default class ConsultOrchestrator {
     }
   }
 
-  /**
-   * Get pricing for a model
-   * (Reuses pricing from CostEstimator)
-   */
-  private getPricingForModel(model: string): { input: number; output: number } {
-    const PRICING: Record<string, { input: number; output: number }> = {
-      'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
-      'gpt-4o': { input: 0.0025, output: 0.01 },
-      'gemini-2.5-pro': { input: 0.00125, output: 0.005 },
-      'default': { input: 0.003, output: 0.015 }
-    };
 
-    // Normalize model name
-    if (model.includes('claude')) return PRICING['claude-sonnet-4-5'];
-    if (model.includes('gpt-4o')) return PRICING['gpt-4o'];
-    if (model.includes('gemini')) return PRICING['gemini-2.5-pro'];
-
-    return PRICING['default'];
-  }
 
   /**
    * Common JSON instruction for all agents
