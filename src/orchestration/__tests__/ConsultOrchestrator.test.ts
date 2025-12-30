@@ -55,6 +55,7 @@ describe('ConsultOrchestrator Story 1.2', () => {
     // Setup Mock EventBus
     mockEventBus = {
       emitEvent: jest.fn(),
+      on: jest.fn(),
       getInstance: jest.fn().mockReturnThis()
     };
     (EventBus.getInstance as jest.Mock).mockReturnValue(mockEventBus);

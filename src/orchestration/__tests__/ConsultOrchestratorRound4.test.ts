@@ -59,6 +59,7 @@ describe('ConsultOrchestrator Round 4: Verdict', () => {
 
     mockEventBus = {
       emitEvent: jest.fn(),
+      on: jest.fn(),
       getInstance: jest.fn().mockReturnThis()
     };
     (EventBus.getInstance as jest.Mock).mockReturnValue(mockEventBus);

@@ -35,6 +35,7 @@ class ConsultOrchestrator {
         this.actualCostUsd = 0;
         this.totalTokensUsed = 0;
         this.tokenSavings = { round3: 0, round4: 0 };
+        this.substitutions = []; // Track provider substitutions for AC #4
         this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
         this.verbose = options.verbose || false;
         this.eventBus = EventBus_1.EventBus.getInstance();
@@ -58,6 +59,10 @@ class ConsultOrchestrator {
             this.healthMonitor.registerProvider(model);
         });
         this.healthMonitor.startMonitoring();
+        // Subscribe to provider substitution events (Story 2.3 AC #4)
+        this.eventBus.on('consultation:provider_substituted', (data) => {
+            this.substitutions.push(data);
+        });
     }
     /**
      * Initialize the 3 consultation agents
@@ -155,7 +160,9 @@ class ConsultOrchestrator {
                 agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
                 mode: 'converge' // Default for now
             });
+            // Display verbose mode message (AC #5)
             if (this.verbose) {
+                console.log(chalk_1.default.cyan('🔍 Verbose mode: using full debate artifacts (higher token cost)'));
                 console.log(`\n${'='.repeat(80)}`);
                 console.log(`CONSULTATION: ${question}`);
                 console.log(`${'='.repeat(80)}\n`);
@@ -346,12 +353,18 @@ class ConsultOrchestrator {
             actualCost: this.actualCostUsd,
             costExceeded,
             // Token efficiency (Epic 2, Story 6)
-            token_efficiency_stats: efficiencyStats
+            token_efficiency_stats: efficiencyStats,
+            // Provider substitutions (Epic 2, Story 2.3 AC #4)
+            substitutions: this.substitutions
         };
         this.eventBus.emitEvent('consultation:completed', {
             consultation_id: this.consultationId,
             result
         });
+        // Display token efficiency stats to user (Story 2.6, Fix #3)
+        if (!this.verbose && efficiencyStats.tokens_saved_via_filtering > 0) {
+            console.log(chalk_1.default.green(`\n💰 Token Efficiency: Saved ${efficiencyStats.tokens_saved_via_filtering} tokens (${efficiencyStats.efficiency_percentage.toFixed(1)}%) via artifact filtering`));
+        }
         // Log consultation to files (Story 1.8)
         // This is async but we don't await to avoid blocking result delivery
         this.fileLogger.logConsultation(result).catch(err => {

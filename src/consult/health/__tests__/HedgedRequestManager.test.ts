@@ -36,13 +36,15 @@ describe('HedgedRequestManager', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockEventBus = { emitEvent: jest.fn() } as any; // Simple mock object
-    mockHealthMonitor = { 
-      getHealth: jest.fn(), 
-      healthStatus: new Map([
-        ['gpt-4o', { status: 'HEALTHY' }],
-        ['claude-sonnet-4.5', { status: 'HEALTHY' }],
-        ['gpt-4', { status: 'HEALTHY' }]
-      ])
+    const healthStatusMap = new Map([
+      ['gpt-4o', { status: 'HEALTHY' }],
+      ['claude-sonnet-4.5', { status: 'HEALTHY' }],
+      ['gpt-4', { status: 'HEALTHY' }]
+    ]);
+    mockHealthMonitor = {
+      getHealth: jest.fn(),
+      getAllHealthStatus: jest.fn().mockReturnValue(healthStatusMap),
+      healthStatus: healthStatusMap
     } as any;
     
     // Default mocks

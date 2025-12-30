@@ -10,6 +10,7 @@ jest.mock('../../core/EventBus', () => ({
   EventBus: {
     getInstance: () => ({
       emitEvent: jest.fn(),
+      on: jest.fn(),
       subscribe: jest.fn()
     })
   }
