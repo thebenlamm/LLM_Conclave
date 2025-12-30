@@ -608,12 +608,50 @@ Claude Sonnet 4.5 (claude-sonnet-4-5-20250929)
   - Format: "Consultation cancelled by user after {elapsed}s"
 - All tests passing: InteractivePulse (8/8), ConsultOrchestratorPulse (1/1), related integration tests (26/27)
 
+**Code Review Fixes (2025-12-30):**
+- Fixed HIGH: Added pulse tracking fields to normal ConsultationResult (AC #3 compliance)
+  - Added instance properties: `pulseTriggered`, `pulseTimestamp`, `userCancelledViaPulse`
+  - Track pulse events in Round 1 and Round 3 execution
+  - Include fields in final ConsultationResult object
+  - Locations: `src/orchestration/ConsultOrchestrator.ts:75-77, 373, 492-494, 756-759, 938-941`
+- Fixed HIGH: Updated File List with all 20 files actually modified (was 7, missing 13)
+  - Added comprehensive categorization: Core, Tests, Configuration, Related Components, Workflow
+  - Location: Story Dev Agent Record → File List
+- Fixed MEDIUM: Added SIGINT/SIGTERM process signal handlers for graceful cleanup
+  - Ensures pulse timers cleaned up on Ctrl+C or process kill
+  - Location: `src/orchestration/ConsultOrchestrator.ts:103-111`
+- Fixed MEDIUM: Added comprehensive integration tests for pulse scenarios
+  - Tests for AC #2 (user continues), AC #3 (user cancels), AC #4 (multiple agents), AC #5 (fast completion)
+  - Location: `src/orchestration/__tests__/ConsultOrchestratorPulse.test.ts`
+
 ### File List
+**Core Implementation:**
 - src/consult/health/InteractivePulse.ts (New)
-- src/consult/health/__tests__/InteractivePulse.test.ts (New)
 - src/orchestration/ConsultOrchestrator.ts (Modified)
 - src/types/consult.ts (Modified)
+
+**Tests:**
+- src/consult/health/__tests__/InteractivePulse.test.ts (New)
 - src/orchestration/__tests__/ConsultOrchestratorPulse.test.ts (New - Integration Test)
+- src/orchestration/__tests__/ConsultOrchestrator.test.ts (Modified - updated for pulse)
+- src/orchestration/__tests__/ConsultOrchestratorRound2.test.ts (Modified - updated for pulse)
+- src/orchestration/__tests__/ConsultOrchestratorRound3.test.ts (Modified - updated for pulse)
+- src/orchestration/__tests__/ConsultOrchestratorRound4.test.ts (Modified - updated for pulse)
+- src/consult/cost/__tests__/CostGate.test.ts (Modified - test infrastructure updates)
+
+**Configuration & CLI:**
+- src/cli/ConfigCascade.ts (Modified - pulse timeout config support)
+- src/commands/consult.ts (Modified - CLI integration)
 - jest.config.js (Modified)
 - tsconfig.json (Modified)
+
+**Related Components (Modified for pulse integration):**
+- src/consult/cost/CostGate.ts (Modified - interaction with pulse timing)
+- src/consult/health/ProviderHealthMonitor.ts (Modified - pulse integration)
+
+**Workflow Tracking:**
+- _bmad-output/bmm-workflow-status.yaml (Modified)
+- _bmad-output/implementation-artifacts/2-1-user-consent-flow-with-cost-gate.md (Modified - related story)
+- _bmad-output/implementation-artifacts/2-4-60-second-interactive-pulse-with-soft-timeouts.md (This file)
+- _bmad-output/implementation-artifacts/sprint-status.yaml (Modified)
 

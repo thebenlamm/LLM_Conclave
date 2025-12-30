@@ -53,11 +53,11 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Cost Controls & Resilience
-  epic-2: in-progress
+  epic-2: done
   2-1-user-consent-flow-with-cost-gate: done
   2-2-provider-health-monitoring-system: done
   2-3-hedged-requests-with-provider-substitution: done
-  2-4-60-second-interactive-pulse-with-soft-timeouts: review
+  2-4-60-second-interactive-pulse-with-soft-timeouts: done
   2-5-session-persistence-with-partial-consensus-artifacts: done
   2-6-token-efficient-debate-with-artifact-filtering: done
   epic-2-retrospective: optional
