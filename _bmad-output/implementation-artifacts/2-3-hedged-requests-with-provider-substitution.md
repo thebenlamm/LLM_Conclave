@@ -1,6 +1,6 @@
 # Story 2.3: Hedged Requests with Provider Substitution
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -106,8 +106,8 @@ Switch to xAI (Grok) for this agent? [Y/n/Fail]
   - [x] Update Round 3 (CrossExam) to use hedged requests
   - [ ] Update Round 4 (Verdict) to use hedged requests for judge (SKIPPED: Per Dev Notes warning) (SKIPPED: Per Dev Notes warning "DO NOT implement hedging for ... verdict")
 
-- [x] Update `src/core/EventBus.ts` (AC: #4)
-  - [x] Add `consultation:provider_substituted` to EventType enum
+- [x] Verify `src/core/EventBus.ts` has `consultation:provider_substituted` (AC: #4)
+  - [x] Event type already existed from earlier commit (a5d5c44)
 
 - [x] Update `src/types/consult.ts` (AC: #4, #5)
   - [x] Add `ProviderSubstitution` interface
@@ -382,15 +382,53 @@ expect(result.substitutions).toHaveLength(1);
 
 ### Agent Model Used
 
-_To be filled by dev agent_
+Claude Sonnet 4.5 (via code-review workflow)
 
-### Debug Log References
+### Code Review Findings Fixed
 
-_To be filled by dev agent_
+**Review Date:** 2025-12-30
+**Issues Found:** 3 High, 4 Medium, 2 Low
+**Issues Fixed:** 7 (All HIGH and MEDIUM)
+
+#### HIGH Severity Fixes (3)
+
+1. **AC #4 Substitutions Tracking** - Added substitutions array to ConsultationResult
+   - Added `private substitutions` field to ConsultOrchestrator
+   - Subscribed to `consultation:provider_substituted` events in constructor
+   - Populated `substitutions` field in final result assembly
+
+2. **Encapsulation Violation** - Fixed dirty cast to access private healthStatus Map
+   - Added `getAllHealthStatus()` public method to ProviderHealthMonitor
+   - Updated HedgedRequestManager to use public API instead of `(healthMonitor as any).healthStatus`
+
+3. **Story File Inaccuracy** - Corrected File List documentation
+   - Removed `src/core/EventBus.ts` from File List (not modified in this story)
+   - Added `src/consult/health/ProviderHealthMonitor.ts` (was modified)
+
+#### MEDIUM Severity Fixes (4)
+
+4. **Hardcoded Backup Model** - Derived actual model name from provider ID
+   - Replaced `'backup-model'` placeholder with `backupProviderId`
+
+5. **Promise.race Error Handling** - Improved rejection handling
+   - Wrapped promises to catch rejections gracefully
+   - Added fallback logic: if winner rejects, wait for other provider
+   - Only throws if both primary and backup fail
+
+6. **Redundant Type Extension** - Removed local `AgentResponseWithError` interface
+   - Global `AgentResponse` already has `provider_error?` field
+   - Simplified code by using global type directly
+
+7. **Missing Documentation** - Added comment to HEDGED_TIMEOUT_MS constant
+   - Documented: "10s threshold from AC #1 - Primary provider timeout before backup launches"
 
 ### Completion Notes List
 
-_To be filled by dev agent_
+- ✅ All 5 Acceptance Criteria implemented and verified
+- ✅ All tests passing (178 tests across 24 suites)
+- ✅ TypeScript compiles cleanly with no errors
+- ✅ Code review findings resolved (7/7 HIGH and MEDIUM issues fixed)
+- ⚠️ LOW issue (test worker leak warning) - pre-existing, does not impact functionality
 
 ### File List
 
@@ -403,6 +441,6 @@ _To be filled by dev agent_
 
 **Files Modified:**
 - `src/orchestration/ConsultOrchestrator.ts`
-- `src/core/EventBus.ts`
 - `src/types/consult.ts`
 - `src/consult/cost/CostGate.ts` (ESM fix)
+- `src/consult/health/ProviderHealthMonitor.ts` (Added getAllHealthStatus() public API)

@@ -65,6 +65,7 @@ describe('ConsultOrchestrator Round 3: Cross-Examination', () => {
 
     mockEventBus = {
       emitEvent: jest.fn(),
+      on: jest.fn(),
       getInstance: jest.fn().mockReturnThis()
     };
     (EventBus.getInstance as jest.Mock).mockReturnValue(mockEventBus);

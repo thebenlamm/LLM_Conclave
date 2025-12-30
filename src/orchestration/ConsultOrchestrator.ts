@@ -69,6 +69,7 @@ export default class ConsultOrchestrator {
   private actualCostUsd: number = 0;
   private totalTokensUsed: number = 0;
   private tokenSavings: { round3: number; round4: number } = { round3: 0, round4: 0 };
+  private substitutions: any[] = []; // Track provider substitutions for AC #4
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
@@ -97,8 +98,13 @@ export default class ConsultOrchestrator {
     Object.keys(PROVIDER_TIER_MAP).forEach(model => {
         this.healthMonitor.registerProvider(model);
     });
-    
+
     this.healthMonitor.startMonitoring();
+
+    // Subscribe to provider substitution events (Story 2.3 AC #4)
+    this.eventBus.on('consultation:provider_substituted', (data: any) => {
+      this.substitutions.push(data);
+    });
   }
 
   /**
@@ -466,7 +472,9 @@ export default class ConsultOrchestrator {
       actualCost: this.actualCostUsd,
       costExceeded,
       // Token efficiency (Epic 2, Story 6)
-      token_efficiency_stats: efficiencyStats
+      token_efficiency_stats: efficiencyStats,
+      // Provider substitutions (Epic 2, Story 2.3 AC #4)
+      substitutions: this.substitutions
     };
 
     this.eventBus.emitEvent('consultation:completed' as any, {

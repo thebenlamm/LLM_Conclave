@@ -65,7 +65,7 @@ describe('ConsultOrchestrator Hedging Integration', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockEventBus = { emitEvent: jest.fn() } as any;
+    mockEventBus = { emitEvent: jest.fn(), on: jest.fn() } as any;
     (EventBus.getInstance as jest.Mock).mockReturnValue(mockEventBus);
     
     // Setup HedgedManager mock

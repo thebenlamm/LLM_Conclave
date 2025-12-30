@@ -103,6 +103,14 @@ export class ProviderHealthMonitor {
   }
 
   /**
+   * Get all health statuses as a Map
+   * Used by HedgedRequestManager for backup provider selection
+   */
+  public getAllHealthStatus(): Map<string, ProviderHealth> {
+    return this.healthStatus;
+  }
+
+  /**
    * Run checks for all registered providers
    */
   private async runHealthChecks(): Promise<void> {

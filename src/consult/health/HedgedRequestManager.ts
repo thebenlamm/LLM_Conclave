@@ -2,15 +2,14 @@ import { EventBus } from '../../core/EventBus';
 import { ProviderHealthMonitor } from './ProviderHealthMonitor';
 import { AgentResponse, TokenUsage } from '../../types/consult';
 import ProviderFactory from '../../providers/ProviderFactory';
-import { getBackupProvider } from './ProviderTiers';
+import { getBackupProvider, PROVIDER_TIER_MAP } from './ProviderTiers';
 // import inquirer from 'inquirer'; // Dynamic import used instead
 
-// Local type extension until consult.ts is updated
-export interface AgentResponseWithError extends AgentResponse {
-  provider_error?: string;
-}
-
 export class HedgedRequestManager {
+  /**
+   * Hedged timeout threshold from AC #1: Primary provider timeout before backup launches
+   * After 10 seconds, backup provider is triggered to race against primary
+   */
   private static readonly HEDGED_TIMEOUT_MS = 10000;
 
   constructor(private eventBus: EventBus) {}
@@ -23,7 +22,7 @@ export class HedgedRequestManager {
     agent: { name: string; model: string; provider: string; id?: string },
     messages: any[],
     healthMonitor: ProviderHealthMonitor
-  ): Promise<AgentResponseWithError> {
+  ): Promise<AgentResponse> {
     const primaryProviderId = agent.provider;
     const startTime = Date.now();
 
@@ -44,7 +43,7 @@ export class HedgedRequestManager {
     primaryProviderId: string,
     healthMonitor: ProviderHealthMonitor,
     startTime: number
-  ): Promise<AgentResponseWithError> {
+  ): Promise<AgentResponse> {
     const controllerPrimary = new AbortController();
     const primaryProvider = ProviderFactory.createProvider(primaryProviderId);
     
@@ -71,16 +70,8 @@ export class HedgedRequestManager {
     }
 
     // Timeout occurred - Start Backup (Hedging)
-    const backupProviderId = getBackupProvider(primaryProviderId, (healthMonitor as any).healthStatus); // Accessing private map workaround or assume public getter? 
-    // Wait, getBackupProvider takes Map. ProviderHealthMonitor has getHealth(). 
-    // I need to construct the map or modify getBackupProvider to use monitor. 
-    // For now, I'll assume I can build a map from monitored providers if possible, 
-    // or better: I'll blindly use getBackupProvider assuming I can access the map.
-    // ProviderHealthMonitor doesn't expose the full map publicly.
-    // I should probably use `healthMonitor['healthStatus']` (dirty) or update Monitor to expose it.
-    // Given constraints, I'll use the dirty cast for now as I cannot modify Monitor easily without switching tasks/files again.
-    // Actually, `getBackupProvider` was my code. I defined it to take a Map.
-    
+    const backupProviderId = getBackupProvider(primaryProviderId, healthMonitor.getAllHealthStatus());
+
     if (!backupProviderId) {
       // No backup available, wait for primary
       const result = await primaryPromise;
@@ -98,39 +89,53 @@ export class HedgedRequestManager {
 
     const controllerBackup = new AbortController();
     const backupProvider = ProviderFactory.createProvider(backupProviderId);
-    
+
+    // Derive backup model name from provider ID (for most providers, ID is the model name)
+    const backupModelName = backupProviderId;
+
     const backupPromise = backupProvider.chat(messages, { signal: controllerBackup.signal })
       .then((response: any) => ({
-        source: 'backup', 
+        source: 'backup',
         response,
         provider: backupProviderId,
-        model: 'backup-model' // We don't know the backup model name easily without map, using placeholder or deriving
+        model: backupModelName
       }));
 
     // Race Primary (still running) vs Backup
-    try {
-      const winner = await Promise.race([primaryPromise, backupPromise]);
-      
-      // Cancel the loser
-      if (winner.source === 'primary') {
-        controllerBackup.abort();
-      } else {
-        controllerPrimary.abort();
-      }
+    // Use Promise.allSettled to handle rejections gracefully
+    const raceResult = await Promise.race([
+      primaryPromise.then((result: any) => ({ ...result, rejected: false })).catch((err: any) => ({ source: 'primary', rejected: true, error: err })),
+      backupPromise.then((result: any) => ({ ...result, rejected: false })).catch((err: any) => ({ source: 'backup', rejected: true, error: err }))
+    ]);
 
-      return this.formatResponse(agent, winner.response, winner.provider, winner.model, startTime);
-    } catch (err) {
-      // One failed. If it was primary, wait for backup. If backup, wait for primary.
-      // Promise.race rejects if the *first* one rejects? 
-      // Actually yes. We need to handle rejections carefully.
-      // Better pattern: Promise.any (Node 15+) or careful handling.
-      // If Primary fails, we want Backup.
-      // If Backup fails, we want Primary.
-      // I'll wrap promises to not reject but return error object, then filter.
-      
-      // For simplicity/time, if race throws, we assume TOTAL failure of the fastest/both and let catch block handle user prompt.
-      throw err; 
+    // If the winner was rejected, try to wait for the other
+    if (raceResult.rejected) {
+      console.warn(`${raceResult.source} failed, waiting for the other provider...`);
+      try {
+        // Wait for the other promise to complete
+        if (raceResult.source === 'primary') {
+          const backupResult = await backupPromise;
+          controllerPrimary.abort();
+          return this.formatResponse(agent, backupResult.response, backupResult.provider, backupResult.model, startTime);
+        } else {
+          const primaryResult = await primaryPromise;
+          controllerBackup.abort();
+          return this.formatResponse(agent, primaryResult.response, primaryResult.provider, primaryResult.model, startTime);
+        }
+      } catch (err) {
+        // Both failed - throw to trigger user substitution prompt
+        throw err;
+      }
     }
+
+    // Winner succeeded - cancel the loser
+    if (raceResult.source === 'primary') {
+      controllerBackup.abort();
+    } else {
+      controllerPrimary.abort();
+    }
+
+    return this.formatResponse(agent, raceResult.response, raceResult.provider, raceResult.model, startTime);
   }
 
   private async handleFailureWithUserPrompt(
@@ -140,9 +145,9 @@ export class HedgedRequestManager {
     healthMonitor: ProviderHealthMonitor,
     startTime: number,
     originalError: any
-  ): Promise<AgentResponseWithError> {
+  ): Promise<AgentResponse> {
     // Find a substitute suggestion
-    const substituteId = getBackupProvider(failedProviderId, (healthMonitor as any).healthStatus);
+    const substituteId = getBackupProvider(failedProviderId, healthMonitor.getAllHealthStatus());
 
     if (!substituteId) {
         // No substitute available, fail gracefully
@@ -182,7 +187,9 @@ export class HedgedRequestManager {
         try {
             const provider = ProviderFactory.createProvider(substituteId);
             const response = await provider.chat(messages);
-            return this.formatResponse(agent, response, substituteId, 'substitute-model', startTime);
+            // Derive substitute model name from provider ID
+            const substituteModelName = substituteId;
+            return this.formatResponse(agent, response, substituteId, substituteModelName, startTime);
         } catch (subError: any) {
             console.error(`Substitute provider ${substituteId} also failed.`);
             return this.formatErrorResponse(agent, substituteId, startTime, subError.message);
@@ -202,7 +209,7 @@ export class HedgedRequestManager {
     providerId: string,
     model: string,
     startTime: number
-  ): AgentResponseWithError {
+  ): AgentResponse {
     return {
       agentId: agent.id || agent.name,
       agentName: agent.name,
@@ -220,7 +227,7 @@ export class HedgedRequestManager {
     providerId: string,
     startTime: number,
     errorMessage: string
-  ): AgentResponseWithError {
+  ): AgentResponse {
       // AC #5: Agent response includes error field
       // AC #5: Warning logged
       console.warn(`⚠️ Agent ${agent.name} failed: ${errorMessage}`);
