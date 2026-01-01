@@ -20,6 +20,7 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
 - **Session Persistence & Continuation**: Automatically saves all conversations with ability to ask follow-up questions and continue discussions
 - **Flexible Configuration**: Use the same model multiple times with different system prompts
 - **Web UI Dashboard**: Real-time browser-based dashboard to manage sessions, view live token streams, and monitor agent activity.
+- **MCP Server**: Expose consultation capabilities as tools for ANY AI assistant (Claude Desktop, Cursor, VS Code, etc.) via Model Context Protocol
 - **Autonomous Operation**: Runs fully autonomously after task submission
 - **Comprehensive Output**: Saves full transcript, consensus, cost logs, and JSON data
 
@@ -358,6 +359,59 @@ Sessions are stored in `~/.llm-conclave/sessions/` with this structure:
 ```
 
 Sessions persist across projects and directories, making it easy to continue conversations from anywhere.
+
+## MCP Server (Model Context Protocol)
+
+**NEW**: Expose llm_conclave's multi-agent consultation capabilities as tools for ANY AI assistant!
+
+Instead of running CLI commands yourself, let your AI assistant invoke consultations as part of solving your problems.
+
+### Quick Setup
+
+1. **Build the MCP server:**
+   ```bash
+   npm run build
+   ```
+
+2. **Configure Claude Desktop** (or any MCP-compatible client):
+
+   Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+
+   ```json
+   {
+     "mcpServers": {
+       "llm-conclave": {
+         "command": "node",
+         "args": ["/absolute/path/to/llm_conclave/dist/src/mcp/server.js"],
+         "env": {
+           "OPENAI_API_KEY": "sk-...",
+           "ANTHROPIC_API_KEY": "sk-ant-...",
+           "GOOGLE_API_KEY": "AIza..."
+         }
+       }
+     }
+   }
+   ```
+
+3. **Restart Claude Desktop**
+
+4. **Use the tools:**
+   ```
+   "Use llm_conclave_consult to get expert consensus on whether
+   I should use OAuth or JWT for authentication"
+   ```
+
+### Available Tools
+
+- **`llm_conclave_consult`** - Fast 4-round multi-model consultation (Security Expert, Architect, Pragmatist)
+- **`llm_conclave_discuss`** - Democratic consensus discussion with custom personas
+- **`llm_conclave_iterate`** - Iterative collaborative mode for chunk-based work
+- **`llm_conclave_stats`** - Usage analytics and cost tracking
+- **`llm_conclave_list_sessions`** - Browse past consultation sessions
+
+**Full documentation:** See [`docs/MCP_SERVER.md`](docs/MCP_SERVER.md)
+
+**Example config:** See [`mcp-config-example.json`](mcp-config-example.json)
 
 ## Using Streaming and Cost Monitoring
 

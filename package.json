@@ -9,7 +9,9 @@
   "scripts": {
     "start": "ts-node index.ts",
     "dev": "ts-node index.ts",
-    "build": "tsc && chmod +x dist/index.js",
+    "build": "tsc && chmod +x dist/index.js && chmod +x dist/src/mcp/server.js",
+    "mcp-server": "node dist/src/mcp/server.js",
+    "mcp-dev": "ts-node src/mcp/server.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -32,6 +34,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.1",
     "@google/genai": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.25.1",
     "better-sqlite3": "^12.5.0",
     "chalk": "^4.1.2",
     "commander": "^14.0.2",
