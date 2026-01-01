@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "llm-conclave": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/llm_conclave/dist/src/mcp/server.js"
+      ],
+      "env": {
+        "OPENAI_API_KEY": "your-openai-key",
+        "ANTHROPIC_API_KEY": "your-anthropic-key",
+        "GOOGLE_API_KEY": "your-google-key",
+        "XAI_API_KEY": "your-xai-key",
+        "MISTRAL_API_KEY": "your-mistral-key"
+      }
+    }
+  }
+}
