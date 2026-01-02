@@ -68,12 +68,12 @@ describe('EarlyTerminationManager', () => {
   });
 
   describe('promptUserForEarlyTermination', () => {
-    it('calls promptFn with formatted message', async () => {
+    it('calls promptFn with formatted message including [Y/n]', async () => {
       promptFn.mockResolvedValue(true);
       const result = await manager.promptUserForEarlyTermination(0.925);
-      
+
       expect(promptFn).toHaveBeenCalledWith(expect.stringContaining('confidence: 93%'));
-      expect(promptFn).toHaveBeenCalledWith(expect.stringContaining('Terminate early and skip Rounds 3-4?'));
+      expect(promptFn).toHaveBeenCalledWith(expect.stringContaining('Terminate early and skip Rounds 3-4? [Y/n]'));
       expect(result).toBe(true);
     });
   });

@@ -35,7 +35,7 @@ export class EarlyTerminationManager {
     const percentConfidence = Math.round(confidence * 100);
     return this.promptFn(
       `✨ Strong consensus reached (confidence: ${percentConfidence}%)\n` +
-      `Terminate early and skip Rounds 3-4?`
+      `Terminate early and skip Rounds 3-4? [Y/n]`
     );
   }
 }

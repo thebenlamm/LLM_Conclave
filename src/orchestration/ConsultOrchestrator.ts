@@ -252,7 +252,10 @@ export default class ConsultOrchestrator {
     let pulseTriggered = false;
     let pulseTimestamp: string | undefined;
     let userCancelledAfterPulse = false;
-    
+
+    // Early termination tracking (Epic 4, Story 2, AC #4)
+    let earlyTerminationDeclined = false;
+
     try {
       // Start consultation lifecycle
       this.stateMachine.transition(ConsultState.Estimating);
@@ -371,24 +374,24 @@ export default class ConsultOrchestrator {
       // --- Early Termination Check (Epic 4, Story 2) ---
       if (synthesisArtifact && this.earlyTerminationManager.shouldCheckEarlyTermination(this.strategy.name, 2)) {
           const synthesisConfidence = this.earlyTerminationManager.calculateSynthesisConfidence(synthesisArtifact);
-          
+
           if (this.earlyTerminationManager.meetsEarlyTerminationCriteria(synthesisConfidence, this.confidenceThreshold)) {
               // Prompt user
               const userAccepts = await this.earlyTerminationManager.promptUserForEarlyTermination(synthesisConfidence);
-              
+
               if (userAccepts) {
                   // Early termination accepted
                   if (this.verbose) console.log(chalk.green('✓ Early termination accepted by user. Skipping Rounds 3 & 4.'));
-                  
+
                   // Synthesize verdict from synthesis
                   verdictArtifact = this.synthesizeVerdictFromSynthesis(synthesisArtifact);
-                  
+
                   // Calculate savings
                   const estimatedSavings = this.costEstimator.calculateEarlyTerminationSavings(this.agents, 2); // Skipping R3 & R4
-                  
+
                   // Transition directly to Complete
                   this.stateMachine.transition(ConsultState.Complete);
-                  
+
                   // Return result immediately
                   return this.createFinalResult({
                       question,
@@ -404,9 +407,14 @@ export default class ConsultOrchestrator {
                       estimatedCostSaved: estimatedSavings
                   });
               } else {
+                  // User declined early termination (AC #4)
+                  earlyTerminationDeclined = true;
                   if (this.verbose) console.log(chalk.yellow('User declined early termination. Continuing to Round 3.'));
               }
           }
+      } else if (synthesisArtifact && this.strategy.name === 'explore') {
+          // Display explore mode message (AC #6)
+          console.log(chalk.cyan('🔍 Explore mode: all rounds will execute'));
       }
 
       // --- State: CrossExam (Round 3) ---
@@ -514,7 +522,9 @@ export default class ConsultOrchestrator {
         successfulArtifacts,
         synthesisArtifact,
         crossExamArtifact,
-        verdictArtifact
+        verdictArtifact,
+        // AC #4: Log earlyTermination: false when user declined
+        earlyTermination: earlyTerminationDeclined ? false : undefined
     });
   }
 
@@ -1403,6 +1413,37 @@ export default class ConsultOrchestrator {
   }
 
 
+
+  /**
+   * Helper to synthesize a verdict directly from the Synthesis artifact
+   * Used for early termination (Epic 4, Story 2)
+   */
+  private synthesizeVerdictFromSynthesis(synthesis: SynthesisArtifact): VerdictArtifact {
+    // Use highest confidence consensus point as recommendation
+    const sortedPoints = [...synthesis.consensusPoints].sort((a, b) => b.confidence - a.confidence);
+    const topPoint = sortedPoints[0];
+
+    // Average confidence from consensus points
+    const avgConfidence = this.earlyTerminationManager.calculateSynthesisConfidence(synthesis);
+
+    // Map tensions to dissent
+    const dissent: Dissent[] = synthesis.tensions.map(t => ({
+      agent: t.viewpoints[0]?.agent || 'unknown',
+      concern: t.topic,
+      severity: 'medium' as const
+    }));
+
+    return {
+      artifactType: 'verdict',
+      schemaVersion: '1.0',
+      roundNumber: 4,
+      recommendation: topPoint?.point || 'No clear recommendation (synthesized from early termination)',
+      confidence: avgConfidence,
+      evidence: synthesis.consensusPoints.map(cp => cp.point),
+      dissent,
+      createdAt: new Date().toISOString()
+    };
+  }
 
   /**
    * Get Security Expert system prompt

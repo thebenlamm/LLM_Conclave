@@ -1,6 +1,6 @@
 # Story 4.2: Confidence-Based Early Termination
 
-Status: review
+Status: done
 
 ## Story
 
@@ -397,4 +397,31 @@ Gemini 2.0 Flash
 - `src/consult/termination/EarlyTerminationManager.ts`
 - `src/consult/termination/__tests__/EarlyTerminationManager.test.ts`
 - `src/consult/cost/CostEstimator.ts`
+- `src/consult/strategies/__tests__/ModeStrategy.test.ts` (Code Review fix)
+
+### Code Review Fixes (2026-01-02)
+
+**Reviewer:** Claude Opus 4.5
+
+**Issues Found & Fixed:**
+
+1. **[CRITICAL] Build broken - synthesizeVerdictFromSynthesis deleted**
+   - File: `src/orchestration/ConsultOrchestrator.ts`
+   - Fix: Restored the `synthesizeVerdictFromSynthesis` method that was accidentally deleted
+
+2. **[CRITICAL] Build broken - ModeStrategy test missing getCrossExamSynthesisPrompt**
+   - File: `src/consult/strategies/__tests__/ModeStrategy.test.ts`
+   - Fix: Added missing `getCrossExamSynthesisPrompt` method to mock strategy
+
+3. **[HIGH] AC #2 - Prompt format missing [Y/n] suffix**
+   - File: `src/consult/termination/EarlyTerminationManager.ts`
+   - Fix: Added `[Y/n]` to prompt message per spec
+
+4. **[HIGH] AC #6 - Missing "Explore mode: all rounds will execute" message**
+   - File: `src/orchestration/ConsultOrchestrator.ts`
+   - Fix: Added display of `🔍 Explore mode: all rounds will execute` when in explore mode
+
+5. **[HIGH] AC #4 - earlyTermination: false not logged on decline**
+   - File: `src/orchestration/ConsultOrchestrator.ts`
+   - Fix: Added tracking of `earlyTerminationDeclined` and pass `earlyTermination: false` to final result when user declines
 
