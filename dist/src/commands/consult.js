@@ -60,6 +60,7 @@ function createConsultCommand() {
         .option('-p, --project <path>', 'Project root for auto-context analysis')
         .option('-f, --format <type>', 'Output format: markdown, json, or both', 'markdown')
         .option('-m, --mode <mode>', 'Reasoning mode: explore (divergent) or converge (decisive)', 'converge')
+        .option('--confidence-threshold <threshold>', 'Confidence threshold for early termination (0.0-1.0)', parseFloat, 0.90)
         .option('-q, --quick', 'Single round consultation (faster)', false)
         .option('-v, --verbose', 'Show full agent conversation', false)
         .action(async (questionArgs, options) => {
@@ -74,6 +75,11 @@ function createConsultCommand() {
             throw new Error(`Invalid mode: "${mode}". Available modes: ${availableModes}`);
         }
         const modeType = mode;
+        // Validate threshold
+        const threshold = options.confidenceThreshold;
+        if (isNaN(threshold) || threshold < 0 || threshold > 1) {
+            throw new Error('Error: --confidence-threshold must be between 0.0 and 1.0');
+        }
         // Initialize real-time console logger
         const consoleLogger = new ConsultConsoleLogger_1.ConsultConsoleLogger();
         consoleLogger.start();
@@ -90,7 +96,8 @@ function createConsultCommand() {
             const orchestrator = new ConsultOrchestrator_1.default({
                 maxRounds: options.quick ? 1 : 4,
                 verbose: options.verbose,
-                strategy
+                strategy,
+                confidenceThreshold: threshold
             });
             // Execute consultation
             // Orchestrator emits events which consoleLogger handles

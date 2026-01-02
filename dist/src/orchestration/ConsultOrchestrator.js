@@ -29,6 +29,8 @@ const InteractivePulse_1 = require("../consult/health/InteractivePulse");
 const PartialResultManager_1 = require("../consult/persistence/PartialResultManager");
 const ConvergeStrategy_1 = require("../consult/strategies/ConvergeStrategy");
 const chalk_1 = __importDefault(require("chalk"));
+const inquirer_1 = __importDefault(require("inquirer"));
+const EarlyTerminationManager_1 = require("../consult/termination/EarlyTerminationManager");
 const consult_1 = require("../types/consult");
 class ConsultOrchestrator {
     constructor(options = {}) {
@@ -44,6 +46,21 @@ class ConsultOrchestrator {
         this.verbose = options.verbose || false;
         // Use provided strategy or default to ConvergeStrategy (matches MVP behavior)
         this.strategy = options.strategy || new ConvergeStrategy_1.ConvergeStrategy();
+        this.confidenceThreshold = options.confidenceThreshold ?? 0.90;
+        // Initialize EarlyTerminationManager with prompt callback
+        this.earlyTerminationManager = new EarlyTerminationManager_1.EarlyTerminationManager(async (message) => {
+            // Skip interactive prompt in test environment
+            if (process.env.NODE_ENV === 'test') {
+                return false;
+            }
+            const { confirm } = await inquirer_1.default.prompt([{
+                    type: 'confirm',
+                    name: 'confirm',
+                    message: message,
+                    default: true
+                }]);
+            return confirm;
+        });
         this.eventBus = EventBus_1.EventBus.getInstance();
         this.costEstimator = new CostEstimator_1.CostEstimator();
         this.artifactFilter = new ArtifactFilter_1.ArtifactFilter();
@@ -262,6 +279,43 @@ class ConsultOrchestrator {
             this.checkCostThreshold(); // Check after Round 2
             // Save Checkpoint (Story 2.5)
             await this.saveCheckpoint(question, context, successfulArtifacts, synthesisArtifact, null, null, agentResponses);
+            // --- Early Termination Check (Epic 4, Story 2) ---
+            if (synthesisArtifact && this.earlyTerminationManager.shouldCheckEarlyTermination(this.strategy.name, 2)) {
+                const synthesisConfidence = this.earlyTerminationManager.calculateSynthesisConfidence(synthesisArtifact);
+                if (this.earlyTerminationManager.meetsEarlyTerminationCriteria(synthesisConfidence, this.confidenceThreshold)) {
+                    // Prompt user
+                    const userAccepts = await this.earlyTerminationManager.promptUserForEarlyTermination(synthesisConfidence);
+                    if (userAccepts) {
+                        // Early termination accepted
+                        if (this.verbose)
+                            console.log(chalk_1.default.green('✓ Early termination accepted by user. Skipping Rounds 3 & 4.'));
+                        // Synthesize verdict from synthesis
+                        verdictArtifact = this.synthesizeVerdictFromSynthesis(synthesisArtifact);
+                        // Calculate savings
+                        const estimatedSavings = this.costEstimator.calculateEarlyTerminationSavings(this.agents, 2); // Skipping R3 & R4
+                        // Transition directly to Complete
+                        this.stateMachine.transition(consult_1.ConsultState.Complete);
+                        // Return result immediately
+                        return this.createFinalResult({
+                            question,
+                            context,
+                            startTime,
+                            estimate,
+                            agentResponses,
+                            successfulArtifacts,
+                            synthesisArtifact,
+                            verdictArtifact,
+                            earlyTermination: true,
+                            earlyTerminationReason: 'high_confidence_after_synthesis',
+                            estimatedCostSaved: estimatedSavings
+                        });
+                    }
+                    else {
+                        if (this.verbose)
+                            console.log(chalk_1.default.yellow('User declined early termination. Continuing to Round 3.'));
+                    }
+                }
+            }
             // --- State: CrossExam (Round 3) ---
             this.stateMachine.transition(consult_1.ConsultState.CrossExam);
             if (this.verbose)
@@ -318,84 +372,17 @@ class ConsultOrchestrator {
             }
             throw error;
         }
-        const durationMs = Date.now() - startTime;
-        // Use Verdict for final results
-        const consensusText = verdictArtifact ? verdictArtifact.recommendation : (synthesisArtifact?.consensusPoints[0]?.point || "No consensus");
-        const confidence = verdictArtifact ? verdictArtifact.confidence : 0;
-        const recommendation = verdictArtifact ? verdictArtifact.recommendation : "Consultation incomplete";
-        const dissent = verdictArtifact ? verdictArtifact.dissent : [];
-        // Determine if cost was exceeded
-        const costExceeded = this.actualCostUsd > (this.estimatedCostUsd * 1.5);
-        // Calculate efficiency stats
-        const totalSaved = this.tokenSavings.round3 + this.tokenSavings.round4;
-        const efficiencyStats = {
-            tokens_used: this.totalTokensUsed,
-            tokens_saved_via_filtering: totalSaved,
-            efficiency_percentage: this.costEstimator.calculateEfficiencyPercentage(totalSaved, this.totalTokensUsed + totalSaved),
-            filtering_method: 'structured_artifact_array_truncation',
-            filtered_rounds: this.verbose ? [] : [3, 4]
-        };
-        const result = {
-            consultationId: this.consultationId,
-            timestamp: new Date().toISOString(),
+        return this.createFinalResult({
             question,
             context,
-            mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
-            agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+            startTime,
+            estimate: estimate,
             agentResponses,
-            state: consult_1.ConsultState.Complete,
-            rounds: this.maxRounds,
-            completedRounds: verdictArtifact ? 4 : (crossExamArtifact ? 3 : 2),
-            responses: {
-                round1: successfulArtifacts,
-                round2: synthesisArtifact || undefined,
-                round3: crossExamArtifact || undefined,
-                round4: verdictArtifact || undefined
-            },
-            consensus: consensusText,
-            confidence,
-            recommendation,
-            reasoning: {},
-            concerns: crossExamArtifact?.unresolved || [],
-            dissent,
-            perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
-            cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: this.actualCostUsd },
-            durationMs,
-            // Use strategy prompt versions (Epic 4, Story 1)
-            promptVersions: {
-                mode: this.strategy.name,
-                independentPromptVersion: this.strategy.promptVersions.independent,
-                synthesisPromptVersion: this.strategy.promptVersions.synthesis,
-                crossExamPromptVersion: this.strategy.promptVersions.crossExam,
-                verdictPromptVersion: this.strategy.promptVersions.verdict
-            },
-            // Cost tracking fields (Epic 2, Story 1)
-            estimatedCost: this.estimatedCostUsd,
-            actualCost: this.actualCostUsd,
-            costExceeded,
-            // Token efficiency (Epic 2, Story 6)
-            token_efficiency_stats: efficiencyStats,
-            // Provider substitutions (Epic 2, Story 2.3 AC #4)
-            substitutions: this.substitutions,
-            // Pulse tracking (Epic 2, Story 2.4, AC #3)
-            pulseTriggered: this.pulseTriggered,
-            userCancelledAfterPulse: this.userCancelledViaPulse,
-            pulseTimestamp: this.pulseTimestamp
-        };
-        this.eventBus.emitEvent('consultation:completed', {
-            consultation_id: this.consultationId,
-            result
+            successfulArtifacts,
+            synthesisArtifact,
+            crossExamArtifact,
+            verdictArtifact
         });
-        // Display token efficiency stats to user (Story 2.6, Fix #3)
-        if (!this.verbose && efficiencyStats.tokens_saved_via_filtering > 0) {
-            console.log(chalk_1.default.green(`\n💰 Token Efficiency: Saved ${efficiencyStats.tokens_saved_via_filtering} tokens (${efficiencyStats.efficiency_percentage.toFixed(1)}%) via artifact filtering`));
-        }
-        // Log consultation to files (Story 1.8)
-        // This is async but we don't await to avoid blocking result delivery
-        this.fileLogger.logConsultation(result).catch(err => {
-            console.error('Failed to log consultation:', err.message);
-        });
-        return result;
     }
     /**
      * Execute Round 1: Independent Analysis
@@ -417,7 +404,7 @@ class ConsultOrchestrator {
             name: 'Judge (Synthesis)',
             model: 'gpt-4o',
             provider: ProviderFactory_1.default.createProvider('gpt-4o'),
-            systemPrompt: this.getSynthesisPrompt(artifacts)
+            systemPrompt: this.strategy.getSynthesisPrompt(artifacts)
         };
         this.eventBus.emitEvent('agent:thinking', {
             consultation_id: this.consultationId,
@@ -495,7 +482,11 @@ class ConsultOrchestrator {
             name: 'Judge (Verdict)',
             model: 'gpt-4o',
             provider: ProviderFactory_1.default.createProvider('gpt-4o'),
-            systemPrompt: this.getVerdictPrompt(question, round1Artifacts, filteredSynthesis, filteredCrossExam)
+            systemPrompt: this.strategy.getVerdictPrompt({
+                round1: round1Artifacts,
+                round2: filteredSynthesis,
+                round3: filteredCrossExam || undefined
+            })
         };
         this.eventBus.emitEvent('agent:thinking', {
             consultation_id: this.consultationId,
@@ -557,7 +548,7 @@ class ConsultOrchestrator {
                 // If agent failed in R1, they can't cross-exam
                 return null;
             }
-            const systemPrompt = this.getCrossExamPrompt(agent.name, r1Artifact, filteredSynthesis);
+            const systemPrompt = this.strategy.getCrossExamPrompt({ name: agent.name, model: agent.model }, filteredSynthesis);
             this.eventBus.emitEvent('agent:thinking', {
                 consultation_id: this.consultationId,
                 agent_name: agent.name,
@@ -659,7 +650,7 @@ class ConsultOrchestrator {
             name: 'Judge (Cross-Exam)',
             model: 'gpt-4o',
             provider: ProviderFactory_1.default.createProvider('gpt-4o'),
-            systemPrompt: this.getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact)
+            systemPrompt: this.strategy.getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact)
         };
         this.eventBus.emitEvent('agent:thinking', {
             consultation_id: this.consultationId,
@@ -915,6 +906,100 @@ class ConsultOrchestrator {
         };
     }
     /**
+     * Helper to construct the final result object
+     * Centralizes logic for both standard completion and early termination
+     */
+    createFinalResult(params) {
+        const { question, context, startTime, estimate, agentResponses, successfulArtifacts, synthesisArtifact, crossExamArtifact, verdictArtifact, earlyTermination, earlyTerminationReason, estimatedCostSaved } = params;
+        const durationMs = Date.now() - startTime;
+        // Use Verdict for final results
+        const consensusText = verdictArtifact ? verdictArtifact.recommendation : (synthesisArtifact?.consensusPoints[0]?.point || "No consensus");
+        const confidence = verdictArtifact ? verdictArtifact.confidence : 0;
+        const recommendation = verdictArtifact ? verdictArtifact.recommendation : "Consultation incomplete";
+        const dissent = verdictArtifact ? verdictArtifact.dissent : [];
+        // Determine if cost was exceeded
+        const costExceeded = this.actualCostUsd > (this.estimatedCostUsd * 1.5);
+        // Calculate efficiency stats
+        const totalSaved = this.tokenSavings.round3 + this.tokenSavings.round4;
+        const efficiencyStats = {
+            tokens_used: this.totalTokensUsed,
+            tokens_saved_via_filtering: totalSaved,
+            efficiency_percentage: this.costEstimator.calculateEfficiencyPercentage(totalSaved, this.totalTokensUsed + totalSaved),
+            filtering_method: 'structured_artifact_array_truncation',
+            filtered_rounds: this.verbose ? [] : [3, 4]
+        };
+        const result = {
+            consultationId: this.consultationId,
+            timestamp: new Date().toISOString(),
+            question,
+            context,
+            mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
+            agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+            agentResponses,
+            state: consult_1.ConsultState.Complete,
+            rounds: this.maxRounds,
+            completedRounds: verdictArtifact ? 4 : (crossExamArtifact ? 3 : 2),
+            responses: {
+                round1: successfulArtifacts,
+                round2: synthesisArtifact || undefined,
+                round3: crossExamArtifact || undefined,
+                round4: verdictArtifact || undefined
+            },
+            consensus: consensusText,
+            confidence,
+            recommendation,
+            reasoning: {},
+            concerns: crossExamArtifact?.unresolved || [],
+            dissent,
+            perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
+            cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: this.actualCostUsd },
+            durationMs,
+            // Use strategy prompt versions (Epic 4, Story 1)
+            promptVersions: {
+                mode: this.strategy.name,
+                independentPromptVersion: this.strategy.promptVersions.independent,
+                synthesisPromptVersion: this.strategy.promptVersions.synthesis,
+                crossExamPromptVersion: this.strategy.promptVersions.crossExam,
+                verdictPromptVersion: this.strategy.promptVersions.verdict
+            },
+            // Cost tracking fields (Epic 2, Story 1)
+            estimatedCost: this.estimatedCostUsd,
+            actualCost: this.actualCostUsd,
+            costExceeded,
+            estimatedCostSaved,
+            // Token efficiency (Epic 2, Story 6)
+            token_efficiency_stats: efficiencyStats,
+            // Provider substitutions (Epic 2, Story 2.3 AC #4)
+            substitutions: this.substitutions,
+            // Pulse tracking (Epic 2, Story 2.4, AC #3)
+            pulseTriggered: this.pulseTriggered,
+            userCancelledAfterPulse: this.userCancelledViaPulse,
+            pulseTimestamp: this.pulseTimestamp,
+            earlyTermination,
+            earlyTerminationReason
+        };
+        this.eventBus.emitEvent('consultation:completed', {
+            consultation_id: this.consultationId,
+            result
+        });
+        // Display token efficiency stats to user (Story 2.6, Fix #3)
+        if (!this.verbose && efficiencyStats.tokens_saved_via_filtering > 0) {
+            console.log(chalk_1.default.green(`\n💰 Token Efficiency: Saved ${efficiencyStats.tokens_saved_via_filtering} tokens (${efficiencyStats.efficiency_percentage.toFixed(1)}%) via artifact filtering`));
+        }
+        if (earlyTermination) {
+            console.log(chalk_1.default.green(`\n✨ Terminated early with high confidence (${(confidence * 100).toFixed(0)}%)`));
+            if (estimatedCostSaved) {
+                console.log(chalk_1.default.green(`💰 Estimated savings: $${estimatedCostSaved.toFixed(4)}`));
+            }
+        }
+        // Log consultation to files (Story 1.8)
+        // This is async but we don't await to avoid blocking result delivery
+        this.fileLogger.logConsultation(result).catch(err => {
+            console.error('Failed to log consultation:', err.message);
+        });
+        return result;
+    }
+    /**
      * Save checkpoint
      */
     async saveCheckpoint(question, context, successfulArtifacts, synthesisArtifact, crossExamArtifact, verdictArtifact, agentResponses) {
@@ -983,235 +1068,6 @@ class ConsultOrchestrator {
         }
     }
     /**
-     * Common JSON instruction for all agents
-     */
-    getJsonInstruction() {
-        return `
-IMPORTANT: You must provide your response in valid JSON format ONLY. 
-Do not include any introductory or concluding text. 
-Use the following schema:
-
-{
-  "position": "One sentence summary of your position",
-  "key_points": ["Point 1", "Point 2", "Point 3"],
-  "rationale": "Detailed explanation of your reasoning (2-3 paragraphs)",
-  "confidence": 0.0-1.0 (number indicating your certainty),
-  "prose_excerpt": "A short, quote-worthy summary of your stance"
-}
-`;
-    }
-    /**
-     * Synthesis Prompt for Judge
-     */
-    getSynthesisPrompt(artifacts) {
-        const perspectives = artifacts.map(a => `
-### Agent: ${a.agentId}
-**Position:** ${a.position}
-**Key Points:**
-${a.keyPoints.map(kp => `- ${kp}`).join('\n')}
-**Rationale:** ${a.rationale}
-**Confidence:** ${a.confidence}
-`).join('\n---\n');
-        return `You are the Consensus Judge in a rigorous multi-model consultation.
-
-Your goal is to synthesize the perspectives of 3 experts into a coherent analysis of consensus and disagreement.
-You are NOT providing the final answer yet. You are mapping the debate terrain.
-
-### Expert Perspectives:
-${perspectives}
-
-### Instructions:
-1. Identify **Consensus Points**: What do the experts agree on? (Explicit or implicit agreement)
-2. Identify **Tensions**: Where do they disagree? (Conflicting recommendations, trade-offs, or emphasis)
-3. Rank the **Priority Order** of topics that need resolution.
-
-IMPORTANT: You must provide your response in valid JSON format ONLY.
-Do not include any introductory or concluding text.
-Use the following schema:
-
-{
-  "consensus_points": [
-    {
-      "point": "Statement of agreement",
-      "supporting_agents": ["Agent Name 1", "Agent Name 2"],
-      "confidence": 0.0-1.0 (how strong is this consensus?)
-    }
-  ],
-  "tensions": [
-    {
-      "topic": "Topic of disagreement (e.g., Auth Method)",
-      "viewpoints": [
-        { "agent": "Agent Name 1", "viewpoint": "Summary of their view" },
-        { "agent": "Agent Name 2", "viewpoint": "Summary of their view" }
-      ]
-    }
-  ],
-  "priority_order": ["Topic 1", "Topic 2", "Topic 3"]
-}`;
-    }
-    /**
-     * Cross-Examination Prompt for Agents
-     */
-    getCrossExamPrompt(agentName, round1Artifact, synthesisArtifact) {
-        return `You are participating in a multi-model consultation.
-You are the ${agentName}.
-
-### Your Previous Position (Round 1):
-${round1Artifact.position}
-${round1Artifact.rationale}
-
-### Current Consensus (Round 2):
-${synthesisArtifact.consensusPoints.map(cp => `- ${cp.point} (Confidence: ${cp.confidence})`).join('\n')}
-
-### Identified Tensions:
-${synthesisArtifact.tensions.map(t => `- ${t.topic}: ${t.viewpoints.map(v => v.viewpoint).join(' vs ')}`).join('\n')}
-
-### Instructions:
-1. **Review** the consensus and tensions.
-2. **Challenge** any consensus points that ignore your critical risks or insights.
-3. **Defend** your position if it was marked as a tension.
-4. **Refine** your stance based on others' valid points.
-
-IMPORTANT: You must provide your response in valid JSON format ONLY.
-Do not include any introductory or concluding text.
-Use the following schema:
-
-{
-  "critique": "Your critique of the current consensus",
-  "challenges": [
-    {
-      "target_agent": "Agent Name (or 'Consensus')",
-      "challenge_point": "Specific argument you are challenging",
-      "evidence": "Why they are wrong (based on your expertise)"
-    }
-  ],
-  "defense": "Defense of your position against identified tensions (if applicable)",
-  "revised_position": "Your updated position after considering others' views"
-}
-`;
-    }
-    /**
-     * Cross-Examination Synthesis Prompt for Judge
-     */
-    getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact) {
-        // Format agent responses for the judge
-        // Note: We attempt to parse JSON content, but fallback to raw text if parsing fails
-        const responsesText = agentResponses.map(r => {
-            let content = r.content;
-            try {
-                const json = JSON.parse(r.content);
-                content = `
-**Critique:** ${json.critique}
-**Challenges:** ${JSON.stringify(json.challenges)}
-**Defense:** ${json.defense}
-**Revised Position:** ${json.revised_position}
-`;
-            }
-            catch (e) {
-                // Fallback for malformed JSON
-            }
-            return `### Agent: ${r.agentName}\n${content}`;
-        }).join('\n---\n');
-        return `You are the Debate Judge.
-Review the challenges and defenses from the Cross-Examination round.
-
-### Previous Consensus:
-${JSON.stringify(synthesisArtifact.consensusPoints)}
-
-### Agent Cross-Examination Responses:
-${responsesText}
-
-### Instructions:
-1. Extract **Challenges**: Who successfully challenged whom?
-2. Extract **Rebuttals**: Who defended their position well?
-3. Identify **Unresolved Tensions**: What disagreements remain significant?
-
-IMPORTANT: You must provide your response in valid JSON format ONLY.
-Do not include any introductory or concluding text.
-Use the following schema:
-
-{
-  "challenges": [
-    {
-      "challenger": "Agent Name",
-      "target_agent": "Agent Name",
-      "challenge": "The core challenge point",
-      "evidence": ["Evidence 1", "Evidence 2"]
-    }
-  ],
-  "rebuttals": [
-    {
-      "agent": "Agent Name",
-      "rebuttal": "The defense provided"
-    }
-  ],
-  "unresolved": ["Tension 1", "Tension 2"]
-}
-`;
-    }
-    /**
-     * Verdict Prompt for Judge
-     */
-    getVerdictPrompt(question, round1Artifacts, synthesisArtifact, crossExamArtifact) {
-        const r1Summary = round1Artifacts.map(a => `- ${a.agentId}: ${a.position} (Confidence: ${a.confidence})`).join('\n');
-        const r2Summary = synthesisArtifact.consensusPoints.map(cp => `- ${cp.point}`).join('\n');
-        let r3Summary = "No Cross-Examination conducted.";
-        if (crossExamArtifact) {
-            r3Summary = `
-**Challenges:**
-${crossExamArtifact.challenges.map(c => `- ${c.challenger} -> ${c.targetAgent}: ${c.challenge}`).join('\n')}
-
-**Rebuttals:**
-${crossExamArtifact.rebuttals.map(r => `- ${r.agent} defended: ${r.rebuttal}`).join('\n')}
-
-**Unresolved Issues:**
-${crossExamArtifact.unresolved.map(u => `- ${u}`).join('\n')}
-`;
-        }
-        return `You are the Final Judge in a high-stakes multi-model consultation.
-Your goal is to issue a final Verdict on the user's question.
-
-### User Question:
-${question}
-
-### The Debate Record:
-**Round 1 (Positions):**
-${r1Summary}
-
-**Round 2 (Consensus):**
-${r2Summary}
-
-**Round 3 (Cross-Examination):**
-${r3Summary}
-
-### Instructions:
-1. **Weigh the Evidence:** Prioritize consensus points that survived cross-examination. Discard points that were successfully challenged without rebuttal.
-2. **Form a Recommendation:** Provide a single, clear, actionable answer.
-3. **Assess Confidence:**
-   - High (>0.9): Strong consensus, no unresolved issues.
-   - Medium (0.7-0.9): General agreement but some minor dissent.
-   - Low (<0.7): Major unresolved tensions or significant dissent.
-4. **Document Dissent:** Explicitly list who disagrees and why.
-
-IMPORTANT: You must provide your response in valid JSON format ONLY.
-Do not include any introductory or concluding text.
-Use the following schema:
-
-{
-  "recommendation": "The final authoritative answer",
-  "confidence": 0.0-1.0,
-  "evidence": ["Key point 1", "Key point 2 (survived challenge)"],
-  "dissent": [
-    {
-      "agent": "Agent Name",
-      "concern": "Why they disagree",
-      "severity": "high/medium/low"
-    }
-  ]
-}
-`;
-    }
-    /**
      * Get Security Expert system prompt
      */
     getSecurityExpertPrompt() {
@@ -1221,9 +1077,7 @@ Your role in consultations:
 - Identify security risks and vulnerabilities
 - Evaluate authentication, authorization, and data protection approaches
 - Consider attack vectors and mitigation strategies
-- Assess compliance and privacy implications
-
-${this.getJsonInstruction()}`;
+- Assess compliance and privacy implications`;
     }
     /**
      * Get Architect system prompt
@@ -1235,9 +1089,7 @@ Your role in consultations:
 - Evaluate architectural patterns and trade-offs
 - Consider scalability, maintainability, and extensibility
 - Assess technical debt implications
-- Recommend best practices and design patterns
-
-${this.getJsonInstruction()}`;
+- Recommend best practices and design patterns`;
     }
     /**
      * Get Pragmatist system prompt
@@ -1249,9 +1101,7 @@ Your role in consultations:
 - Assess implementation complexity and time-to-ship
 - Consider team capabilities and existing codebase constraints
 - Balance ideal solutions with practical realities
-- Identify simpler alternatives that deliver 80% of value with 20% effort
-
-${this.getJsonInstruction()}`;
+- Identify simpler alternatives that deliver 80% of value with 20% effort`;
     }
 }
 exports.default = ConsultOrchestrator;
