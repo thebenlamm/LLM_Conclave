@@ -18,6 +18,7 @@ describe('ModeStrategy Interface', () => {
     getIndependentPrompt: (question: string, context: string) => `Question: ${question}\nContext: ${context}`,
     getSynthesisPrompt: (round1Artifacts: IndependentArtifact[]) => `Synthesize ${round1Artifacts.length} artifacts`,
     getCrossExamPrompt: (agent: AgentInfo, synthesis: SynthesisArtifact) => `Agent ${agent.name} cross-exam`,
+    getCrossExamSynthesisPrompt: (agentResponses: any[], synthesis: SynthesisArtifact) => `Synthesize ${agentResponses.length} cross-exam responses`,
     getVerdictPrompt: (allArtifacts: ArtifactCollection) => `Verdict with ${allArtifacts.round1.length} R1 artifacts`,
     shouldTerminateEarly: (confidence: number, roundNumber: number) => confidence >= 0.95 && roundNumber >= 2
   };
