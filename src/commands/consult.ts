@@ -9,6 +9,7 @@ import { ConsultConsoleLogger } from '../cli/ConsultConsoleLogger';
 import { ArtifactTransformer } from '../consult/artifacts/ArtifactTransformer';
 import { ConsultationResult, OutputFormat } from '../types/consult';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory';
+import { StrategyFactory, ModeType } from '../consult/strategies';
 
 /**
  * Consult command - Fast multi-model consultation
@@ -23,12 +24,28 @@ export function createConsultCommand(): Command {
     .option('-c, --context <files>', 'Comma-separated file paths for context')
     .option('-p, --project <path>', 'Project root for auto-context analysis')
     .option('-f, --format <type>', 'Output format: markdown, json, or both', 'markdown')
+    .option('-m, --mode <mode>', 'Reasoning mode: explore (divergent) or converge (decisive)', 'converge')
+    .option('--confidence-threshold <threshold>', 'Confidence threshold for early termination (0.0-1.0)', parseFloat, 0.90)
     .option('-q, --quick', 'Single round consultation (faster)', false)
     .option('-v, --verbose', 'Show full agent conversation', false)
     .action(async (questionArgs: string[], options: any) => {
       const question = questionArgs.join(' ');
       if (!question.trim()) {
         throw new Error('Question is required. Usage: llm-conclave consult "your question"');
+      }
+
+      // Validate mode option
+      const mode = options.mode as string;
+      if (!StrategyFactory.isValidMode(mode)) {
+        const availableModes = StrategyFactory.getAvailableModes().join(', ');
+        throw new Error(`Invalid mode: "${mode}". Available modes: ${availableModes}`);
+      }
+      const modeType = mode as ModeType;
+
+      // Validate threshold
+      const threshold = options.confidenceThreshold;
+      if (isNaN(threshold) || threshold < 0 || threshold > 1) {
+        throw new Error('Error: --confidence-threshold must be between 0.0 and 1.0');
       }
 
       // Initialize real-time console logger
@@ -39,10 +56,20 @@ export function createConsultCommand(): Command {
         // Load context
         const context = await loadContext(options);
 
-        // Initialize orchestrator
+        // Get strategy for the selected mode
+        const strategy = StrategyFactory.create(modeType);
+
+        // Display mode selection
+        if (options.verbose) {
+          console.log(chalk.cyan(`🎯 Mode: ${modeType} (${modeType === 'explore' ? 'divergent brainstorming' : 'decisive consensus'})`));
+        }
+
+        // Initialize orchestrator with strategy
         const orchestrator = new ConsultOrchestrator({
           maxRounds: options.quick ? 1 : 4,
-          verbose: options.verbose
+          verbose: options.verbose,
+          strategy,
+          confidenceThreshold: threshold
         });
 
         // Execute consultation

@@ -687,6 +687,13 @@ MISTRAL_API_KEY=...
 
 You only need API keys for the providers you're using.
 
+**Get your API keys:**
+- OpenAI: https://platform.openai.com/settings/organization/api-keys
+- Anthropic: https://console.anthropic.com/settings/keys
+- Google (Gemini): https://aistudio.google.com/apikey
+- xAI (Grok): https://console.x.ai/team/default/api-keys
+- Mistral: https://console.mistral.ai/api-keys
+
 ## Advanced Configuration
 
 ### Using Same Model with Different Personas

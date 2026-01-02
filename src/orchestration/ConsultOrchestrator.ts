@@ -23,12 +23,16 @@ import { PROVIDER_TIER_MAP } from '../consult/health/ProviderTiers';
 import { HedgedRequestManager } from '../consult/health/HedgedRequestManager';
 import { InteractivePulse } from '../consult/health/InteractivePulse';
 import { PartialResultManager } from '../consult/persistence/PartialResultManager';
+import { ModeStrategy, ArtifactCollection, AgentInfo } from '../consult/strategies/ModeStrategy';
+import { ConvergeStrategy } from '../consult/strategies/ConvergeStrategy';
 import chalk from 'chalk';
+import inquirer from 'inquirer';
 import {
   Agent,
   Message,
   ConsultOrchestratorOptions
 } from '../types';
+import { EarlyTerminationManager } from '../consult/termination/EarlyTerminationManager';
 import {
   ConsultationResult,
   PartialConsultationResult,
@@ -41,7 +45,8 @@ import {
   VerdictArtifact,
   AgentResponse,
   PromptVersions,
-  TokenEfficiencyStats
+  TokenEfficiencyStats,
+  Dissent
 } from '../types/consult';
 
 type Round1ExecutionResult = {
@@ -76,9 +81,33 @@ export default class ConsultOrchestrator {
   private pulseTimestamp: string | undefined;
   private userCancelledViaPulse: boolean = false;
 
+  // Mode strategy (Epic 4, Story 1)
+  private strategy: ModeStrategy;
+  private confidenceThreshold: number;
+  private earlyTerminationManager: EarlyTerminationManager;
+
   constructor(options: ConsultOrchestratorOptions = {}) {
     this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
     this.verbose = options.verbose || false;
+    // Use provided strategy or default to ConvergeStrategy (matches MVP behavior)
+    this.strategy = options.strategy || new ConvergeStrategy();
+    this.confidenceThreshold = options.confidenceThreshold ?? 0.90;
+    
+    // Initialize EarlyTerminationManager with prompt callback
+    this.earlyTerminationManager = new EarlyTerminationManager(async (message) => {
+        // Skip interactive prompt in test environment
+        if (process.env.NODE_ENV === 'test') {
+            return false; 
+        }
+        const { confirm } = await inquirer.prompt([{
+            type: 'confirm',
+            name: 'confirm',
+            message: message,
+            default: true
+        }]);
+        return confirm;
+    });
+
     this.eventBus = EventBus.getInstance();
     this.costEstimator = new CostEstimator();
     this.artifactFilter = new ArtifactFilter();
@@ -233,7 +262,7 @@ export default class ConsultOrchestrator {
         consultation_id: this.consultationId,
         question,
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
-        mode: 'converge' // Default for now
+        mode: this.strategy.name // Use strategy mode (Epic 4, Story 1)
       });
 
       // Display verbose mode message (AC #5)
@@ -339,6 +368,47 @@ export default class ConsultOrchestrator {
       // Save Checkpoint (Story 2.5)
       await this.saveCheckpoint(question, context, successfulArtifacts, synthesisArtifact, null, null, agentResponses);
 
+      // --- Early Termination Check (Epic 4, Story 2) ---
+      if (synthesisArtifact && this.earlyTerminationManager.shouldCheckEarlyTermination(this.strategy.name, 2)) {
+          const synthesisConfidence = this.earlyTerminationManager.calculateSynthesisConfidence(synthesisArtifact);
+          
+          if (this.earlyTerminationManager.meetsEarlyTerminationCriteria(synthesisConfidence, this.confidenceThreshold)) {
+              // Prompt user
+              const userAccepts = await this.earlyTerminationManager.promptUserForEarlyTermination(synthesisConfidence);
+              
+              if (userAccepts) {
+                  // Early termination accepted
+                  if (this.verbose) console.log(chalk.green('✓ Early termination accepted by user. Skipping Rounds 3 & 4.'));
+                  
+                  // Synthesize verdict from synthesis
+                  verdictArtifact = this.synthesizeVerdictFromSynthesis(synthesisArtifact);
+                  
+                  // Calculate savings
+                  const estimatedSavings = this.costEstimator.calculateEarlyTerminationSavings(this.agents, 2); // Skipping R3 & R4
+                  
+                  // Transition directly to Complete
+                  this.stateMachine.transition(ConsultState.Complete);
+                  
+                  // Return result immediately
+                  return this.createFinalResult({
+                      question,
+                      context,
+                      startTime,
+                      estimate,
+                      agentResponses,
+                      successfulArtifacts,
+                      synthesisArtifact,
+                      verdictArtifact,
+                      earlyTermination: true,
+                      earlyTerminationReason: 'high_confidence_after_synthesis',
+                      estimatedCostSaved: estimatedSavings
+                  });
+              } else {
+                  if (this.verbose) console.log(chalk.yellow('User declined early termination. Continuing to Round 3.'));
+              }
+          }
+      }
+
       // --- State: CrossExam (Round 3) ---
       this.stateMachine.transition(ConsultState.CrossExam);
       if (this.verbose) console.log(`\n--- Round 3: Cross-Examination ---\n`);
@@ -435,91 +505,17 @@ export default class ConsultOrchestrator {
       throw error;
     }
 
-    const durationMs = Date.now() - startTime;
-    
-    // Use Verdict for final results
-    const consensusText = verdictArtifact ? verdictArtifact.recommendation : (synthesisArtifact?.consensusPoints[0]?.point || "No consensus");
-    const confidence = verdictArtifact ? verdictArtifact.confidence : 0;
-    const recommendation = verdictArtifact ? verdictArtifact.recommendation : "Consultation incomplete";
-    const dissent = verdictArtifact ? verdictArtifact.dissent : [];
-
-    // Determine if cost was exceeded
-    const costExceeded = this.actualCostUsd > (this.estimatedCostUsd * 1.5);
-
-    // Calculate efficiency stats
-    const totalSaved = this.tokenSavings.round3 + this.tokenSavings.round4;
-    const efficiencyStats: TokenEfficiencyStats = {
-        tokens_used: this.totalTokensUsed,
-        tokens_saved_via_filtering: totalSaved,
-        efficiency_percentage: this.costEstimator.calculateEfficiencyPercentage(totalSaved, this.totalTokensUsed + totalSaved),
-        filtering_method: 'structured_artifact_array_truncation',
-        filtered_rounds: this.verbose ? [] : [3, 4]
-    };
-
-    const result: ConsultationResult = {
-      consultationId: this.consultationId,
-      timestamp: new Date().toISOString(),
-      question,
-      context,
-      mode: 'converge',
-      agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
-      agentResponses,
-      state: ConsultState.Complete,
-      rounds: this.maxRounds,
-      completedRounds: verdictArtifact ? 4 : (crossExamArtifact ? 3 : 2),
-      responses: {
-        round1: successfulArtifacts,
-        round2: synthesisArtifact || undefined,
-        round3: crossExamArtifact || undefined,
-        round4: verdictArtifact || undefined
-      },
-      consensus: consensusText,
-      confidence,
-      recommendation,
-      reasoning: {},
-      concerns: crossExamArtifact?.unresolved || [],
-      dissent,
-      perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
-      cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: this.actualCostUsd },
-      durationMs,
-      promptVersions: {
-        mode: 'converge',
-        independentPromptVersion: '1.0',
-        synthesisPromptVersion: '1.0',
-        crossExamPromptVersion: '1.0',
-        verdictPromptVersion: '1.0'
-      },
-      // Cost tracking fields (Epic 2, Story 1)
-      estimatedCost: this.estimatedCostUsd,
-      actualCost: this.actualCostUsd,
-      costExceeded,
-      // Token efficiency (Epic 2, Story 6)
-      token_efficiency_stats: efficiencyStats,
-      // Provider substitutions (Epic 2, Story 2.3 AC #4)
-      substitutions: this.substitutions,
-      // Pulse tracking (Epic 2, Story 2.4, AC #3)
-      pulseTriggered: this.pulseTriggered,
-      userCancelledAfterPulse: this.userCancelledViaPulse,
-      pulseTimestamp: this.pulseTimestamp
-    };
-
-    this.eventBus.emitEvent('consultation:completed' as any, {
-      consultation_id: this.consultationId,
-      result
+    return this.createFinalResult({
+        question,
+        context,
+        startTime,
+        estimate: estimate!,
+        agentResponses,
+        successfulArtifacts,
+        synthesisArtifact,
+        crossExamArtifact,
+        verdictArtifact
     });
-
-    // Display token efficiency stats to user (Story 2.6, Fix #3)
-    if (!this.verbose && efficiencyStats.tokens_saved_via_filtering > 0) {
-      console.log(chalk.green(`\n💰 Token Efficiency: Saved ${efficiencyStats.tokens_saved_via_filtering} tokens (${efficiencyStats.efficiency_percentage.toFixed(1)}%) via artifact filtering`));
-    }
-
-    // Log consultation to files (Story 1.8)
-    // This is async but we don't await to avoid blocking result delivery
-    this.fileLogger.logConsultation(result).catch(err => {
-      console.error('Failed to log consultation:', err.message);
-    });
-
-    return result;
   }
 
   /**
@@ -552,7 +548,7 @@ export default class ConsultOrchestrator {
       name: 'Judge (Synthesis)',
       model: 'gpt-4o',
       provider: ProviderFactory.createProvider('gpt-4o'),
-      systemPrompt: this.getSynthesisPrompt(artifacts)
+      systemPrompt: this.strategy.getSynthesisPrompt(artifacts)
     };
 
     this.eventBus.emitEvent('agent:thinking' as any, {
@@ -653,7 +649,11 @@ export default class ConsultOrchestrator {
       name: 'Judge (Verdict)',
       model: 'gpt-4o',
       provider: ProviderFactory.createProvider('gpt-4o'),
-      systemPrompt: this.getVerdictPrompt(question, round1Artifacts, filteredSynthesis, filteredCrossExam)
+      systemPrompt: this.strategy.getVerdictPrompt({
+        round1: round1Artifacts,
+        round2: filteredSynthesis,
+        round3: filteredCrossExam || undefined
+      })
     };
 
     this.eventBus.emitEvent('agent:thinking' as any, {
@@ -732,7 +732,7 @@ export default class ConsultOrchestrator {
           return null;
       }
       
-      const systemPrompt = this.getCrossExamPrompt(agent.name, r1Artifact, filteredSynthesis);
+      const systemPrompt = this.strategy.getCrossExamPrompt({ name: agent.name, model: agent.model }, filteredSynthesis);
       
       this.eventBus.emitEvent('agent:thinking' as any, {
         consultation_id: this.consultationId,
@@ -853,7 +853,7 @@ export default class ConsultOrchestrator {
       name: 'Judge (Cross-Exam)',
       model: 'gpt-4o',
       provider: ProviderFactory.createProvider('gpt-4o'),
-      systemPrompt: this.getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact)
+      systemPrompt: this.strategy.getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact)
     };
 
     this.eventBus.emitEvent('agent:thinking' as any, {
@@ -1117,7 +1117,7 @@ export default class ConsultOrchestrator {
         timestamp: new Date().toISOString(),
         question,
         context,
-        mode: 'converge',
+        mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
         agentResponses,
         state: this.stateMachine.getCurrentState(), // Use current state
@@ -1143,17 +1143,140 @@ export default class ConsultOrchestrator {
           tokens: actualTokens,
           usd: this.actualCostUsd
         },
-        durationMs: 0, 
+        durationMs: 0,
+        // Use strategy prompt versions (Epic 4, Story 1)
         promptVersions: {
-          mode: 'converge',
-          independentPromptVersion: '1.0',
-          synthesisPromptVersion: '1.0',
-          crossExamPromptVersion: '1.0',
-          verdictPromptVersion: '1.0'
+          mode: this.strategy.name,
+          independentPromptVersion: this.strategy.promptVersions.independent,
+          synthesisPromptVersion: this.strategy.promptVersions.synthesis,
+          crossExamPromptVersion: this.strategy.promptVersions.crossExam,
+          verdictPromptVersion: this.strategy.promptVersions.verdict
         },
         abortReason,
         cancellationReason
       };
+  }
+
+  /**
+   * Helper to construct the final result object
+   * Centralizes logic for both standard completion and early termination
+   */
+  private createFinalResult(params: {
+      question: string;
+      context: string;
+      startTime: number;
+      estimate: CostEstimate;
+      agentResponses: AgentResponse[];
+      successfulArtifacts: IndependentArtifact[];
+      synthesisArtifact: SynthesisArtifact | null;
+      crossExamArtifact?: CrossExamArtifact | null;
+      verdictArtifact?: VerdictArtifact | null;
+      earlyTermination?: boolean;
+      earlyTerminationReason?: string;
+      estimatedCostSaved?: number;
+  }): ConsultationResult {
+      const {
+          question, context, startTime, estimate, agentResponses,
+          successfulArtifacts, synthesisArtifact, crossExamArtifact, verdictArtifact,
+          earlyTermination, earlyTerminationReason, estimatedCostSaved
+      } = params;
+
+      const durationMs = Date.now() - startTime;
+    
+      // Use Verdict for final results
+      const consensusText = verdictArtifact ? verdictArtifact.recommendation : (synthesisArtifact?.consensusPoints[0]?.point || "No consensus");
+      const confidence = verdictArtifact ? verdictArtifact.confidence : 0;
+      const recommendation = verdictArtifact ? verdictArtifact.recommendation : "Consultation incomplete";
+      const dissent = verdictArtifact ? verdictArtifact.dissent : [];
+
+      // Determine if cost was exceeded
+      const costExceeded = this.actualCostUsd > (this.estimatedCostUsd * 1.5);
+
+      // Calculate efficiency stats
+      const totalSaved = this.tokenSavings.round3 + this.tokenSavings.round4;
+      const efficiencyStats: TokenEfficiencyStats = {
+          tokens_used: this.totalTokensUsed,
+          tokens_saved_via_filtering: totalSaved,
+          efficiency_percentage: this.costEstimator.calculateEfficiencyPercentage(totalSaved, this.totalTokensUsed + totalSaved),
+          filtering_method: 'structured_artifact_array_truncation',
+          filtered_rounds: this.verbose ? [] : [3, 4]
+      };
+
+      const result: ConsultationResult = {
+        consultationId: this.consultationId,
+        timestamp: new Date().toISOString(),
+        question,
+        context,
+        mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
+        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+        agentResponses,
+        state: ConsultState.Complete,
+        rounds: this.maxRounds,
+        completedRounds: verdictArtifact ? 4 : (crossExamArtifact ? 3 : 2),
+        responses: {
+          round1: successfulArtifacts,
+          round2: synthesisArtifact || undefined,
+          round3: crossExamArtifact || undefined,
+          round4: verdictArtifact || undefined
+        },
+        consensus: consensusText,
+        confidence,
+        recommendation,
+        reasoning: {},
+        concerns: crossExamArtifact?.unresolved || [],
+        dissent,
+        perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
+        cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: this.actualCostUsd },
+        durationMs,
+        // Use strategy prompt versions (Epic 4, Story 1)
+        promptVersions: {
+          mode: this.strategy.name,
+          independentPromptVersion: this.strategy.promptVersions.independent,
+          synthesisPromptVersion: this.strategy.promptVersions.synthesis,
+          crossExamPromptVersion: this.strategy.promptVersions.crossExam,
+          verdictPromptVersion: this.strategy.promptVersions.verdict
+        },
+        // Cost tracking fields (Epic 2, Story 1)
+        estimatedCost: this.estimatedCostUsd,
+        actualCost: this.actualCostUsd,
+        costExceeded,
+        estimatedCostSaved,
+        // Token efficiency (Epic 2, Story 6)
+        token_efficiency_stats: efficiencyStats,
+        // Provider substitutions (Epic 2, Story 2.3 AC #4)
+        substitutions: this.substitutions,
+        // Pulse tracking (Epic 2, Story 2.4, AC #3)
+        pulseTriggered: this.pulseTriggered,
+        userCancelledAfterPulse: this.userCancelledViaPulse,
+        pulseTimestamp: this.pulseTimestamp,
+        earlyTermination,
+        earlyTerminationReason
+      };
+
+      this.eventBus.emitEvent('consultation:completed' as any, {
+        consultation_id: this.consultationId,
+        result
+      });
+
+      // Display token efficiency stats to user (Story 2.6, Fix #3)
+      if (!this.verbose && efficiencyStats.tokens_saved_via_filtering > 0) {
+        console.log(chalk.green(`\n💰 Token Efficiency: Saved ${efficiencyStats.tokens_saved_via_filtering} tokens (${efficiencyStats.efficiency_percentage.toFixed(1)}%) via artifact filtering`));
+      }
+      
+      if (earlyTermination) {
+           console.log(chalk.green(`\n✨ Terminated early with high confidence (${(confidence * 100).toFixed(0)}%)`));
+           if (estimatedCostSaved) {
+                console.log(chalk.green(`💰 Estimated savings: $${estimatedCostSaved.toFixed(4)}`));
+           }
+      }
+
+      // Log consultation to files (Story 1.8)
+      // This is async but we don't await to avoid blocking result delivery
+      this.fileLogger.logConsultation(result).catch(err => {
+        console.error('Failed to log consultation:', err.message);
+      });
+
+      return result;
   }
 
   /**
@@ -1531,6 +1654,37 @@ Use the following schema:
   }
 
   /**
+   * Helper to synthesize a verdict directly from the Synthesis artifact
+   * Used for early termination
+   */
+  private synthesizeVerdictFromSynthesis(synthesis: SynthesisArtifact): VerdictArtifact {
+    // Use highest confidence consensus point as recommendation
+    const sortedPoints = [...synthesis.consensusPoints].sort((a, b) => b.confidence - a.confidence);
+    const topPoint = sortedPoints[0];
+
+    // Average confidence from consensus points
+    const avgConfidence = this.earlyTerminationManager.calculateSynthesisConfidence(synthesis);
+
+    // Map tensions to dissent
+    const dissent: Dissent[] = synthesis.tensions.map(t => ({
+        agent: t.viewpoints[0]?.agent || 'unknown',
+        concern: t.topic,
+        severity: 'medium' as const
+    }));
+
+    return {
+        artifactType: 'verdict',
+        schemaVersion: '1.0',
+        roundNumber: 4,
+        recommendation: topPoint?.point || 'No clear recommendation (synthesized from early termination)',
+        confidence: avgConfidence,
+        evidence: synthesis.consensusPoints.map(cp => cp.point),
+        dissent,
+        createdAt: new Date().toISOString()
+    };
+  }
+
+  /**
    * Get Security Expert system prompt
    */
   private getSecurityExpertPrompt(): string {
@@ -1540,9 +1694,7 @@ Your role in consultations:
 - Identify security risks and vulnerabilities
 - Evaluate authentication, authorization, and data protection approaches
 - Consider attack vectors and mitigation strategies
-- Assess compliance and privacy implications
-
-${this.getJsonInstruction()}`;
+- Assess compliance and privacy implications`;
   }
 
   /**
@@ -1555,9 +1707,7 @@ Your role in consultations:
 - Evaluate architectural patterns and trade-offs
 - Consider scalability, maintainability, and extensibility
 - Assess technical debt implications
-- Recommend best practices and design patterns
-
-${this.getJsonInstruction()}`;
+- Recommend best practices and design patterns`;
   }
 
   /**
@@ -1570,8 +1720,6 @@ Your role in consultations:
 - Assess implementation complexity and time-to-ship
 - Consider team capabilities and existing codebase constraints
 - Balance ideal solutions with practical realities
-- Identify simpler alternatives that deliver 80% of value with 20% effort
-
-${this.getJsonInstruction()}`;
+- Identify simpler alternatives that deliver 80% of value with 20% effort`;
   }
 }
