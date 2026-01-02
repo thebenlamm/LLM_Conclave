@@ -69,6 +69,25 @@ export class CostEstimator {
   }
 
   /**
+   * Calculate potential savings from early termination
+   * Assumes skipping Rounds 3 and 4
+   */
+  public calculateEarlyTerminationSavings(agents: Agent[], roundsSkipped: number = 2): number {
+    let totalSavings = 0;
+    
+    // Cost per round = tokens * price
+    const tokensPerRound = CostEstimator.TOKENS_PER_ROUND;
+
+    for (const agent of agents) {
+        const price = CostEstimator.getPrice(agent.model);
+        const roundCost = (tokensPerRound / 1000) * (price.input + price.output);
+        totalSavings += roundCost * roundsSkipped;
+    }
+
+    return totalSavings;
+  }
+
+  /**
    * Estimate token savings between unfiltered and filtered artifacts
    */
   public estimateTokenSavings(

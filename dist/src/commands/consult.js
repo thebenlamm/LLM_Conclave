@@ -46,6 +46,7 @@ const ProjectContext_1 = __importDefault(require("../utils/ProjectContext"));
 const ConsultLogger_1 = __importDefault(require("../utils/ConsultLogger"));
 const ConsultConsoleLogger_1 = require("../cli/ConsultConsoleLogger");
 const FormatterFactory_1 = require("../consult/formatting/FormatterFactory");
+const strategies_1 = require("../consult/strategies");
 /**
  * Consult command - Fast multi-model consultation
  * Get quick consensus from Security Expert, Architect, and Pragmatist
@@ -58,6 +59,7 @@ function createConsultCommand() {
         .option('-c, --context <files>', 'Comma-separated file paths for context')
         .option('-p, --project <path>', 'Project root for auto-context analysis')
         .option('-f, --format <type>', 'Output format: markdown, json, or both', 'markdown')
+        .option('-m, --mode <mode>', 'Reasoning mode: explore (divergent) or converge (decisive)', 'converge')
         .option('-q, --quick', 'Single round consultation (faster)', false)
         .option('-v, --verbose', 'Show full agent conversation', false)
         .action(async (questionArgs, options) => {
@@ -65,16 +67,30 @@ function createConsultCommand() {
         if (!question.trim()) {
             throw new Error('Question is required. Usage: llm-conclave consult "your question"');
         }
+        // Validate mode option
+        const mode = options.mode;
+        if (!strategies_1.StrategyFactory.isValidMode(mode)) {
+            const availableModes = strategies_1.StrategyFactory.getAvailableModes().join(', ');
+            throw new Error(`Invalid mode: "${mode}". Available modes: ${availableModes}`);
+        }
+        const modeType = mode;
         // Initialize real-time console logger
         const consoleLogger = new ConsultConsoleLogger_1.ConsultConsoleLogger();
         consoleLogger.start();
         try {
             // Load context
             const context = await loadContext(options);
-            // Initialize orchestrator
+            // Get strategy for the selected mode
+            const strategy = strategies_1.StrategyFactory.create(modeType);
+            // Display mode selection
+            if (options.verbose) {
+                console.log(chalk_1.default.cyan(`🎯 Mode: ${modeType} (${modeType === 'explore' ? 'divergent brainstorming' : 'decisive consensus'})`));
+            }
+            // Initialize orchestrator with strategy
             const orchestrator = new ConsultOrchestrator_1.default({
                 maxRounds: options.quick ? 1 : 4,
-                verbose: options.verbose
+                verbose: options.verbose,
+                strategy
             });
             // Execute consultation
             // Orchestrator emits events which consoleLogger handles

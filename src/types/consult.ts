@@ -6,6 +6,8 @@
  * Use ArtifactTransformer for conversion between formats.
  */
 
+import type { ModeStrategy } from '../consult/strategies/ModeStrategy';
+
 // ============================================================================
 // State Machine Types
 // ============================================================================
@@ -216,6 +218,7 @@ export interface ConsultationResult {
   estimatedCost?: number;
   actualCost?: number;
   costExceeded?: boolean;
+  estimatedCostSaved?: number; // New field for Epic 4 Story 2
 
   // Token efficiency (Epic 2, Story 6)
   token_efficiency_stats?: TokenEfficiencyStats;
@@ -430,4 +433,6 @@ export interface IOutputFormatter {
 export interface ConsultOrchestratorOptions {
   maxRounds?: number;
   verbose?: boolean;
+  strategy?: ModeStrategy;
+  confidenceThreshold?: number;
 }

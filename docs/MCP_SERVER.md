@@ -371,6 +371,13 @@ Browse recent consultation sessions with results and costs.
    - xAI: `xai-...`
 3. Keys are valid (not expired)
 
+**Get your API keys:**
+- OpenAI: https://platform.openai.com/settings/organization/api-keys
+- Anthropic: https://console.anthropic.com/settings/keys
+- Google (Gemini): https://aistudio.google.com/apikey
+- xAI (Grok): https://console.x.ai/team/default/api-keys
+- Mistral: https://console.mistral.ai/api-keys
+
 ### "Consultation taking too long"
 
 **Options:**

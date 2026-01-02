@@ -27,6 +27,7 @@ const ProviderTiers_1 = require("../consult/health/ProviderTiers");
 const HedgedRequestManager_1 = require("../consult/health/HedgedRequestManager");
 const InteractivePulse_1 = require("../consult/health/InteractivePulse");
 const PartialResultManager_1 = require("../consult/persistence/PartialResultManager");
+const ConvergeStrategy_1 = require("../consult/strategies/ConvergeStrategy");
 const chalk_1 = __importDefault(require("chalk"));
 const consult_1 = require("../types/consult");
 class ConsultOrchestrator {
@@ -41,6 +42,8 @@ class ConsultOrchestrator {
         this.userCancelledViaPulse = false;
         this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
         this.verbose = options.verbose || false;
+        // Use provided strategy or default to ConvergeStrategy (matches MVP behavior)
+        this.strategy = options.strategy || new ConvergeStrategy_1.ConvergeStrategy();
         this.eventBus = EventBus_1.EventBus.getInstance();
         this.costEstimator = new CostEstimator_1.CostEstimator();
         this.artifactFilter = new ArtifactFilter_1.ArtifactFilter();
@@ -173,7 +176,7 @@ class ConsultOrchestrator {
                 consultation_id: this.consultationId,
                 question,
                 agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
-                mode: 'converge' // Default for now
+                mode: this.strategy.name // Use strategy mode (Epic 4, Story 1)
             });
             // Display verbose mode message (AC #5)
             if (this.verbose) {
@@ -337,7 +340,7 @@ class ConsultOrchestrator {
             timestamp: new Date().toISOString(),
             question,
             context,
-            mode: 'converge',
+            mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
             agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
             agentResponses,
             state: consult_1.ConsultState.Complete,
@@ -358,12 +361,13 @@ class ConsultOrchestrator {
             perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
             cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: this.actualCostUsd },
             durationMs,
+            // Use strategy prompt versions (Epic 4, Story 1)
             promptVersions: {
-                mode: 'converge',
-                independentPromptVersion: '1.0',
-                synthesisPromptVersion: '1.0',
-                crossExamPromptVersion: '1.0',
-                verdictPromptVersion: '1.0'
+                mode: this.strategy.name,
+                independentPromptVersion: this.strategy.promptVersions.independent,
+                synthesisPromptVersion: this.strategy.promptVersions.synthesis,
+                crossExamPromptVersion: this.strategy.promptVersions.crossExam,
+                verdictPromptVersion: this.strategy.promptVersions.verdict
             },
             // Cost tracking fields (Epic 2, Story 1)
             estimatedCost: this.estimatedCostUsd,
@@ -871,7 +875,7 @@ class ConsultOrchestrator {
             timestamp: new Date().toISOString(),
             question,
             context,
-            mode: 'converge',
+            mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
             agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
             agentResponses,
             state: this.stateMachine.getCurrentState(), // Use current state
@@ -898,12 +902,13 @@ class ConsultOrchestrator {
                 usd: this.actualCostUsd
             },
             durationMs: 0,
+            // Use strategy prompt versions (Epic 4, Story 1)
             promptVersions: {
-                mode: 'converge',
-                independentPromptVersion: '1.0',
-                synthesisPromptVersion: '1.0',
-                crossExamPromptVersion: '1.0',
-                verdictPromptVersion: '1.0'
+                mode: this.strategy.name,
+                independentPromptVersion: this.strategy.promptVersions.independent,
+                synthesisPromptVersion: this.strategy.promptVersions.synthesis,
+                crossExamPromptVersion: this.strategy.promptVersions.crossExam,
+                verdictPromptVersion: this.strategy.promptVersions.verdict
             },
             abortReason,
             cancellationReason

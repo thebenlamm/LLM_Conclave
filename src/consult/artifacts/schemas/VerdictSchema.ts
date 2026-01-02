@@ -3,9 +3,15 @@
  *
  * Validates artifacts from Round 4: Verdict phase where
  * the Judge agent produces the final recommendation and confidence score.
+ *
+ * Mode-Aware Validation (Epic 4, Story 1):
+ * - Converge mode: Enforces single recommendation (string)
+ * - Explore mode: Allows multiple recommendations (array)
  */
 
 import { VerdictArtifact, Dissent } from '../../../types/consult';
+
+export type VerdictValidationMode = 'explore' | 'converge';
 
 export class VerdictSchema {
   private static readonly SCHEMA_VERSION = '1.0';
@@ -19,14 +25,28 @@ export class VerdictSchema {
     'dissent',
     'createdAt'
   ];
+  // Explore mode uses 'recommendations' (array) instead of 'recommendation' (string)
+  private static readonly EXPLORE_REQUIRED_FIELDS = [
+    'artifactType',
+    'schemaVersion',
+    'roundNumber',
+    'recommendations',
+    'confidence',
+    'createdAt'
+  ];
 
   /**
    * Validate a Verdict artifact
+   * @param artifact - The artifact to validate
+   * @param mode - Validation mode: 'converge' (default) or 'explore'
    * @throws Error if validation fails
    */
-  public static validate(artifact: any): void {
+  public static validate(artifact: any, mode: VerdictValidationMode = 'converge'): void {
+    // Choose required fields based on mode
+    const requiredFields = mode === 'explore' ? this.EXPLORE_REQUIRED_FIELDS : this.REQUIRED_FIELDS;
+
     // Check all required fields are present
-    for (const field of this.REQUIRED_FIELDS) {
+    for (const field of requiredFields) {
       if (!(field in artifact)) {
         throw new Error(`Missing required field: ${field}`);
       }
@@ -45,32 +65,47 @@ export class VerdictSchema {
       throw new Error('roundNumber must be 4 for Verdict artifacts');
     }
 
-    if (typeof artifact.recommendation !== 'string' || artifact.recommendation.length === 0) {
-      throw new Error('recommendation must be a non-empty string');
-    }
-
     if (typeof artifact.confidence !== 'number' || artifact.confidence < 0 || artifact.confidence > 1) {
       throw new Error('confidence must be a number between 0 and 1');
     }
 
-    // Validate Evidence
-    if (!Array.isArray(artifact.evidence)) {
-      throw new Error('evidence must be an array');
-    }
-    if (artifact.evidence.length === 0) {
-      throw new Error('evidence must contain at least one item');
-    }
-    if (!artifact.evidence.every((e: any) => typeof e === 'string')) {
-      throw new Error('All evidence items must be strings');
-    }
+    // Mode-specific validation (Epic 4, Story 1)
+    if (mode === 'explore') {
+      // Explore mode: multiple recommendations allowed
+      if (!Array.isArray(artifact.recommendations)) {
+        throw new Error('recommendations must be an array in explore mode');
+      }
+      if (artifact.recommendations.length === 0) {
+        throw new Error('recommendations must contain at least one item in explore mode');
+      }
+      artifact.recommendations.forEach((rec: any, index: number) => {
+        this.validateExploreRecommendation(rec, index);
+      });
+    } else {
+      // Converge mode: single recommendation required
+      if (typeof artifact.recommendation !== 'string' || artifact.recommendation.length === 0) {
+        throw new Error('recommendation must be a non-empty string in converge mode');
+      }
 
-    // Validate Dissent
-    if (!Array.isArray(artifact.dissent)) {
-      throw new Error('dissent must be an array');
+      // Validate Evidence (required for converge mode)
+      if (!Array.isArray(artifact.evidence)) {
+        throw new Error('evidence must be an array');
+      }
+      if (artifact.evidence.length === 0) {
+        throw new Error('evidence must contain at least one item');
+      }
+      if (!artifact.evidence.every((e: any) => typeof e === 'string')) {
+        throw new Error('All evidence items must be strings');
+      }
+
+      // Validate Dissent (required for converge mode)
+      if (!Array.isArray(artifact.dissent)) {
+        throw new Error('dissent must be an array');
+      }
+      artifact.dissent.forEach((d: any, index: number) => {
+        this.validateDissent(d, index);
+      });
     }
-    artifact.dissent.forEach((d: any, index: number) => {
-      this.validateDissent(d, index);
-    });
 
     if (typeof artifact.createdAt !== 'string') {
       throw new Error('createdAt must be an ISO 8601 timestamp string');
@@ -79,6 +114,28 @@ export class VerdictSchema {
     // Validate timestamp format (basic check)
     if (!this.isValidISO8601(artifact.createdAt)) {
       throw new Error('createdAt must be a valid ISO 8601 timestamp');
+    }
+  }
+
+  /**
+   * Validate an explore mode recommendation object
+   */
+  private static validateExploreRecommendation(rec: any, index: number): void {
+    if (typeof rec !== 'object' || rec === null) {
+      throw new Error(`Recommendation at index ${index} must be an object`);
+    }
+    if (typeof rec.option !== 'string' || rec.option.length === 0) {
+      throw new Error(`Recommendation at index ${index} missing valid 'option' string`);
+    }
+    if (typeof rec.description !== 'string' || rec.description.length === 0) {
+      throw new Error(`Recommendation at index ${index} missing valid 'description' string`);
+    }
+    // pros and cons are optional but should be arrays if present
+    if (rec.pros !== undefined && !Array.isArray(rec.pros)) {
+      throw new Error(`Recommendation at index ${index}: 'pros' must be an array`);
+    }
+    if (rec.cons !== undefined && !Array.isArray(rec.cons)) {
+      throw new Error(`Recommendation at index ${index}: 'cons' must be an array`);
     }
   }
 
