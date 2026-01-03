@@ -36,7 +36,13 @@ export class InteractivePulse {
         clearTimeout(this.timers.get(agentName)!);
     }
 
-    const timerId = setTimeout(callback, 60000); // 60 seconds
+    const timerId = setTimeout(() => {
+      try {
+        callback();
+      } catch (error) {
+        console.error(`[InteractivePulse] Timer callback failed for ${agentName}:`, error);
+      }
+    }, 60000); // 60 seconds
     this.timers.set(agentName, timerId);
   }
 
@@ -100,6 +106,11 @@ export class InteractivePulse {
       console.error(`[MCP] Still waiting on: ${agentList} - auto-continuing`);
       return true;
     }
+    if (!process.stdin.isTTY || !process.stdin.readable) {
+      const agentList = agents.map(a => `${a.name}(${a.elapsedSeconds}s)`).join(', ');
+      console.error(`[InteractivePulse] No interactive stdin available. Continuing without prompt for: ${agentList}`);
+      return true;
+    }
 
     let message: string;
     if (agents.length === 1) {
@@ -117,12 +128,18 @@ export class InteractivePulse {
     }
 
     // Inquirer prompt
-    const answers = await inquirer.prompt([{
-      type: 'confirm',
-      name: 'shouldContinue',
-      message,
-      default: true
-    }]);
+    let answers: { shouldContinue: boolean };
+    try {
+      answers = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'shouldContinue',
+        message,
+        default: true
+      }]);
+    } catch (error) {
+      console.error('[InteractivePulse] Prompt failed; continuing without user input.', error);
+      return true;
+    }
 
     const shouldContinue = answers.shouldContinue;
 
