@@ -287,6 +287,13 @@ export class ArtifactTransformer {
       question: result.question,
       context: result.context,
       mode: result.mode,
+      context_sources: result.contextMetadata ? {
+        files: result.contextMetadata.files,
+        project_path: result.contextMetadata.projectPath,
+        total_tokens_estimated: result.contextMetadata.totalTokensEstimated,
+        file_count: result.contextMetadata.fileCount,
+        project_summary_included: result.contextMetadata.projectSummaryIncluded
+      } : undefined,
       project_context: result.projectContext
         ? {
             project_type: result.projectContext.projectType,
@@ -377,6 +384,14 @@ export class ArtifactTransformer {
       },
       early_termination: result.earlyTermination,
       early_termination_reason: result.earlyTerminationReason,
+      scrubbing_report: result.scrubbingReport
+        ? {
+            sensitive_data_scrubbed: result.scrubbingReport.sensitiveDataScrubbed,
+            patterns_matched: result.scrubbingReport.patternsMatched,
+            types_detected: result.scrubbingReport.typesDetected,
+            details_by_type: result.scrubbingReport.detailsByType
+          }
+        : undefined,
       abort_reason: result.abortReason
     };
   }

@@ -20,15 +20,17 @@ export class ConsultConsoleLogger {
     // Consultation Started
     this.eventBus.on('consultation:started', (event: any) => {
       const payload = event?.payload ?? event;
+      const count = payload?.agents?.length ?? 0;
       console.log(chalk.bold.blue(`
-🔍 Starting consultation with ${payload.agents.length} experts...`));
+🔍 Starting consultation with ${count} experts...`));
     });
 
     // Cost Estimated
     this.eventBus.on('consultation:cost_estimated', (event: any) => {
       const payload = event?.payload ?? event;
-      console.log(chalk.cyan(`💰 Estimated Cost: $${payload.estimated_cost.toFixed(4)}`));
-      console.log(chalk.gray(`   (Input: ${payload.input_tokens}, Expected Output: ${payload.expected_output_tokens})`));
+      const cost = payload?.estimated_cost ?? 0;
+      console.log(chalk.cyan(`💰 Estimated Cost: $${cost.toFixed(4)}`));
+      console.log(chalk.gray(`   (Input: ${payload?.input_tokens ?? 0}, Expected Output: ${payload?.expected_output_tokens ?? 0})`));
     });
 
     // User Consent

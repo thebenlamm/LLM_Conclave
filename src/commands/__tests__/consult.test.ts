@@ -4,6 +4,8 @@ import { EventBus } from '../../core/EventBus';
 import { ConsultConsoleLogger } from '../../cli/ConsultConsoleLogger';
 import { ArtifactTransformer } from '../../consult/artifacts/ArtifactTransformer';
 import ConsultLogger from '../../utils/ConsultLogger';
+import { ContextLoader } from '../../consult/context/ContextLoader';
+import { SensitiveDataScrubber } from '../../consult/security/SensitiveDataScrubber';
 import { Command } from 'commander';
 import { ConsultationResult } from '../../types/consult';
 import * as os from 'os';
@@ -15,6 +17,8 @@ jest.mock('../../utils/ConsultLogger');
 jest.mock('../../utils/ProjectContext');
 jest.mock('../../cli/ConsultConsoleLogger');
 jest.mock('../../consult/artifacts/ArtifactTransformer');
+jest.mock('../../consult/context/ContextLoader');
+jest.mock('../../consult/security/SensitiveDataScrubber');
 
 describe('consult command', () => {
   let mockOrchestratorInstance: any;
@@ -83,6 +87,48 @@ describe('consult command', () => {
       cost: { usd: 0.1, tokens: { total: 100 } },
       duration_ms: 1000
     });
+
+    // Setup Mock ContextLoader
+    const mockContextLoaderInstance = {
+      loadFileContext: jest.fn().mockResolvedValue({
+        sources: [],
+        formattedContent: '',
+        totalTokens: 0,
+        fileCount: 0,
+        projectIncluded: false
+      }),
+      loadProjectContext: jest.fn().mockResolvedValue({
+        sources: [],
+        formattedContent: '',
+        totalTokens: 0,
+        fileCount: 0,
+        projectIncluded: true
+      }),
+      combineContexts: jest.fn().mockReturnValue({
+        sources: [],
+        formattedContent: '',
+        totalTokens: 0,
+        fileCount: 0,
+        projectIncluded: false
+      }),
+      checkSizeWarning: jest.fn().mockResolvedValue(true)
+    };
+    (ContextLoader as jest.Mock).mockImplementation(() => mockContextLoaderInstance);
+
+    // Setup Mock SensitiveDataScrubber
+    const mockScrubberInstance = {
+      scrub: jest.fn().mockReturnValue({
+        content: '',
+        report: {
+          sensitiveDataScrubbed: false,
+          patternsMatched: 0,
+          typesDetected: [],
+          detailsByType: {}
+        }
+      }),
+      formatReport: jest.fn().mockReturnValue('')
+    };
+    (SensitiveDataScrubber as jest.Mock).mockImplementation(() => mockScrubberInstance);
   });
 
   it('should instantiate ConsultOrchestrator and call consult', async () => {
@@ -95,7 +141,11 @@ describe('consult command', () => {
     await cmd.parseAsync(['node', 'test', 'consult', 'test question']);
 
     expect(ConsultOrchestrator).toHaveBeenCalled();
-    expect(mockOrchestratorInstance.consult).toHaveBeenCalledWith(expect.stringContaining('test question'), expect.any(String));
+    expect(mockOrchestratorInstance.consult).toHaveBeenCalledWith(
+      expect.stringContaining('test question'),
+      expect.any(String),
+      { scrubbingReport: undefined }
+    );
     
     consoleSpy.mockRestore();
   });

@@ -155,6 +155,41 @@ export interface VerdictArtifact {
 }
 
 // ============================================================================
+// Context Types (TypeScript - camelCase)
+// ============================================================================
+
+export interface ContextSource {
+  type: 'file' | 'project';
+  path: string;
+  content: string;
+  tokenEstimate: number;
+  metadata?: {
+    // For files
+    filename?: string;
+    extension?: string;
+    // For projects
+    framework?: string;
+    techStack?: any;
+  };
+}
+
+export interface LoadedContext {
+  sources: ContextSource[];
+  formattedContent: string;
+  totalTokens: number;
+  fileCount: number;
+  projectIncluded: boolean;
+}
+
+export interface ContextMetadata {
+  files: string[];
+  projectPath: string | null;
+  totalTokensEstimated: number;
+  fileCount: number;
+  projectSummaryIncluded: boolean;
+}
+
+// ============================================================================
 // Debate Value Analysis Types (TypeScript - camelCase)
 // ============================================================================
 
@@ -185,6 +220,17 @@ export interface DebateValueAnalysis {
 }
 
 // ============================================================================
+// Security Types
+// ============================================================================
+
+export interface ScrubReport {
+  sensitiveDataScrubbed: boolean;
+  patternsMatched: number;
+  typesDetected: string[];
+  detailsByType: Record<string, number>;
+}
+
+// ============================================================================
 // Consultation Result (TypeScript - camelCase)
 // ============================================================================
 
@@ -195,6 +241,8 @@ export interface ConsultationResult {
   context: string;
   mode: 'explore' | 'converge';
   projectContext?: ProjectContextMetadata;
+  contextMetadata?: ContextMetadata;
+  scrubbingReport?: ScrubReport;
 
   // Agents
   agents: {
@@ -513,4 +561,7 @@ export interface ConsultOrchestratorOptions {
   projectPath?: string;
   greenfield?: boolean;
   brownfieldAnalysis?: BrownfieldAnalysis | null;
+  loadedContext?: LoadedContext;
+  scrubbingReport?: ScrubReport;
 }
+

@@ -53,7 +53,10 @@ import {
   TokenEfficiencyStats,
   Dissent,
   DebateValueAnalysis,
-  ProjectContextMetadata
+  ProjectContextMetadata,
+  ContextMetadata,
+  LoadedContext,
+  ScrubReport
 } from '../types/consult';
 
 type Round1ExecutionResult = {
@@ -98,6 +101,8 @@ export default class ConsultOrchestrator {
   private greenfieldOverride: boolean;
   private contextAugmenter: ContextAugmenter;
   private projectContextMetadata?: ProjectContextMetadata;
+  private loadedContext?: LoadedContext;
+  private scrubbingReport?: ScrubReport;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
@@ -105,6 +110,7 @@ export default class ConsultOrchestrator {
     // Use provided strategy or default to ConvergeStrategy (matches MVP behavior)
     this.strategy = options.strategy || new ConvergeStrategy();
     this.confidenceThreshold = options.confidenceThreshold ?? 0.90;
+    this.scrubbingReport = options.scrubbingReport;
     
     // Initialize EarlyTerminationManager with prompt callback
     this.earlyTerminationManager = new EarlyTerminationManager(async (message) => {
@@ -135,6 +141,7 @@ export default class ConsultOrchestrator {
     this.projectPath = options.projectPath;
     this.greenfieldOverride = options.greenfield ?? false;
     this.contextAugmenter = new ContextAugmenter();
+    this.loadedContext = options.loadedContext;
 
     // Generate ID first so state machine can use it
     this.consultationId = this.generateId('consult');
@@ -142,6 +149,7 @@ export default class ConsultOrchestrator {
 
     // Initialize 3 fixed agents with diverse models
     this.agents = this.initializeAgents();
+
 
     // Initialize Health Monitor (Story 2.2)
     this.healthMonitor = new ProviderHealthMonitor();
@@ -262,9 +270,10 @@ export default class ConsultOrchestrator {
    * Execute a consultation
    * @param question - The question to consult on
    * @param context - Optional context (files, project info, etc.)
+   * @param options - Optional execution overrides
    * @returns Consultation result with consensus, confidence, and costs
    */
-  async consult(question: string, context: string = ''): Promise<ConsultationResult> {
+  async consult(question: string, context: string = '', options: { scrubbingReport?: ScrubReport } = {}): Promise<ConsultationResult> {
     const startTime = Date.now();
     let estimate: CostEstimate | null = null;
     let agentResponses: AgentResponse[] = [];
@@ -282,6 +291,11 @@ export default class ConsultOrchestrator {
     // Early termination tracking (Epic 4, Story 2, AC #4)
     let earlyTerminationDeclined = false;
 
+    // Store scrubbing report if provided in options
+    if (options.scrubbingReport) {
+      this.scrubbingReport = options.scrubbingReport;
+    }
+
     try {
       // Start consultation lifecycle
       this.stateMachine.transition(ConsultState.Estimating);
@@ -290,7 +304,7 @@ export default class ConsultOrchestrator {
       this.eventBus.emitEvent('consultation:started' as any, {
         consultation_id: this.consultationId,
         question,
-        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
+        agents: (this.agents || []).map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
         mode: this.strategy.name // Use strategy mode (Epic 4, Story 1)
       });
 
@@ -330,7 +344,7 @@ export default class ConsultOrchestrator {
         // Cost exceeds threshold - prompt user
         const consent = await this.costGate.getUserConsent(
           estimate,
-          this.agents.length,
+          (this.agents || []).length,
           this.maxRounds
         );
 
@@ -1208,6 +1222,15 @@ export default class ConsultOrchestrator {
           return acc;
       }, { input: 0, output: 0, total: 0 });
 
+      // Populate ContextMetadata (Task 7)
+      const contextMetadata: ContextMetadata | undefined = this.loadedContext ? {
+        files: this.loadedContext.sources.filter(s => s.type === 'file').map(s => s.path),
+        projectPath: this.loadedContext.sources.find(s => s.type === 'project')?.path || null,
+        totalTokensEstimated: this.loadedContext.totalTokens,
+        fileCount: this.loadedContext.fileCount,
+        projectSummaryIncluded: this.loadedContext.projectIncluded
+      } : undefined;
+
       return {
         consultationId: this.consultationId,
         timestamp: new Date().toISOString(),
@@ -1215,6 +1238,8 @@ export default class ConsultOrchestrator {
         context,
         mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
         projectContext: this.projectContextMetadata,
+        contextMetadata,
+        scrubbingReport: this.scrubbingReport,
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
         agentResponses,
         state: this.stateMachine.getCurrentState(), // Use current state
@@ -1300,6 +1325,15 @@ export default class ConsultOrchestrator {
           filtered_rounds: this.verbose ? [] : [3, 4]
       };
 
+      // Populate ContextMetadata (Task 7)
+      const contextMetadata: ContextMetadata | undefined = this.loadedContext ? {
+        files: this.loadedContext.sources.filter(s => s.type === 'file').map(s => s.path),
+        projectPath: this.loadedContext.sources.find(s => s.type === 'project')?.path || null,
+        totalTokensEstimated: this.loadedContext.totalTokens,
+        fileCount: this.loadedContext.fileCount,
+        projectSummaryIncluded: this.loadedContext.projectIncluded
+      } : undefined;
+
       const result: ConsultationResult = {
         consultationId: this.consultationId,
         timestamp: new Date().toISOString(),
@@ -1307,6 +1341,8 @@ export default class ConsultOrchestrator {
         context,
         mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
         projectContext: this.projectContextMetadata,
+        contextMetadata,
+        scrubbingReport: this.scrubbingReport,
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
         agentResponses,
         state: ConsultState.Complete,

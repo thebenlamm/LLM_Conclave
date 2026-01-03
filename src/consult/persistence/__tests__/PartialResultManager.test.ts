@@ -5,11 +5,13 @@ import * as path from 'path';
 import * as os from 'os';
 
 describe('PartialResultManager', () => {
-  const testLogDir = path.join(os.tmpdir(), 'llm-conclave-test-logs');
+  let testLogDir: string;
   let manager: PartialResultManager;
 
   beforeEach(async () => {
-    // Clean up test directory
+    // Use unique directory per test to avoid race conditions
+    testLogDir = path.join(os.tmpdir(), `llm-conclave-test-logs-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    // Clean up test directory if it exists
     if (fs.existsSync(testLogDir)) {
         fs.rmSync(testLogDir, { recursive: true, force: true });
     }
@@ -18,7 +20,7 @@ describe('PartialResultManager', () => {
   });
 
   afterEach(async () => {
-    if (fs.existsSync(testLogDir)) {
+    if (testLogDir && fs.existsSync(testLogDir)) {
         fs.rmSync(testLogDir, { recursive: true, force: true });
     }
   });

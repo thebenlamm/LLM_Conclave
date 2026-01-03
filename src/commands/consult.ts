@@ -1,9 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import * as fs from 'fs';
 import * as path from 'path';
 import ConsultOrchestrator from '../orchestration/ConsultOrchestrator';
-import ProjectContext from '../utils/ProjectContext';
 import ConsultLogger from '../utils/ConsultLogger';
 import { ConsultConsoleLogger } from '../cli/ConsultConsoleLogger';
 import { ArtifactTransformer } from '../consult/artifacts/ArtifactTransformer';
@@ -11,6 +9,8 @@ import { ConsultationResult, OutputFormat } from '../types/consult';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory';
 import { StrategyFactory, ModeType } from '../consult/strategies';
 import { DebateValueFormatter } from '../consult/analysis/DebateValueFormatter';
+import { ContextLoader, LoadedContext } from '../consult/context/ContextLoader';
+import { SensitiveDataScrubber } from '../consult/security/SensitiveDataScrubber';
 
 /**
  * Consult command - Fast multi-model consultation
@@ -30,6 +30,7 @@ export function createConsultCommand(): Command {
     .option('-q, --quick', 'Single round consultation (faster)', false)
     .option('-v, --verbose', 'Show full agent conversation', false)
     .option('--greenfield', 'Ignore brownfield detection and use greenfield mode', false)
+    .option('--no-scrub', 'Disable sensitive data scrubbing (use with caution)', false)
     .action(async (questionArgs: string[], options: any) => {
       const question = questionArgs.join(' ');
       if (!question.trim()) {
@@ -55,8 +56,50 @@ export function createConsultCommand(): Command {
       consoleLogger.start();
 
       try {
-        // Load context
-        const context = await loadContext(options);
+        // Load context using ContextLoader
+        const contextLoader = new ContextLoader();
+        let loadedContext: LoadedContext | null = null;
+        
+        let fileContext: LoadedContext | null = null;
+        if (options.context) {
+          const filePaths = options.context.split(',').map((f: string) => f.trim());
+          fileContext = await contextLoader.loadFileContext(filePaths);
+        }
+
+        let projectContext: LoadedContext | null = null;
+        if (options.project) {
+          projectContext = await contextLoader.loadProjectContext(options.project);
+        }
+
+        if (fileContext || projectContext) {
+          loadedContext = contextLoader.combineContexts(projectContext, fileContext);
+          
+          const proceed = await contextLoader.checkSizeWarning(loadedContext);
+          if (!proceed) {
+             throw new Error('Consultation cancelled by user');
+          }
+        }
+
+        let contextString = loadedContext ? loadedContext.formattedContent : '';
+        let scrubbingReport: any = undefined;
+
+        // Apply sensitive data scrubbing (unless disabled)
+        // options.scrub is true by default because of the way commander handles --no-scrub
+        if (options.scrub !== false) {
+          const scrubber = new SensitiveDataScrubber();
+          const scrubResult = scrubber.scrub(contextString);
+          contextString = scrubResult.content;
+          scrubbingReport = scrubResult.report;
+
+          // Display report to user if matches found
+          const reportText = scrubber.formatReport(scrubResult.report);
+          if (reportText) {
+            console.log(reportText);
+          }
+        } else {
+          console.log(chalk.red('⚠️ WARNING: Sensitive data scrubbing disabled.'));
+          console.log(chalk.red('Ensure your context contains no secrets!'));
+        }
 
         if (options.greenfield) {
           console.log(chalk.yellow('🔧 Ignoring existing patterns (--greenfield mode)'));
@@ -82,7 +125,9 @@ export function createConsultCommand(): Command {
 
         // Execute consultation
         // Orchestrator emits events which consoleLogger handles
-        const result = await orchestrator.consult(question, context);
+        const result = await orchestrator.consult(question, contextString, {
+          scrubbingReport
+        });
 
         // Persist consultation for analytics (handles transformation to snake_case internally)
         const logger = new ConsultLogger();
@@ -103,7 +148,9 @@ export function createConsultCommand(): Command {
           process.exit(0);
         }
 
-        console.error(chalk.red(`\n❌ Consultation failed: ${error.message}\n`));
+        console.error(chalk.red(`
+❌ Consultation failed: ${error.message}
+`));
         if (options.verbose) {
           console.error(error.stack);
         }
@@ -112,40 +159,4 @@ export function createConsultCommand(): Command {
     });
 
   return cmd;
-}
-
-/**
- * Load context from various sources
- */
-async function loadContext(options: any): Promise<string> {
-  let context = '';
-
-  // Explicit file context
-  if (options.context) {
-    const files = options.context.split(',').map((f: string) => f.trim());
-
-    for (const file of files) {
-      if (!fs.existsSync(file)) {
-        throw new Error(`Context file not found: ${file}`);
-      }
-
-      const content = fs.readFileSync(file, 'utf-8');
-      const fileName = path.basename(file);
-      context += `\n\n### File: ${fileName}\n\n${content}`;
-    }
-  }
-
-  // Project context
-  if (options.project) {
-    if (!fs.existsSync(options.project)) {
-      throw new Error(`Project directory not found: ${options.project}`);
-    }
-
-    const projectContext = new ProjectContext(options.project);
-    await projectContext.load();
-    const formattedContext = projectContext.formatContext();
-    context += `\n\n### Project Context\n\n${formattedContext}`;
-  }
-
-  return context;
 }
