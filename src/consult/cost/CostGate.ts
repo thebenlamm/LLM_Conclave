@@ -41,6 +41,12 @@ export class CostGate {
     agents: number = 3,
     rounds: number = 4
   ): Promise<ConsentResult> {
+    // Auto-approve in MCP mode (no stdin available for prompts)
+    if (process.env.LLM_CONCLAVE_MCP === '1') {
+      console.error(`[MCP] Auto-approving cost: $${estimate.estimatedCostUsd.toFixed(4)}`);
+      return 'approved';
+    }
+
     console.log(chalk.yellow('\n💰 Cost Estimate'));
     console.log(chalk.gray('━'.repeat(50)));
     console.log(`Estimated cost: ${chalk.yellow(`$${estimate.estimatedCostUsd.toFixed(4)}`)}`);

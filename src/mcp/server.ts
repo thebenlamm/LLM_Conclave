@@ -8,6 +8,10 @@
  * to invoke consultations as part of their workflow.
  */
 
+// Set MCP mode flag BEFORE any other imports
+// This prevents interactive prompts from hanging (stdin is used for MCP protocol)
+process.env.LLM_CONCLAVE_MCP = '1';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {

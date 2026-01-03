@@ -94,6 +94,13 @@ export class InteractivePulse {
   async promptUserToContinue(agents: AgentStatus[]): Promise<boolean> {
     if (agents.length === 0) return true;
 
+    // Auto-continue in MCP mode (no stdin available for prompts)
+    if (process.env.LLM_CONCLAVE_MCP === '1') {
+      const agentList = agents.map(a => `${a.name}(${a.elapsedSeconds}s)`).join(', ');
+      console.error(`[MCP] Still waiting on: ${agentList} - auto-continuing`);
+      return true;
+    }
+
     let message: string;
     if (agents.length === 1) {
       const agent = agents[0];
