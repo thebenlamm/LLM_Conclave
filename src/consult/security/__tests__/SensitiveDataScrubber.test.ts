@@ -252,4 +252,177 @@ MIIEpQIBAAKCAQEA...
       expect(report).toContain('sensitive values detected');
     });
   });
+
+  describe('Performance: Guard Patterns', () => {
+    it('skips PEM key regex when no PRIVATE KEY marker present', () => {
+      const scrubber = new SensitiveDataScrubber();
+      // Content without "PRIVATE KEY" - guard should skip expensive regex
+      const content = 'Just some regular content with -----BEGIN and -----END markers';
+      const result = scrubber.scrub(content);
+      // Should not detect as private_key since guard regex won't match
+      expect(result.report.typesDetected).not.toContain('private_key');
+    });
+
+    it('processes PEM key when guard matches', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const content = `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEF...
+-----END PRIVATE KEY-----`;
+      const result = scrubber.scrub(content);
+      expect(result.report.typesDetected).toContain('private_key');
+    });
+
+    it('skips RSA key regex when no RSA PRIVATE KEY marker', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const content = 'text mentioning RSA but not the full marker';
+      const result = scrubber.scrub(content);
+      expect(result.report.typesDetected).not.toContain('private_key');
+    });
+
+    it('skips SSH key regex when no OPENSSH PRIVATE KEY marker', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const content = 'OPENSSH without PRIVATE KEY in text';
+      const result = scrubber.scrub(content);
+      expect(result.report.typesDetected).not.toContain('ssh_key');
+    });
+
+    it('processes SSH key when guard matches', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const content = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmU...
+-----END OPENSSH PRIVATE KEY-----`;
+      const result = scrubber.scrub(content);
+      // Note: The general PRIVATE KEY pattern matches first, so type is 'private_key'
+      // The guard ensures the pattern runs, but order determines which type is reported
+      expect(result.report.typesDetected).toContain('private_key');
+      expect(result.content).toContain('[REDACTED');
+    });
+  });
+
+  describe('JSON/YAML Configuration Patterns', () => {
+    describe('apiKey patterns', () => {
+      it('detects JSON double-quoted apiKey', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('{"apiKey": "sk-secret123"}');
+        expect(result.content).toContain('[REDACTED_API_KEY]');
+        expect(result.report.typesDetected).toContain('api_key');
+      });
+
+      it('detects JSON single-quoted apiKey', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub("{'apiKey': 'sk-secret123'}");
+        expect(result.content).toContain('[REDACTED_API_KEY]');
+      });
+
+      it('detects YAML api_key with colon', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('api_key: "my-api-key-value"');
+        expect(result.content).toContain('[REDACTED_API_KEY]');
+      });
+
+      it('detects accessToken in config', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('accessToken: "eyJhbGciOiJIUzI1NiJ9"');
+        expect(result.content).toContain('[REDACTED');
+      });
+
+      it('detects access_token snake_case', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('"access_token": "secret-token-value"');
+        expect(result.content).toContain('[REDACTED');
+      });
+    });
+
+    describe('secret patterns', () => {
+      it('detects clientSecret in JSON', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('{"clientSecret": "abc123xyz"}');
+        expect(result.content).toContain('[REDACTED_SECRET]');
+        expect(result.report.typesDetected).toContain('secret');
+      });
+
+      it('detects client_secret snake_case', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('client_secret: "my-client-secret"');
+        expect(result.content).toContain('[REDACTED_SECRET]');
+      });
+
+      it('detects secretKey camelCase', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('"secretKey": "super-secret"');
+        expect(result.content).toContain('[REDACTED_SECRET]');
+      });
+
+      it('detects secret_key snake_case', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub("secret_key = 'my-secret-key'");
+        expect(result.content).toContain('[REDACTED_SECRET]');
+      });
+
+      it('detects privateKey (non-PEM)', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('{"privateKey": "not-a-pem-just-string"}');
+        expect(result.content).toContain('[REDACTED_SECRET]');
+      });
+    });
+
+    describe('token patterns', () => {
+      it('detects token in JSON', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('{"token": "abc123token"}');
+        expect(result.content).toContain('[REDACTED_TOKEN]');
+        expect(result.report.typesDetected).toContain('token');
+      });
+
+      it('detects idToken camelCase', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('"idToken": "eyJhbGciOiJSUzI1NiJ9"');
+        expect(result.content).toContain('[REDACTED_TOKEN]');
+      });
+
+      it('detects refreshToken', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('refreshToken: "refresh-token-value"');
+        expect(result.content).toContain('[REDACTED');
+      });
+
+      it('detects refresh_token snake_case', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const result = scrubber.scrub('"refresh_token": "1234-refresh"');
+        expect(result.content).toContain('[REDACTED');
+      });
+    });
+
+    describe('mixed content', () => {
+      it('handles config file with multiple secrets', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const content = `{
+          "apiKey": "sk-proj-abc123",
+          "clientSecret": "cs-secret-456",
+          "token": "tok-789xyz",
+          "database": "postgresql://user:pass@host/db"
+        }`;
+        const result = scrubber.scrub(content);
+
+        expect(result.content).toContain('[REDACTED_API_KEY]');
+        expect(result.content).toContain('[REDACTED_SECRET]');
+        expect(result.content).toContain('[REDACTED_TOKEN]');
+        expect(result.content).toContain('[REDACTED]'); // database password
+        expect(result.report.patternsMatched).toBeGreaterThanOrEqual(4);
+      });
+
+      it('handles YAML config with secrets', () => {
+        const scrubber = new SensitiveDataScrubber();
+        const content = `
+auth:
+  api_key: "secret-api-key"
+  client_secret: "secret-client"
+database:
+  connection_string: "mongodb://admin:secret@localhost"
+`;
+        const result = scrubber.scrub(content);
+        expect(result.report.patternsMatched).toBeGreaterThanOrEqual(3);
+      });
+    });
+  });
 });

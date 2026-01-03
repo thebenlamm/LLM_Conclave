@@ -90,6 +90,24 @@ describe('InteractivePulse', () => {
   });
 
   describe('User Interaction', () => {
+    let originalIsTTY: boolean | undefined;
+    let originalReadable: boolean;
+
+    beforeEach(() => {
+      // Save original stdin properties
+      originalIsTTY = process.stdin.isTTY;
+      originalReadable = process.stdin.readable;
+      // Mock stdin as interactive TTY
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'readable', { value: true, configurable: true });
+    });
+
+    afterEach(() => {
+      // Restore original stdin properties
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+      Object.defineProperty(process.stdin, 'readable', { value: originalReadable, configurable: true });
+    });
+
     it('should prompt user when agents are waiting', async () => {
       const agents: AgentStatus[] = [
         { name: 'Agent1', elapsedSeconds: 70, startTime: new Date() }
@@ -119,6 +137,20 @@ describe('InteractivePulse', () => {
 
     it('should auto-continue if no agents are waiting', async () => {
       const result = await pulse.promptUserToContinue([]);
+      expect(inquirer.prompt).not.toHaveBeenCalled();
+      expect(result).toBe(true);
+    });
+
+    it('should auto-continue when stdin is not interactive', async () => {
+      // Override to non-interactive
+      Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+      const agents: AgentStatus[] = [
+        { name: 'Agent1', elapsedSeconds: 70, startTime: new Date() }
+      ];
+
+      const result = await pulse.promptUserToContinue(agents);
+
       expect(inquirer.prompt).not.toHaveBeenCalled();
       expect(result).toBe(true);
     });
