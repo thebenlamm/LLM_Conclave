@@ -1,6 +1,6 @@
 # Story 4.3: Debate Value Tracking with Agent Position Analysis
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -83,80 +83,84 @@ So that users can see the value added by multi-round discussion.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create DebateValueAnalyzer Module (AC: #1, #2, #3)
-  - [ ] Create `src/consult/analysis/DebateValueAnalyzer.ts`
-  - [ ] Define `AgentPositionChange` interface
-  - [ ] Define `DebateValueAnalysis` interface
-  - [ ] Implement `extractAgentPosition(artifact: IndependentArtifact): AgentPosition`
-  - [ ] Implement `extractAgentFinalStance(verdict: VerdictArtifact, agentId: string): AgentFinalStance`
-  - [ ] Add unit tests in `src/consult/analysis/__tests__/DebateValueAnalyzer.test.ts`
+- [x] Task 1: Create DebateValueAnalyzer Module (AC: #1, #2, #3)
+  - [x] Create `src/consult/analysis/DebateValueAnalyzer.ts`
+  - [x] Define `AgentPositionChange` interface
+  - [x] Define `DebateValueAnalysis` interface
+  - [x] Implement `extractAgentPosition(artifact: IndependentArtifact): AgentPosition`
+  - [x] Implement `extractAgentFinalStance(verdict: VerdictArtifact, agentId: string): AgentFinalStance`
+  - [x] Add unit tests in `src/consult/analysis/__tests__/DebateValueAnalyzer.test.ts`
 
-- [ ] Task 2: Implement Semantic Comparison (AC: #2)
-  - [ ] Create `SemanticComparer` class within DebateValueAnalyzer
-  - [ ] Implement `compareSemantically(position1: string, position2: string): Promise<SemanticComparison>`
-  - [ ] Use ProviderFactory to create GPT-4o-mini instance
-  - [ ] Design prompt for semantic comparison with clear output format
-  - [ ] Parse LLM response to extract magnitude and reasoning
-  - [ ] Track cost of semantic comparisons
-  - [ ] Add unit tests with mocked LLM responses
+- [x] Task 2: Implement Semantic Comparison (AC: #2)
+  - [x] Create `SemanticComparer` class within DebateValueAnalyzer
+  - [x] Implement `compareSemantically(position1: string, position2: string): Promise<SemanticComparison>`
+  - [x] Use ProviderFactory to create GPT-4o-mini instance
+  - [x] Design prompt for semantic comparison with clear output format
+  - [x] Parse LLM response to extract magnitude and reasoning
+  - [x] Track cost of semantic comparisons
+  - [x] Add unit tests with mocked LLM responses
 
-- [ ] Task 3: Implement Change Magnitude Calculation (AC: #3)
-  - [ ] Implement `calculateChangeMagnitude(semantic: SemanticResult, confidenceDelta: number): ChangeMagnitude`
-  - [ ] Map semantic result to magnitude enum
-  - [ ] Use confidence delta as supporting signal for edge cases
-  - [ ] Add unit tests for magnitude calculation
+- [x] Task 3: Implement Change Magnitude Calculation (AC: #3)
+  - [x] Implement `calculateChangeMagnitude(semantic: SemanticResult, confidenceDelta: number): ChangeMagnitude`
+  - [x] Map semantic result to magnitude enum
+  - [x] Use confidence delta as supporting signal for edge cases
+  - [x] Add unit tests for magnitude calculation
 
-- [ ] Task 4: Implement Influence Detection (AC: #1)
-  - [ ] Analyze CrossExam artifact for challenges that led to position changes
-  - [ ] Track which agents' challenges influenced others
-  - [ ] Implement `detectInfluencers(crossExam: CrossExamArtifact, positionChanges: AgentPositionChange[]): string[]`
+- [x] Task 4: Implement Influence Detection (AC: #1)
+  - [x] Analyze CrossExam artifact for challenges that led to position changes
+  - [x] Track which agents' challenges influenced others
+  - [x] Implement `detectInfluencers(crossExam: CrossExamArtifact, positionChanges: AgentPositionChange[]): string[]`
 
-- [ ] Task 5: Calculate Convergence Score (AC: #5)
-  - [ ] Implement `calculateConvergenceScore(analyses: AgentPositionChange[]): number`
-  - [ ] Score based on: agreement increase, confidence increase, dissent reduction
-  - [ ] Return 0.0-1.0 score representing overall debate convergence
+- [x] Task 5: Calculate Convergence Score (AC: #5)
+  - [x] Implement `calculateConvergenceScore(analyses: AgentPositionChange[]): number`
+  - [x] Score based on: agreement increase, confidence increase, dissent reduction
+  - [x] Return 0.0-1.0 score representing overall debate convergence
 
-- [ ] Task 6: Integrate with ConsultOrchestrator (AC: #1-#5)
-  - [ ] Modify `src/orchestration/ConsultOrchestrator.ts`
-  - [ ] After Round 4 (Verdict) completes, call DebateValueAnalyzer
-  - [ ] Pass Round 1 artifacts, Verdict artifact, and CrossExam artifact
-  - [ ] Add `debateValueAnalysis` to ConsultationResult
-  - [ ] Track semantic comparison cost in overall cost tracking
+- [x] Task 6: Integrate with ConsultOrchestrator (AC: #1-#5)
+  - [x] Modify `src/orchestration/ConsultOrchestrator.ts`
+  - [x] After Round 4 (Verdict) completes, call DebateValueAnalyzer
+  - [x] Pass Round 1 artifacts, Verdict artifact, and CrossExam artifact
+  - [x] Add `debateValueAnalysis` to ConsultationResult
+  - [x] Track semantic comparison cost in overall cost tracking
 
-- [ ] Task 7: Display Value Added Summary (AC: #4)
-  - [ ] Create `DebateValueFormatter` class
-  - [ ] Implement `formatValueSummary(analysis: DebateValueAnalysis): string`
-  - [ ] Use chalk for colored output
-  - [ ] Display after consultation results in CLI
+- [x] Task 7: Display Value Added Summary (AC: #4)
+  - [x] Create `DebateValueFormatter` class
+  - [x] Implement `formatValueSummary(analysis: DebateValueAnalysis): string`
+  - [x] Use chalk for colored output
+  - [x] Display after consultation results in CLI
 
-- [ ] Task 8: Update ConsultationResult Types (AC: #5)
-  - [ ] Add `debateValueAnalysis` field to ConsultationResult in `src/types/consult.ts`
-  - [ ] Add `DebateValueAnalysis` interface
-  - [ ] Add `AgentPositionChange` interface
-  - [ ] Add JSON schema for snake_case serialization
+- [x] Task 8: Update ConsultationResult Types (AC: #5)
+  - [x] Add `debateValueAnalysis` field to ConsultationResult in `src/types/consult.ts`
+  - [x] Add `DebateValueAnalysis` interface
+  - [x] Add `AgentPositionChange` interface
+  - [x] Add JSON schema for snake_case serialization
 
-- [ ] Task 9: Update ConsultLogger for Debate Value (AC: #5)
-  - [ ] Modify `src/consult/logging/ConsultationFileLogger.ts`
-  - [ ] Include debate_value_analysis in JSONL output
-  - [ ] Ensure snake_case conversion via ArtifactTransformer
+- [x] Task 9: Update ConsultLogger for Debate Value (AC: #5)
+  - [x] Modify `src/consult/logging/ConsultationFileLogger.ts`
+  - [x] Include debate_value_analysis in JSONL output
+  - [x] Ensure snake_case conversion via ArtifactTransformer
 
-- [ ] Task 10: Update SQLite Analytics (AC: #6)
-  - [ ] Add new table or columns for debate value metrics
-  - [ ] Update AnalyticsIndexer to capture debate value data
-  - [ ] Update StatsQuery to compute aggregate debate value metrics
+- [x] Task 10: Update SQLite Analytics (AC: #6)
+  - [x] Add new table or columns for debate value metrics
+  - [x] Update AnalyticsIndexer to capture debate value data
+  - [x] Update StatsQuery to compute aggregate debate value metrics
 
-- [ ] Task 11: Update consult-stats Dashboard (AC: #6)
-  - [ ] Modify `src/commands/consult-stats.ts`
-  - [ ] Add "Debate Value Metrics" section to dashboard
-  - [ ] Query and display: avg position changes, avg confidence increase, high-value debate count
+- [x] Task 11: Update consult-stats Dashboard (AC: #6)
+  - [x] Modify `src/commands/consult-stats.ts`
+  - [x] Add "Debate Value Metrics" section to dashboard
+  - [x] Query and display: avg position changes, avg confidence increase, high-value debate count
 
-- [ ] Task 12: Unit and Integration Tests
-  - [ ] Test semantic comparison with various position pairs
-  - [ ] Test change magnitude calculation
-  - [ ] Test influence detection from CrossExam
-  - [ ] Test convergence score calculation
-  - [ ] Test full integration with ConsultOrchestrator
-  - [ ] Test stats dashboard output
+- [x] Task 12: Unit and Integration Tests
+  - [x] Test semantic comparison with various position pairs
+  - [x] Test change magnitude calculation
+  - [x] Test influence detection from CrossExam
+  - [x] Test convergence score calculation
+  - [x] Test full integration with ConsultOrchestrator
+  - [x] Test stats dashboard output
+
+- [x] Review Follow-ups (AI)
+  - [x] [AI-Review][Medium] Fix hardcoded 'gpt-4o-mini' dependency in DebateValueAnalyzer (added SEMANTIC_ANALYSIS_MODEL env var support)
+  - [x] [AI-Review][Medium] Add untracked files to git (src/consult/analysis/, tests, migrations)
 
 ## Dev Notes
 
@@ -679,11 +683,46 @@ describe('DebateValueAnalyzer', () => {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+GPT-5 (Codex CLI)
 
 ### Debug Log References
 
+- `npm test -- --runInBand --watchman=false` (passes; Jest reports open handles warning)
+
 ### Completion Notes List
+
+- Implemented debate value analysis with semantic comparison, influence detection, and convergence scoring; integrated into orchestrator result flow.
+- Added debate value logging, analytics metrics/migrations, and consult-stats dashboard output.
+- Added formatter and unit/integration tests for analyzer, dashboard, and orchestrator call counts.
 
 ### File List
 
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- src/commands/__tests__/consult-stats.test.ts
+- src/commands/consult-stats.ts
+- src/commands/consult.ts
+- src/consult/analysis/DebateValueAnalyzer.ts
+- src/consult/analysis/DebateValueFormatter.ts
+- src/consult/analysis/__tests__/DebateValueAnalyzer.test.ts
+- src/consult/analysis/__tests__/DebateValueFormatter.test.ts
+- src/consult/analytics/AnalyticsIndexer.ts
+- src/consult/analytics/StatsQuery.ts
+- src/consult/analytics/schemas/migrations/002_debate_value_metrics.sql
+- src/consult/artifacts/ArtifactTransformer.ts
+- src/consult/cost/__tests__/CostGate.test.ts
+- src/consult/logging/ConsultationFileLogger.ts
+- src/consult/logging/__tests__/ConsultationFileLogger.test.ts
+- src/consult/persistence/PartialResultManager.ts
+- src/orchestration/ConsultOrchestrator.ts
+- src/orchestration/__tests__/ConsultOrchestrator.test.ts
+- src/orchestration/__tests__/ConsultOrchestratorCostGate.test.ts
+- src/orchestration/__tests__/ConsultOrchestratorRound2.test.ts
+- src/orchestration/__tests__/ConsultOrchestratorRound3.test.ts
+- src/orchestration/__tests__/ConsultOrchestratorRound4.test.ts
+- src/types/consult.ts
+- src/utils/ConfigPaths.ts
+
+### Change Log
+
+- 2026-01-02: Implemented debate value analysis, analytics metrics, CLI output, and tests.
+- 2026-01-02: Addressed code review findings (configurable provider for analysis, added missing files).

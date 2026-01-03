@@ -15,7 +15,7 @@ import { ConfigCascade } from '../../cli/ConfigCascade';
 import { ConsultState } from '../../types/consult';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { ConfigPaths } from '../../utils/ConfigPaths';
 
 // Mock inquirer
 jest.mock('inquirer', () => ({
@@ -64,7 +64,7 @@ describe('ConsultOrchestrator + CostGate Integration', () => {
 
   beforeEach(() => {
     orchestrator = new ConsultOrchestrator({ verbose: false });
-    configPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
+    configPath = ConfigPaths.globalConfig;
     mockPrompt.mockClear();
 
     // Clean up test config

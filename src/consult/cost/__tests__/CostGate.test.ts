@@ -2,7 +2,7 @@ import { CostGate } from '../CostGate';
 import { CostEstimate } from '../CostEstimator';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { ConfigPaths } from '../../../utils/ConfigPaths';
 
 // Mock inquirer
 jest.mock('inquirer', () => ({
@@ -25,7 +25,7 @@ describe('CostGate', () => {
       totalTokens: 9234,
       estimatedCostUsd: 0.45
     };
-    configPath = path.join(os.homedir(), '.llm-conclave', 'config.json');
+    configPath = ConfigPaths.globalConfig;
 
     // Clear mocks
     mockPrompt.mockClear();
