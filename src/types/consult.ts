@@ -143,6 +143,14 @@ export interface Dissent {
   severity: 'high' | 'medium' | 'low';
 }
 
+export interface ExploreRecommendation {
+  option: string;
+  description: string;
+  pros?: string[];
+  cons?: string[];
+  best_when?: string;
+}
+
 export interface VerdictArtifact {
   artifactType: 'verdict';
   schemaVersion: string;
@@ -152,6 +160,9 @@ export interface VerdictArtifact {
   evidence: string[];
   dissent: Dissent[];
   createdAt: string;
+  recommendations?: ExploreRecommendation[];
+  synergies?: string[];
+  summary?: string;
 }
 
 // ============================================================================
@@ -570,4 +581,3 @@ export interface ConsultOrchestratorOptions {
   scrubbingReport?: ScrubReport;
   interactive?: boolean;
 }
-
