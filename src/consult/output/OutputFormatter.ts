@@ -41,6 +41,6 @@ export class OutputFormatter {
   formatBoth(result: ConsultationResult): string {
     const markdown = this.formatMarkdown(result);
     const json = this.formatJSON(result);
-    return `${markdown}\n\n---\n\n${json}`;
+    return `${markdown}\n---\n${json}`;
   }
 }
