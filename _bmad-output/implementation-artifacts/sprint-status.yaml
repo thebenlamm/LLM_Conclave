@@ -78,7 +78,7 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: Flexible Context & Output Options
-  epic-5: in-progress
+  epic-5: done
   5-1-multi-source-context-loading-with-file-and-project-support: done
   5-2-sensitive-data-scrubbing-with-regex-filter: done
   5-3-stdin-piping-and-output-format-selection: done

@@ -21,19 +21,20 @@ export class HedgedRequestManager {
   async executeAgentWithHedging(
     agent: { name: string; model: string; provider: string; id?: string },
     messages: any[],
-    healthMonitor: ProviderHealthMonitor
+    healthMonitor: ProviderHealthMonitor,
+    systemPrompt?: string
   ): Promise<AgentResponse> {
     const primaryProviderId = agent.provider;
     const startTime = Date.now();
 
     try {
       // 1. Attempt Primary with Hedging
-      return await this.attemptWithHedging(agent, messages, primaryProviderId, healthMonitor, startTime);
+      return await this.attemptWithHedging(agent, messages, primaryProviderId, healthMonitor, startTime, systemPrompt);
     } catch (error) {
       // 2. Handle Complete Failure (Primary + Backup failed)
       // AC #3: User Substitution Prompt
       console.error(`Provider failed: ${primaryProviderId}`, error);
-      return await this.handleFailureWithUserPrompt(agent, messages, primaryProviderId, healthMonitor, startTime, error);
+      return await this.handleFailureWithUserPrompt(agent, messages, primaryProviderId, healthMonitor, startTime, error, systemPrompt);
     }
   }
 
@@ -42,18 +43,19 @@ export class HedgedRequestManager {
     messages: any[],
     primaryProviderId: string,
     healthMonitor: ProviderHealthMonitor,
-    startTime: number
+    startTime: number,
+    systemPrompt?: string
   ): Promise<AgentResponse> {
     const controllerPrimary = new AbortController();
     const primaryProvider = ProviderFactory.createProvider(primaryProviderId);
-    
-    // Start Primary Request
-    const primaryPromise = primaryProvider.chat(messages, { signal: controllerPrimary.signal })
+
+    // Start Primary Request - pass systemPrompt as second arg, options as third
+    const primaryPromise = primaryProvider.chat(messages, systemPrompt || null, { signal: controllerPrimary.signal })
       .then((response: any) => ({
-        source: 'primary', 
+        source: 'primary',
         response,
         provider: primaryProviderId,
-        model: agent.model 
+        model: agent.model
       }));
 
     // Create Timeout Promise
@@ -93,7 +95,8 @@ export class HedgedRequestManager {
     // Derive backup model name from provider ID (for most providers, ID is the model name)
     const backupModelName = backupProviderId;
 
-    const backupPromise = backupProvider.chat(messages, { signal: controllerBackup.signal })
+    // Pass systemPrompt as second arg, options as third
+    const backupPromise = backupProvider.chat(messages, systemPrompt || null, { signal: controllerBackup.signal })
       .then((response: any) => ({
         source: 'backup',
         response,
@@ -144,7 +147,8 @@ export class HedgedRequestManager {
     failedProviderId: string,
     healthMonitor: ProviderHealthMonitor,
     startTime: number,
-    originalError: any
+    originalError: any,
+    systemPrompt?: string
   ): Promise<AgentResponse> {
     // Find a substitute suggestion
     const substituteId = getBackupProvider(failedProviderId, healthMonitor.getAllHealthStatus());
@@ -194,7 +198,8 @@ export class HedgedRequestManager {
 
         try {
             const provider = ProviderFactory.createProvider(substituteId);
-            const response = await provider.chat(messages);
+            // Pass systemPrompt as second arg
+            const response = await provider.chat(messages, systemPrompt || null);
             // Derive substitute model name from provider ID
             const substituteModelName = substituteId;
             return this.formatResponse(agent, response, substituteId, substituteModelName, startTime);

@@ -890,12 +890,6 @@ export default class ConsultOrchestrator {
           { role: 'user', content: 'Proceed with Cross-Examination.' }
         ];
 
-        // Inject system prompt into messages since HedgedRequestManager doesn't take options
-        const fullMessages: Message[] = [
-           { role: 'system', content: systemPrompt },
-           ...messages
-        ];
-
         // --- Pulse Logic Wrapper ---
         const executionPromise = (async () => {
           let cancelPulse: (reason?: any) => void;
@@ -924,11 +918,13 @@ export default class ConsultOrchestrator {
           startRecursivePulse();
 
           try {
+              // Pass system prompt as 4th parameter to HedgedRequestManager
               const response = await Promise.race([
                   this.hedgedRequestManager.executeAgentWithHedging(
                     agentConfig,
-                    fullMessages,
-                    this.healthMonitor
+                    messages,
+                    this.healthMonitor,
+                    systemPrompt
                   ),
                   cancellationPromise
               ]);
@@ -1067,20 +1063,14 @@ export default class ConsultOrchestrator {
         provider: agent.model // Map model to provider ID
       };
 
-      // Inject system prompt into messages since HedgedRequestManager doesn't take options
-      const fullMessages: Message[] = [
-           { role: 'system', content: agent.systemPrompt },
-           ...messages
-      ];
-
       // --- Pulse Logic Wrapper ---
       // We wrap the hedged request in a race with the pulse timer
       // We need a way to reject the main promise if user cancels in the callback
-      
+
       const executionPromise = (async () => {
           // Wrap startTimer in a promise structure so we can reject from callback?
           // Actually, we can just use Promise.race between the execution and a "cancel signal" promise?
-          
+
           // Let's create a controlled promise for the pulse cancellation
           let cancelPulse: (reason?: any) => void;
           const cancellationPromise = new Promise<never>((_, reject) => {
@@ -1113,11 +1103,13 @@ export default class ConsultOrchestrator {
 
           try {
               // Race the actual execution against the cancellation promise
+              // Pass system prompt as 4th parameter to HedgedRequestManager
               const response = await Promise.race([
                   this.hedgedRequestManager.executeAgentWithHedging(
                     agentConfig,
-                    fullMessages,
-                    this.healthMonitor
+                    messages,
+                    this.healthMonitor,
+                    agent.systemPrompt
                   ),
                   cancellationPromise
               ]);
