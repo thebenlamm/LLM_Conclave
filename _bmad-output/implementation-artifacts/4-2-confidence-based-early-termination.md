@@ -398,6 +398,8 @@ Gemini 2.0 Flash
 - `src/consult/termination/__tests__/EarlyTerminationManager.test.ts`
 - `src/consult/cost/CostEstimator.ts`
 - `src/consult/strategies/__tests__/ModeStrategy.test.ts` (Code Review fix)
+- `src/consult/artifacts/ArtifactExtractor.ts`
+- `src/consult/artifacts/ArtifactTransformer.ts`
 
 ### Code Review Fixes (2026-01-02)
 
