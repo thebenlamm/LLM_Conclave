@@ -157,6 +157,36 @@ describe('ContextLoader', () => {
       expect(result.totalTokens).toBe(50);
       expect(result.projectIncluded).toBe(false);
     });
+
+    it('orders stdin before project and file context', () => {
+      const stdin: any = {
+        hasStdin: true,
+        content: 'stdin content',
+        tokenEstimate: 10
+      };
+      const project: any = {
+        sources: [{ type: 'project', path: '/project', content: 'proj', tokenEstimate: 100 }],
+        formattedContent: '### Project Context\n\nproj',
+        totalTokens: 100,
+        fileCount: 0,
+        projectIncluded: true
+      };
+      const files: any = {
+        sources: [{ type: 'file', path: '/file.ts', content: 'file', tokenEstimate: 50 }],
+        formattedContent: '### File: file.ts\n\nfile',
+        totalTokens: 50,
+        fileCount: 1,
+        projectIncluded: false
+      };
+
+      // @ts-ignore
+      const result = loader.combineContexts(project, files, stdin);
+      
+      expect(result.formattedContent).toMatch(/### Stdin Input[\s\S]*### Project Context[\s\S]*### File: file.ts/);
+      expect(result.totalTokens).toBe(160);
+      expect(result.sources).toHaveLength(3);
+      expect(result.sources[0].type).toBe('stdin');
+    });
   });
 
   describe('checkSizeWarning', () => {

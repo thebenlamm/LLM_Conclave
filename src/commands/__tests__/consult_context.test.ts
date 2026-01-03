@@ -73,7 +73,10 @@ describe('consult command - context loading', () => {
     expect(mockOrchestratorInstance.consult).toHaveBeenCalledWith(
       expect.any(String),
       'Combined Content',
-      { scrubbingReport: undefined }
+      expect.objectContaining({
+        allowCostOverruns: false,
+        scrubbingReport: expect.any(Object)
+      })
     );
 
     consoleSpy.mockRestore();
@@ -101,7 +104,10 @@ describe('consult command - context loading', () => {
     expect(mockOrchestratorInstance.consult).toHaveBeenCalledWith(
       expect.any(String),
       'Combined Content',
-      { scrubbingReport: undefined }
+      expect.objectContaining({
+        allowCostOverruns: false,
+        scrubbingReport: expect.any(Object)
+      })
     );
 
     consoleSpy.mockRestore();

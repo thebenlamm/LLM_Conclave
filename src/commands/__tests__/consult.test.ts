@@ -144,7 +144,10 @@ describe('consult command', () => {
     expect(mockOrchestratorInstance.consult).toHaveBeenCalledWith(
       expect.stringContaining('test question'),
       expect.any(String),
-      { scrubbingReport: expect.objectContaining({ sensitiveDataScrubbed: false }) }
+      expect.objectContaining({ 
+          scrubbingReport: expect.objectContaining({ sensitiveDataScrubbed: false }),
+          allowCostOverruns: false
+      })
     );
     
     consoleSpy.mockRestore();

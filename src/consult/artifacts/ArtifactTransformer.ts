@@ -292,7 +292,9 @@ export class ArtifactTransformer {
         project_path: result.contextMetadata.projectPath,
         total_tokens_estimated: result.contextMetadata.totalTokensEstimated,
         file_count: result.contextMetadata.fileCount,
-        project_summary_included: result.contextMetadata.projectSummaryIncluded
+        project_summary_included: result.contextMetadata.projectSummaryIncluded,
+        stdin: result.contextMetadata.stdinUsed,
+        stdin_tokens_estimated: result.contextMetadata.stdinTokensEstimated
       } : undefined,
       project_context: result.projectContext
         ? {
@@ -392,6 +394,7 @@ export class ArtifactTransformer {
             details_by_type: result.scrubbingReport.detailsByType
           }
         : undefined,
+      output_format: result.outputFormat,
       abort_reason: result.abortReason
     };
   }

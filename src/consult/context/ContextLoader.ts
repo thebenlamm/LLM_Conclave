@@ -5,6 +5,7 @@ import { BrownfieldDetector } from './BrownfieldDetector';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { ContextSource, LoadedContext } from '../../types/consult';
+import { StdinResult } from './StdinHandler';
 
 export { ContextSource, LoadedContext };
 
@@ -101,10 +102,22 @@ export class ContextLoader {
 
   combineContexts(
     project: LoadedContext | null,
-    files: LoadedContext | null
+    files: LoadedContext | null,
+    stdin: StdinResult | null = null
   ): LoadedContext {
     const sources: ContextSource[] = [];
     const formattedParts: string[] = [];
+
+    if (stdin && stdin.hasStdin) {
+      sources.push({
+        type: 'stdin',
+        path: 'stdin',
+        content: stdin.content,
+        tokenEstimate: stdin.tokenEstimate,
+        metadata: { hasStdin: true }
+      });
+      formattedParts.push(`### Stdin Input\n\n${stdin.content.trim()}`);
+    }
 
     if (project) {
       sources.push(...project.sources);

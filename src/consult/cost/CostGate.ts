@@ -39,12 +39,24 @@ export class CostGate {
   async getUserConsent(
     estimate: CostEstimate,
     agents: number = 3,
-    rounds: number = 4
+    rounds: number = 4,
+    nonInteractive: boolean = false
   ): Promise<ConsentResult> {
     // Auto-approve in MCP mode (no stdin available for prompts)
     if (process.env.LLM_CONCLAVE_MCP === '1') {
       console.error(`[MCP] Auto-approving cost: $${estimate.estimatedCostUsd.toFixed(4)}`);
       return 'approved';
+    }
+
+    if (nonInteractive) {
+      console.log(chalk.yellow('\n💰 Cost Estimate (Non-Interactive)'));
+      console.log(chalk.gray('━'.repeat(50)));
+      console.log(`Estimated cost: ${chalk.yellow(`$${estimate.estimatedCostUsd.toFixed(4)}`)}`);
+      console.log(chalk.gray('━'.repeat(50)) + '\n');
+      
+      console.error(chalk.red(`Error: Cost exceeds threshold ($${estimate.estimatedCostUsd.toFixed(4)}) and interaction is disabled.`));
+      console.error(chalk.yellow('Use --yes to approve or increase auto-approve threshold.'));
+      return 'denied';
     }
 
     console.log(chalk.yellow('\n💰 Cost Estimate'));
