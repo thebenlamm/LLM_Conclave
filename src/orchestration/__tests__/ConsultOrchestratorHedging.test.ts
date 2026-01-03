@@ -39,13 +39,23 @@ jest.mock('../../consult/artifacts/ArtifactExtractor', () => ({
       unresolved: ['u'],
       createdAt: new Date().toISOString()
     })),
-    extractVerdictArtifact: jest.fn(() => ({ 
+    extractVerdictArtifact: jest.fn(() => ({
       artifactType: 'verdict',
       schemaVersion: '1.0',
       roundNumber: 4,
-      recommendation: 'rec', 
-      confidence: 0.9, 
-      evidence: ['ev'], 
+      recommendation: 'rec',
+      confidence: 0.9,
+      evidence: ['ev'],
+      dissent: [],
+      createdAt: new Date().toISOString()
+    })),
+    extractVerdictArtifactWithMode: jest.fn(() => ({
+      artifactType: 'verdict',
+      schemaVersion: '1.0',
+      roundNumber: 4,
+      recommendation: 'rec',
+      confidence: 0.9,
+      evidence: ['ev'],
       dissent: [],
       createdAt: new Date().toISOString()
     }))
