@@ -13,6 +13,8 @@ export class ProviderHealthMonitor {
   private eventBus: EventBus;
   private monitoredProviders: Set<string> = new Set();
   private recentResults: Map<string, boolean[]> = new Map(); // Rolling window for error rate (HIGH #3 fix)
+  private isRunningChecks = false;
+  private inFlightChecks: Set<string> = new Set();
 
   constructor() {
     this.eventBus = EventBus.getInstance();
@@ -114,10 +116,19 @@ export class ProviderHealthMonitor {
    * Run checks for all registered providers
    */
   private async runHealthChecks(): Promise<void> {
-    const checks = Array.from(this.monitoredProviders).map(id => this.checkProvider(id));
-    // MEDIUM #6: Use Promise.allSettled to allow independent failures
-    // One provider failing shouldn't stop checks for other providers
-    await Promise.allSettled(checks);
+    if (this.isRunningChecks) {
+      return;
+    }
+
+    this.isRunningChecks = true;
+    try {
+      const checks = Array.from(this.monitoredProviders).map(id => this.checkProvider(id));
+      // MEDIUM #6: Use Promise.allSettled to allow independent failures
+      // One provider failing shouldn't stop checks for other providers
+      await Promise.allSettled(checks);
+    } finally {
+      this.isRunningChecks = false;
+    }
   }
 
   /**
@@ -129,12 +140,17 @@ export class ProviderHealthMonitor {
     if (!this.monitoredProviders.has(providerId)) {
       throw new Error(`Provider ${providerId} not registered for monitoring`);
     }
+    if (this.inFlightChecks.has(providerId)) {
+      return;
+    }
+    this.inFlightChecks.add(providerId);
 
     this.eventBus.emitEvent('health:check_started', { providerId });
 
     const startTime = Date.now();
     let success = false;
     let latency = 0;
+    let timeoutId: NodeJS.Timeout | null = null;
 
     try {
       // HIGH #1: Use cheapest model variant for cost minimization
@@ -144,7 +160,7 @@ export class ProviderHealthMonitor {
 
       // Enforce 10s timeout (AC #2 requirement)
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Health check timed out')), HEALTH_CHECK_CONFIG.TIMEOUT_MS);
+        timeoutId = setTimeout(() => reject(new Error('Health check timed out')), HEALTH_CHECK_CONFIG.TIMEOUT_MS);
       });
 
       // Use the provider's health check method
@@ -164,6 +180,11 @@ export class ProviderHealthMonitor {
       success = false;
       // MEDIUM #4: Add error logging for debuggability
       console.error(`[ProviderHealthMonitor] Health check failed for ${providerId}:`, error.message);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      this.inFlightChecks.delete(providerId);
     }
 
     this.updateStatus(providerId, { success, latency });

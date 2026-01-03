@@ -22,6 +22,7 @@ export class CostEstimator {
    * Estimate the cost of a consultation
    */
   public estimateCost(question: string, agents: Agent[], rounds: number = 4): CostEstimate {
+    const safeRounds = Math.max(0, rounds);
     // 1. Estimate Input Tokens
     // Question length / 4
     const questionTokens = Math.ceil(question.length / 4);
@@ -30,7 +31,7 @@ export class CostEstimator {
     const totalInputTokens = questionTokens * agents.length;
 
     // 2. Estimate Output Tokens
-    const outputTokensPerAgent = rounds * CostEstimator.TOKENS_PER_ROUND;
+    const outputTokensPerAgent = safeRounds * CostEstimator.TOKENS_PER_ROUND;
     const totalOutputTokens = outputTokensPerAgent * agents.length;
     
     // 3. Calculate Cost
@@ -57,9 +58,10 @@ export class CostEstimator {
 
   public static getPrice(model: string): { input: number; output: number } {
     // Normalize model name if needed
-    if (model.includes('claude')) return this.getPricing('claude-sonnet-4-5');
-    if (model.includes('gpt-4o')) return this.getPricing('gpt-4o');
-    if (model.includes('gemini')) return this.getPricing('gemini-2.5-pro');
+    const normalized = model.toLowerCase();
+    if (normalized.includes('claude')) return this.getPricing('claude-sonnet-4-5');
+    if (normalized.includes('gpt-4o')) return this.getPricing('gpt-4o');
+    if (normalized.includes('gemini')) return this.getPricing('gemini-2.5-pro');
     
     return this.getPricing('default');
   }
