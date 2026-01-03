@@ -630,8 +630,37 @@ export default class ConsultOrchestrator {
       this.executeAgentIndependent(agent, independentPrompt)
     );
 
-    const results = await Promise.all(promises);
-    return results;
+    const results = await Promise.allSettled(promises);
+
+    for (const result of results) {
+      if (result.status === 'rejected' && result.reason?.message === 'User cancelled via interactive pulse') {
+        throw result.reason;
+      }
+    }
+
+    return results.map((result, index) => {
+      if (result.status === 'fulfilled') {
+        return result.value;
+      }
+
+      const agent = this.agents[index];
+      console.warn(`⚠️  Agent ${agent.name} failed in Round 1: ${result.reason?.message || 'unknown error'}`);
+
+      return {
+        artifact: null,
+        response: {
+          agentId: agent.name,
+          agentName: agent.name,
+          model: agent.model,
+          provider: 'unknown',
+          content: '',
+          tokens: { input: 0, output: 0, total: 0 },
+          durationMs: 0,
+          timestamp: new Date().toISOString(),
+          error: result.reason?.message || 'unknown error'
+        }
+      } as Round1ExecutionResult;
+    });
   }
 
   /**
@@ -791,7 +820,7 @@ export default class ConsultOrchestrator {
         this.trackActualCost(response.usage, judgeAgent.model);
       }
 
-      const artifact = ArtifactExtractor.extractVerdictArtifact(response.text || '');
+      const artifact = ArtifactExtractor.extractVerdictArtifactWithMode(response.text || '', this.strategy.name);
 
       this.eventBus.emitEvent('consultation:round_artifact' as any, {
         consultation_id: this.consultationId,
@@ -1347,7 +1376,7 @@ export default class ConsultOrchestrator {
         agentResponses,
         state: ConsultState.Complete,
         rounds: this.maxRounds,
-        completedRounds: verdictArtifact ? 4 : (crossExamArtifact ? 3 : 2),
+        completedRounds: earlyTermination ? 2 : (verdictArtifact ? 4 : (crossExamArtifact ? 3 : 2)),
         responses: {
           round1: successfulArtifacts,
           round2: synthesisArtifact || undefined,

@@ -228,9 +228,12 @@ export class ArtifactTransformer {
       schema_version: artifact.schemaVersion,
       round_number: artifact.roundNumber,
       recommendation: artifact.recommendation,
+      recommendations: artifact.recommendations,
       confidence: artifact.confidence,
       evidence: artifact.evidence,
       dissent: artifact.dissent.map(d => this.dissentToJSON(d)),
+      synergies: artifact.synergies,
+      summary: artifact.summary,
       created_at: artifact.createdAt
     };
   }
@@ -244,9 +247,12 @@ export class ArtifactTransformer {
       schemaVersion: json.schema_version,
       roundNumber: json.round_number,
       recommendation: json.recommendation,
+      recommendations: json.recommendations,
       confidence: json.confidence,
       evidence: json.evidence,
       dissent: json.dissent.map((d: any) => this.dissentFromJSON(d)),
+      synergies: json.synergies,
+      summary: json.summary,
       createdAt: json.created_at
     };
   }
