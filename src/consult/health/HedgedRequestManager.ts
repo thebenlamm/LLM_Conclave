@@ -154,25 +154,33 @@ export class HedgedRequestManager {
         return this.formatErrorResponse(agent, failedProviderId, startTime, originalError.message);
     }
 
-    // AC #3: Prompt User
+    // AC #3: Prompt User (unless in MCP mode)
     // "⚠️ Gemini is unavailable (timeout). Switch to xAI (Grok) for this agent? [Y/n/Fail]"
     console.log(`
 ⚠️  ${failedProviderId} is unavailable: ${originalError.message}`);
-    
-    const { default: inquirer } = await import('inquirer');
 
-    const { choice } = await inquirer.prompt([{
-      type: 'list', // or expand/input
-        name: 'choice',
-        message: `Switch to ${substituteId} for agent ${agent.name}?`,
-        choices: [
-          { name: 'Yes (Use substitute)', value: 'Y' },
-          { name: 'No (Skip agent)', value: 'n' },
-          { name: 'Fail (Abort consultation)', value: 'Fail' }
-        ],
-        default: 'Y'
-      }
-    ]);
+    let choice = 'Y'; // Default to auto-substitute
+
+    // Auto-substitute in MCP mode (no stdin available for prompts)
+    if (process.env.LLM_CONCLAVE_MCP === '1') {
+      console.error(`[MCP] Auto-switching to ${substituteId} for agent ${agent.name}`);
+    } else {
+      const { default: inquirer } = await import('inquirer');
+
+      const result = await inquirer.prompt([{
+        type: 'list',
+          name: 'choice',
+          message: `Switch to ${substituteId} for agent ${agent.name}?`,
+          choices: [
+            { name: 'Yes (Use substitute)', value: 'Y' },
+            { name: 'No (Skip agent)', value: 'n' },
+            { name: 'Fail (Abort consultation)', value: 'Fail' }
+          ],
+          default: 'Y'
+        }
+      ]);
+      choice = result.choice;
+    }
 
     if (choice === 'Y') {
         // Execute Substitute

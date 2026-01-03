@@ -142,6 +142,12 @@ export class ContextLoader {
       'This may increase cost and response time.'
     ));
 
+    // Auto-proceed in MCP mode (no stdin available for prompts)
+    if (process.env.LLM_CONCLAVE_MCP === '1') {
+      console.error(`[MCP] Auto-proceeding with large context`);
+      return true;
+    }
+
     const { proceed } = await inquirer.prompt([{
       type: 'confirm',
       name: 'proceed',

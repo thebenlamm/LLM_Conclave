@@ -116,7 +116,12 @@ export default class ConsultOrchestrator {
     this.earlyTerminationManager = new EarlyTerminationManager(async (message) => {
         // Skip interactive prompt in test environment
         if (process.env.NODE_ENV === 'test') {
-            return false; 
+            return false;
+        }
+        // Auto-accept early termination in MCP mode (no stdin available)
+        if (process.env.LLM_CONCLAVE_MCP === '1') {
+            console.error('[MCP] Auto-accepting early termination');
+            return true;
         }
         const { confirm } = await inquirer.prompt([{
             type: 'confirm',

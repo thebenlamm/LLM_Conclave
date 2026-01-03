@@ -747,3 +747,14 @@ a296640 Add iterative collaborative mode with multi-turn chunk discussions
 ---
 
 *Last Updated: December 2, 2025*
+
+---
+
+## Ben's Workflow Preferences (from Global CLAUDE.md)
+
+These are Ben's specific preferences for working on LLM Conclave:
+
+- **Meta-validation**: Use Conclave itself to validate major architectural decisions
+- **Consultation approach**: Run separate consultations per decision; capture confidence scores and dissent
+- **Quality assurance**: ~$0.04 per decision for quality assurance; worth it for major architecture choices
+- **CEO+CTO pattern**: For major decisions, use CEO + CTO agents to debate, then let Ben choose winner
