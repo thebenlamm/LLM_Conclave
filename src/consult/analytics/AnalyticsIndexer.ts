@@ -309,7 +309,7 @@ export class AnalyticsIndexer {
 
           const entries = this.parseConsultationEntries(file, content);
           for (const entry of entries) {
-            this.indexConsultation(entry);
+            this.indexConsultation(entry as ConsultationResult);
             indexedCount++;
             if (indexedCount % 10 === 0) {
               process.stdout.write(`Rebuilding index... [${indexedCount}/${files.length}] consultations\r`);
@@ -336,8 +336,8 @@ export class AnalyticsIndexer {
     }
   }
 
-  private parseConsultationEntries(fileName: string, content: string): ConsultationResult[] {
-    const entries: ConsultationResult[] = [];
+  private parseConsultationEntries(fileName: string, content: string): Partial<ConsultationResult>[] {
+    const entries: Partial<ConsultationResult>[] = [];
     const isJsonl = fileName.endsWith('.jsonl');
     const lines = isJsonl ? content.split(/\r?\n/) : [content];
 
@@ -360,7 +360,7 @@ export class AnalyticsIndexer {
         continue;
       }
 
-      const result: ConsultationResult = {
+      const result: Partial<ConsultationResult> = {
         consultationId: data.consultation_id,
         question: data.question,
         mode: data.mode || 'consensus',

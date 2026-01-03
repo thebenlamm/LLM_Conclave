@@ -39,13 +39,17 @@ describe('ContextLoader', () => {
     it('loads single file successfully', async () => {
       const filePath = 'test-file.ts';
       const content = 'console.log("hello");';
-      
+
       (fs.access as jest.Mock).mockResolvedValue(undefined);
       (fs.readFile as jest.Mock).mockResolvedValue(content);
-      (fs.stat as jest.Mock).mockResolvedValue({ isFile: () => true });
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 100
+      });
 
       const result = await loader.loadFileContext([filePath]);
-      
+
       expect(result.sources).toHaveLength(1);
       expect(result.sources[0].path).toContain(filePath);
       expect(result.sources[0].content).toBe(content);
@@ -54,13 +58,17 @@ describe('ContextLoader', () => {
 
     it('loads multiple files', async () => {
       const files = ['file1.ts', 'file2.md'];
-      
+
       (fs.access as jest.Mock).mockResolvedValue(undefined);
       (fs.readFile as jest.Mock).mockResolvedValue('content');
-      (fs.stat as jest.Mock).mockResolvedValue({ isFile: () => true });
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 100
+      });
 
       const result = await loader.loadFileContext(files);
-      
+
       expect(result.sources).toHaveLength(2);
       expect(result.fileCount).toBe(2);
     });
@@ -86,7 +94,11 @@ describe('ContextLoader', () => {
     it('rejects directory paths', async () => {
       const dirPath = 'some-directory';
       (fs.access as jest.Mock).mockResolvedValue(undefined);
-      (fs.stat as jest.Mock).mockResolvedValue({ isFile: () => false });
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => false,
+        isSymbolicLink: () => false,
+        size: 0
+      });
 
       await expect(loader.loadFileContext([dirPath]))
         .rejects.toThrow(/Path is not a file/);
@@ -227,10 +239,127 @@ describe('ContextLoader', () => {
       const content = 'a'.repeat(100);
       expect(loader.estimateTokens(content)).toBe(25);
     });
-    
+
     it('rounds up to nearest integer', () => {
       const content = 'abc'; // 3 chars => 0.75 tokens => 1
       expect(loader.estimateTokens(content)).toBe(1);
+    });
+  });
+
+  describe('Security: Path Traversal Prevention', () => {
+    it('rejects paths with null bytes', async () => {
+      const maliciousPath = 'file.txt\0.jpg';
+
+      await expect(loader.loadFileContext([maliciousPath]))
+        .rejects.toThrow(/Invalid path \(null byte detected\)/);
+    });
+
+    it('rejects relative paths that escape working directory', async () => {
+      const traversalPath = '../../../etc/passwd';
+
+      await expect(loader.loadFileContext([traversalPath]))
+        .rejects.toThrow(/Context file path escapes working directory/);
+    });
+
+    it('rejects deeply nested traversal attempts', async () => {
+      const deepTraversal = 'subdir/../../../../../../etc/passwd';
+
+      await expect(loader.loadFileContext([deepTraversal]))
+        .rejects.toThrow(/Context file path escapes working directory/);
+    });
+
+    it('allows relative paths within working directory', async () => {
+      const validRelativePath = 'src/index.ts';
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 100
+      });
+      (fs.readFile as jest.Mock).mockResolvedValue('content');
+
+      const result = await loader.loadFileContext([validRelativePath]);
+      expect(result.sources).toHaveLength(1);
+    });
+  });
+
+  describe('Security: Symlink Rejection', () => {
+    it('rejects symbolic links', async () => {
+      const symlinkPath = 'symlink-to-secret.txt';
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => true,
+        size: 100
+      });
+
+      await expect(loader.loadFileContext([symlinkPath]))
+        .rejects.toThrow(/Symlinks are not allowed for context files/);
+    });
+
+    it('allows regular files (not symlinks)', async () => {
+      const regularFile = 'regular-file.ts';
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 100
+      });
+      (fs.readFile as jest.Mock).mockResolvedValue('content');
+
+      const result = await loader.loadFileContext([regularFile]);
+      expect(result.sources).toHaveLength(1);
+    });
+  });
+
+  describe('Security: File Size Limits', () => {
+    it('rejects files exceeding 2MB limit', async () => {
+      const largeFile = 'huge-file.txt';
+      const twoMBPlusOne = 2 * 1024 * 1024 + 1;
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: twoMBPlusOne
+      });
+
+      await expect(loader.loadFileContext([largeFile]))
+        .rejects.toThrow(/Context file too large/);
+    });
+
+    it('allows files at exactly 2MB', async () => {
+      const maxFile = 'exactly-2mb.txt';
+      const exactlyTwoMB = 2 * 1024 * 1024;
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: exactlyTwoMB
+      });
+      (fs.readFile as jest.Mock).mockResolvedValue('content');
+
+      const result = await loader.loadFileContext([maxFile]);
+      expect(result.sources).toHaveLength(1);
+    });
+
+    it('includes file size in error message', async () => {
+      const largeFile = 'huge-file.txt';
+      const fiveMB = 5 * 1024 * 1024;
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: fiveMB
+      });
+
+      await expect(loader.loadFileContext([largeFile]))
+        .rejects.toThrow(/5120KB/); // 5MB in KB
     });
   });
 });
