@@ -4,6 +4,7 @@ export interface ScrubPattern {
   pattern: RegExp;
   replacement: string;
   type: string;
+  guard?: RegExp;
 }
 
 export interface ScrubReport {
@@ -29,11 +30,13 @@ export class SensitiveDataScrubber {
     let scrubbedContent = content;
     const detailsByType: Record<string, number> = {};
     let totalMatches = 0;
-    const seenMatches = new Set<string>();
 
-    for (const { pattern, replacement, type } of this.patterns) {
+    for (const { pattern, replacement, type, guard } of this.patterns) {
       // Create a new regex to avoid lastIndex issues
       const regex = new RegExp(pattern.source, pattern.flags);
+      if (guard && !guard.test(scrubbedContent)) {
+        continue;
+      }
       
       scrubbedContent = scrubbedContent.replace(regex, (match, ...args) => {
         // If it's already a REDACTED placeholder, skip it.
@@ -138,17 +141,20 @@ const defaultPatterns: ScrubPattern[] = [
   {
     pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[^]*?-----END [A-Z ]*PRIVATE KEY-----/gi,
     replacement: '[REDACTED_PRIVATE_KEY]',
-    type: 'private_key'
+    type: 'private_key',
+    guard: /PRIVATE KEY/
   },
   {
     pattern: /-----BEGIN RSA PRIVATE KEY-----[^]*?-----END RSA PRIVATE KEY-----/gi,
     replacement: '[REDACTED_RSA_KEY]',
-    type: 'private_key'
+    type: 'private_key',
+    guard: /RSA PRIVATE KEY/
   },
   {
     pattern: /-----BEGIN OPENSSH PRIVATE KEY-----[^]*?-----END OPENSSH PRIVATE KEY-----/gi,
     replacement: '[REDACTED_SSH_KEY]',
-    type: 'ssh_key'
+    type: 'ssh_key',
+    guard: /OPENSSH PRIVATE KEY/
   },
 
   // AWS
@@ -223,6 +229,23 @@ const defaultPatterns: ScrubPattern[] = [
   },
 
   // --- GENERIC PATTERNS (Must be last to avoid overriding specific ones) ---
+
+  // Common JSON/YAML key styles
+  {
+    pattern: /(["']?(?:apiKey|api_key|accessToken|access_token|refreshToken|refresh_token)["']?\s*[:=]\s*["'])([^"'\s]+)(["'])/gi,
+    replacement: '$1[REDACTED_API_KEY]$3',
+    type: 'api_key'
+  },
+  {
+    pattern: /(["']?(?:clientSecret|client_secret|secretKey|secret_key|privateKey|private_key)["']?\s*[:=]\s*["'])([^"'\s]+)(["'])/gi,
+    replacement: '$1[REDACTED_SECRET]$3',
+    type: 'secret'
+  },
+  {
+    pattern: /(["']?(?:token|idToken|accessToken|access_token|refreshToken|refresh_token)["']?\s*[:=]\s*["'])([^"'\s]+)(["'])/gi,
+    replacement: '$1[REDACTED_TOKEN]$3',
+    type: 'token'
+  },
 
   // API Keys (various formats)
   {

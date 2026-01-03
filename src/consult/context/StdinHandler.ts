@@ -10,10 +10,16 @@ export interface StdinResult {
 export class StdinHandler {
   private readonly readTimeoutMs: number;
   private readonly stdinStream: NodeJS.ReadStream;
+  private readonly maxStdinBytes: number;
 
-  constructor(readTimeoutMs: number = 10000, stdinStream: NodeJS.ReadStream = process.stdin) {
+  constructor(
+    readTimeoutMs: number = 10000,
+    stdinStream: NodeJS.ReadStream = process.stdin,
+    maxStdinBytes: number = 1024 * 1024
+  ) {
     this.readTimeoutMs = readTimeoutMs;
     this.stdinStream = stdinStream;
+    this.maxStdinBytes = maxStdinBytes;
   }
 
   detectStdin(): boolean {
@@ -45,30 +51,66 @@ export class StdinHandler {
 
   private collectStdin(): Promise<string> {
     return new Promise((resolve, reject) => {
-      const chunks: string[] = [];
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      let settled = false;
       const timeout = setTimeout(() => {
-        this.stdinStream.destroy();
-        reject(new Error(`Stdin read timeout after ${this.readTimeoutMs}ms`));
+        if (!settled) {
+          settled = true;
+          this.stdinStream.destroy();
+          cleanup();
+          reject(new Error(`Stdin read timeout after ${this.readTimeoutMs}ms`));
+        }
       }, this.readTimeoutMs);
 
-      this.stdinStream.setEncoding('utf-8');
-      
-      this.stdinStream.on('readable', () => {
-        let chunk;
-        while ((chunk = this.stdinStream.read()) !== null) {
-          chunks.push(chunk);
+      const cleanup = () => {
+        clearTimeout(timeout);
+        this.stdinStream.removeListener('data', onData);
+        this.stdinStream.removeListener('end', onEnd);
+        this.stdinStream.removeListener('close', onClose);
+        this.stdinStream.removeListener('error', onError);
+      };
+
+      const onData = (chunk: Buffer | string) => {
+        const buffer = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk;
+        totalBytes += buffer.length;
+        if (totalBytes > this.maxStdinBytes) {
+          if (!settled) {
+            settled = true;
+            this.stdinStream.destroy();
+            cleanup();
+            reject(new Error(`Stdin input exceeded ${Math.round(this.maxStdinBytes / 1024)}KB limit`));
+          }
+          return;
         }
-      });
-      
-      this.stdinStream.on('end', () => {
-        clearTimeout(timeout);
-        resolve(chunks.join(''));
-      });
-      
-      this.stdinStream.on('error', (err) => {
-        clearTimeout(timeout);
+        chunks.push(buffer);
+      };
+
+      const onEnd = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      };
+
+      const onClose = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      };
+
+      const onError = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
         reject(err);
-      });
+      };
+
+      this.stdinStream.on('data', onData);
+      this.stdinStream.on('end', onEnd);
+      this.stdinStream.on('close', onClose);
+      this.stdinStream.on('error', onError);
     });
   }
 
