@@ -120,7 +120,8 @@ export function createConsultCommand(): Command {
           strategy,
           confidenceThreshold: threshold,
           projectPath: options.project,
-          greenfield: options.greenfield
+          greenfield: options.greenfield,
+          loadedContext: loadedContext ?? undefined
         });
 
         // Execute consultation

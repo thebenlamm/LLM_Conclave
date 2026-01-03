@@ -1222,15 +1222,6 @@ export default class ConsultOrchestrator {
           return acc;
       }, { input: 0, output: 0, total: 0 });
 
-      // Populate ContextMetadata (Task 7)
-      const contextMetadata: ContextMetadata | undefined = this.loadedContext ? {
-        files: this.loadedContext.sources.filter(s => s.type === 'file').map(s => s.path),
-        projectPath: this.loadedContext.sources.find(s => s.type === 'project')?.path || null,
-        totalTokensEstimated: this.loadedContext.totalTokens,
-        fileCount: this.loadedContext.fileCount,
-        projectSummaryIncluded: this.loadedContext.projectIncluded
-      } : undefined;
-
       return {
         consultationId: this.consultationId,
         timestamp: new Date().toISOString(),
@@ -1238,7 +1229,7 @@ export default class ConsultOrchestrator {
         context,
         mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
         projectContext: this.projectContextMetadata,
-        contextMetadata,
+        contextMetadata: this.buildContextMetadata(),
         scrubbingReport: this.scrubbingReport,
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
         agentResponses,
@@ -1325,15 +1316,6 @@ export default class ConsultOrchestrator {
           filtered_rounds: this.verbose ? [] : [3, 4]
       };
 
-      // Populate ContextMetadata (Task 7)
-      const contextMetadata: ContextMetadata | undefined = this.loadedContext ? {
-        files: this.loadedContext.sources.filter(s => s.type === 'file').map(s => s.path),
-        projectPath: this.loadedContext.sources.find(s => s.type === 'project')?.path || null,
-        totalTokensEstimated: this.loadedContext.totalTokens,
-        fileCount: this.loadedContext.fileCount,
-        projectSummaryIncluded: this.loadedContext.projectIncluded
-      } : undefined;
-
       const result: ConsultationResult = {
         consultationId: this.consultationId,
         timestamp: new Date().toISOString(),
@@ -1341,7 +1323,7 @@ export default class ConsultOrchestrator {
         context,
         mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
         projectContext: this.projectContextMetadata,
-        contextMetadata,
+        contextMetadata: this.buildContextMetadata(),
         scrubbingReport: this.scrubbingReport,
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
         agentResponses,
@@ -1641,6 +1623,23 @@ Your role in consultations:
       indicatorsFound,
       documentationUsed,
       biasApplied: analysis.biasApplied
+    };
+  }
+
+  /**
+   * Build ContextMetadata from loadedContext
+   * Extracted to avoid duplication (Code Review Fix)
+   */
+  private buildContextMetadata(): ContextMetadata | undefined {
+    if (!this.loadedContext) {
+      return undefined;
+    }
+    return {
+      files: this.loadedContext.sources.filter(s => s.type === 'file').map(s => s.path),
+      projectPath: this.loadedContext.sources.find(s => s.type === 'project')?.path || null,
+      totalTokensEstimated: this.loadedContext.totalTokens,
+      fileCount: this.loadedContext.fileCount,
+      projectSummaryIncluded: this.loadedContext.projectIncluded
     };
   }
 }

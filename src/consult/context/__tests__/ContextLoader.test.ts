@@ -72,6 +72,25 @@ describe('ContextLoader', () => {
       await expect(loader.loadFileContext([filePath]))
         .rejects.toThrow(/Context file not found/);
     });
+
+    it('throws error for empty file paths array', async () => {
+      await expect(loader.loadFileContext([]))
+        .rejects.toThrow(/No valid file paths provided/);
+    });
+
+    it('throws error for array with only empty strings', async () => {
+      await expect(loader.loadFileContext(['', '  ']))
+        .rejects.toThrow(/No valid file paths provided/);
+    });
+
+    it('rejects directory paths', async () => {
+      const dirPath = 'some-directory';
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.stat as jest.Mock).mockResolvedValue({ isFile: () => false });
+
+      await expect(loader.loadFileContext([dirPath]))
+        .rejects.toThrow(/Path is not a file/);
+    });
   });
 
   describe('loadProjectContext', () => {

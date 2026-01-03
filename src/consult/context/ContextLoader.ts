@@ -12,10 +12,16 @@ export class ContextLoader {
   private readonly tokenThreshold = 10000;
 
   async loadFileContext(filePaths: string[]): Promise<LoadedContext> {
+    // Validate input - filter empty strings and check for valid paths
+    const validPaths = filePaths.filter(p => p && p.trim().length > 0);
+    if (validPaths.length === 0) {
+      throw new Error('❌ No valid file paths provided. Usage: --context file1.ts,file2.ts');
+    }
+
     const sources: ContextSource[] = [];
     const errors: string[] = [];
 
-    for (const filePath of filePaths) {
+    for (const filePath of validPaths) {
       // Use raw path for checking, but resolve for storing
       const absolutePath = path.resolve(filePath);
 
