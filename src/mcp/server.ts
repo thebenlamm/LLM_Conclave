@@ -469,30 +469,42 @@ async function loadContextFromPath(contextPath: string): Promise<string> {
 }
 
 function formatDiscussionResult(result: any): string {
-  const { task, conversationHistory, finalResult, agents, cost } = result;
+  const { task, conversationHistory, solution, consensusReached, rounds } = result;
 
   let output = `# Discussion Result\n\n`;
   output += `**Task:** ${task}\n\n`;
-  output += `## Agent Contributions\n\n`;
+  output += `**Rounds:** ${rounds} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
 
-  // Extract agent messages
-  const agentMessages = conversationHistory.filter((m: any) => m.role === 'assistant');
-
-  for (const agent of Object.keys(agents)) {
-    const messages = agentMessages.filter((m: any) => m.name === agent);
-    if (messages.length > 0) {
-      output += `### ${agent}\n\n`;
-      output += messages.map((m: any) => m.content).join('\n\n');
-      output += '\n\n';
+  if (!conversationHistory || conversationHistory.length === 0) {
+    output += `*No conversation history available*\n\n`;
+    if (solution) {
+      output += `## Solution\n\n${solution}\n\n`;
     }
+    return output;
   }
 
-  if (finalResult) {
-    output += `## Final Synthesis\n\n${finalResult}\n\n`;
+  output += `## Discussion\n\n`;
+
+  // Group messages by speaker
+  const speakerMessages: Record<string, string[]> = {};
+  for (const msg of conversationHistory) {
+    const speaker = msg.speaker || msg.name || 'Unknown';
+    if (speaker === 'System' || speaker === 'Judge') continue;
+    if (!speakerMessages[speaker]) {
+      speakerMessages[speaker] = [];
+    }
+    speakerMessages[speaker].push(msg.content);
   }
 
-  if (cost) {
-    output += `---\n**Cost:** $${cost.totalCost?.toFixed(3)} | **Tokens:** ${cost.totalTokens}\n`;
+  // Output each agent's contributions
+  for (const [speaker, messages] of Object.entries(speakerMessages)) {
+    output += `### ${speaker}\n\n`;
+    output += messages.join('\n\n---\n\n');
+    output += '\n\n';
+  }
+
+  if (solution) {
+    output += `## Final Solution\n\n${solution}\n\n`;
   }
 
   return output;
