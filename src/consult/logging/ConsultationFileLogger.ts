@@ -12,8 +12,14 @@ export class ConsultationFileLogger {
 
   constructor(logDir?: string, dbPath?: string) {
     // Default log directory: ~/.llm-conclave/consult-logs/
-    this.logDir = logDir || path.join(os.homedir(), '.llm-conclave', 'consult-logs');
-    this.indexer = new AnalyticsIndexer(dbPath);
+    const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+    const defaultLogDir = isTestEnv
+      ? path.join(os.tmpdir(), 'llm-conclave-test-logs')
+      : path.join(os.homedir(), '.llm-conclave', 'consult-logs');
+    this.logDir = logDir || defaultLogDir;
+    const resolvedDbPath = dbPath
+      || (isTestEnv ? ':memory:' : (logDir ? path.join(this.logDir, 'consult-analytics.db') : undefined));
+    this.indexer = new AnalyticsIndexer(resolvedDbPath);
   }
 
   /**

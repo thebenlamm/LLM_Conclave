@@ -101,12 +101,15 @@ describe('ConsultOrchestrator Round 3: Cross-Examination', () => {
       .mockResolvedValueOnce({ // Round 4
           text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: ["test evidence"], dissent: [] }),
           usage: {}
-      });
+      })
+      .mockResolvedValueOnce({ text: '{"change":"minor_refinement","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } })
+      .mockResolvedValueOnce({ text: '{"change":"same","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } })
+      .mockResolvedValueOnce({ text: '{"change":"moderate_shift","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } });
 
     const result = await orchestrator.consult("Test Question");
 
-    // Expect 9 calls
-    expect(mockProvider.chat).toHaveBeenCalledTimes(9);
+    // Expect 12 calls (9 rounds + 3 semantic comparisons)
+    expect(mockProvider.chat).toHaveBeenCalledTimes(12);
 
     // Verify R3 Artifact
     expect(result.responses.round3).toBeDefined();
@@ -147,7 +150,10 @@ describe('ConsultOrchestrator Round 3: Cross-Examination', () => {
       .mockResolvedValueOnce({ // Round 4
           text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: ["test evidence"], dissent: [] }),
           usage: {}
-      });
+      })
+      .mockResolvedValueOnce({ text: '{"change":"minor_refinement","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } })
+      .mockResolvedValueOnce({ text: '{"change":"same","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } })
+      .mockResolvedValueOnce({ text: '{"change":"moderate_shift","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } });
 
       const result = await orchestrator.consult("Test Question");
 

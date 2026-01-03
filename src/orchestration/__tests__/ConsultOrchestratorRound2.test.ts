@@ -93,13 +93,16 @@ describe('ConsultOrchestrator Round 2: Synthesis', () => {
       .mockResolvedValueOnce({ text: JSON.stringify({ critique: "", challenges: [], defense: "" }), usage: {} })
       .mockResolvedValueOnce({ text: JSON.stringify({ critique: "", challenges: [], defense: "" }), usage: {} })
       .mockResolvedValueOnce({ text: JSON.stringify({ challenges: [], rebuttals: [], unresolved: [] }), usage: {} })
-      .mockResolvedValueOnce({ text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: ["test evidence"], dissent: [] }), usage: {} });
+      .mockResolvedValueOnce({ text: JSON.stringify({ recommendation: "R", confidence: 0.9, evidence: ["test evidence"], dissent: [] }), usage: {} })
+      .mockResolvedValueOnce({ text: '{"change":"minor_refinement","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } })
+      .mockResolvedValueOnce({ text: '{"change":"same","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } })
+      .mockResolvedValueOnce({ text: '{"change":"moderate_shift","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } });
 
     const question = "Test Question";
     const result = await orchestrator.consult(question);
 
-    // Verify 9 calls (3 Agents R1 + 1 Judge R2 + 3 Agents R3 + 1 Judge R3 + 1 Judge R4)
-    expect(mockProvider.chat).toHaveBeenCalledTimes(9);
+    // Verify 12 calls (9 rounds + 3 semantic comparisons)
+    expect(mockProvider.chat).toHaveBeenCalledTimes(12);
 
     // Verify Round 2 Artifact
     expect(result.responses.round2).toBeDefined();

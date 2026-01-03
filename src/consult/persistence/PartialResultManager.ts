@@ -12,7 +12,11 @@ export class PartialResultManager {
 
   constructor(logDir?: string) {
     // Default: ~/.llm-conclave/consult-logs/
-    this.logDir = logDir || path.join(os.homedir(), '.llm-conclave', 'consult-logs');
+    const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+    const defaultLogDir = isTestEnv
+      ? path.join(os.tmpdir(), 'llm-conclave-test-logs')
+      : path.join(os.homedir(), '.llm-conclave', 'consult-logs');
+    this.logDir = logDir || defaultLogDir;
     this.ensureLogDirectory();
   }
 

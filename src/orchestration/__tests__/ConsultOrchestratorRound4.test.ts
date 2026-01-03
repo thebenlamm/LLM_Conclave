@@ -85,12 +85,15 @@ describe('ConsultOrchestrator Round 4: Verdict', () => {
       .mockResolvedValueOnce(r3AgentResponse)
       .mockResolvedValueOnce(r3AgentResponse)
       .mockResolvedValueOnce(r3JudgeResponse)
-      .mockResolvedValueOnce(r4VerdictResponse); // Round 4
+      .mockResolvedValueOnce(r4VerdictResponse) // Round 4
+      .mockResolvedValueOnce({ text: '{"change":"minor_refinement","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } })
+      .mockResolvedValueOnce({ text: '{"change":"same","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } })
+      .mockResolvedValueOnce({ text: '{"change":"moderate_shift","reasoning":"ok"}', usage: { input_tokens: 5, output_tokens: 5 } });
 
     const result = await orchestrator.consult("Test Question");
 
-    // Expect 9 calls
-    expect(mockProvider.chat).toHaveBeenCalledTimes(9);
+    // Expect 12 calls (9 rounds + 3 semantic comparisons)
+    expect(mockProvider.chat).toHaveBeenCalledTimes(12);
 
     // Verify R4 Artifact
     expect(result.responses.round4).toBeDefined();
