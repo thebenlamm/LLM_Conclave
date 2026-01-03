@@ -1,6 +1,6 @@
 # Story 5.2: Sensitive Data Scrubbing with Regex Filter
 
-Status: review
+Status: done
 
 ## Story
 
@@ -778,6 +778,9 @@ Claude Opus 4.5
 - ✅ All 328 tests passing (18 new tests for SensitiveDataScrubber + updated consult tests)
 - ✅ Fixed flaky test in PartialResultManager.test.ts (unique temp directory per test)
 - ✅ Fixed consult.test.ts to properly mock ContextLoader and SensitiveDataScrubber
+- ✅ Fixed `--no-scrub` default to keep scrubbing enabled unless explicitly disabled
+- ✅ Updated redaction replacements to preserve key/value structure while matching AC examples
+- ✅ Added missing unit tests covering all pattern categories (secrets, passwords, tokens, connection strings, vendor keys)
 
 ### File List
 
@@ -799,3 +802,4 @@ Claude Opus 4.5
 - 2025-01-03: Story completed - All tasks implemented and tested, 328 tests passing
 - 2025-01-03: Fixed test failures in consult.test.ts and PartialResultManager.test.ts
 - 2025-01-03: Verified snake_case JSON output for scrubbing_report in ArtifactTransformer
+- 2026-01-03: Code review fixes - default scrubbing enabled, redaction outputs aligned with AC, expanded pattern tests
