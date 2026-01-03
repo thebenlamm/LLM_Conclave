@@ -112,7 +112,7 @@ describe('OutputFormatter', () => {
   describe('formatBoth', () => {
     it('combines outputs with separator', () => {
       const output = formatter.formatBoth(mockResult);
-      expect(output).toBe('Markdown Output\n\n---\n\n{"json": "output"}');
+      expect(output).toBe('Markdown Output\n---\n{"json": "output"}');
     });
   });
 });

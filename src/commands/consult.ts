@@ -39,6 +39,21 @@ export function createConsultCommand(): Command {
         throw new Error('Question is required. Usage: llm-conclave consult "your question"');
       }
 
+      const formatOption = String(options.format || 'markdown').toLowerCase();
+      const validFormats = new Set(Object.values(OutputFormat));
+      if (!validFormats.has(formatOption as OutputFormat)) {
+        throw new Error('Error: --format must be one of markdown, json, or both');
+      }
+      const outputFormat = formatOption as OutputFormat;
+      const isMachineOutput = outputFormat !== OutputFormat.Markdown;
+      const logInfo = (message: string) => {
+        if (isMachineOutput) {
+          console.error(message);
+          return;
+        }
+        console.log(message);
+      };
+
       // Validate mode option
       const mode = options.mode as string;
       if (!StrategyFactory.isValidMode(mode)) {
@@ -55,21 +70,24 @@ export function createConsultCommand(): Command {
 
       // Initialize real-time console logger
       const consoleLogger = new ConsultConsoleLogger();
-      consoleLogger.start();
+      if (!isMachineOutput) {
+        consoleLogger.start();
+      }
 
       try {
         // Handle Stdin (Story 5.3)
         const stdinHandler = new StdinHandler();
         let stdinResult: StdinResult | null = null;
-        if (stdinHandler.detectStdin()) {
-          console.log(chalk.cyan('Reading from stdin...'));
+        const hasStdin = stdinHandler.detectStdin();
+        if (hasStdin) {
+          logInfo(chalk.cyan('Reading from stdin...'));
           stdinResult = await stdinHandler.readStdin();
           if (stdinResult.hasStdin) {
-             console.log(chalk.green(`✓ Read ${stdinResult.tokenEstimate} tokens from stdin`));
+             logInfo(chalk.green(`✓ Read ${stdinResult.tokenEstimate} tokens from stdin`));
           }
         }
 
-        const isInteractive = !stdinHandler.detectStdin();
+        const isInteractive = !hasStdin && !options.yes;
 
         // Load context using ContextLoader
         const contextLoader = new ContextLoader();
@@ -105,7 +123,7 @@ export function createConsultCommand(): Command {
              // If too large, maybe fail? Or just proceed?
              // ContextLoader already logs warning.
              if (loadedContext.totalTokens > 10000) { // tokenThreshold from ContextLoader
-                console.warn(chalk.yellow('⚠️ Large context in non-interactive mode. Proceeding...'));
+                logInfo(chalk.yellow('⚠️ Large context in non-interactive mode. Proceeding...'));
              }
           }
 
@@ -128,15 +146,15 @@ export function createConsultCommand(): Command {
           // Display report to user if matches found
           const reportText = scrubber.formatReport(scrubResult.report);
           if (reportText) {
-            console.log(reportText);
+            logInfo(reportText);
           }
         } else {
-          console.log(chalk.red('⚠️ WARNING: Sensitive data scrubbing disabled.'));
-          console.log(chalk.red('Ensure your context contains no secrets!'));
+          logInfo(chalk.red('⚠️ WARNING: Sensitive data scrubbing disabled.'));
+          logInfo(chalk.red('Ensure your context contains no secrets!'));
         }
 
         if (options.greenfield) {
-          console.log(chalk.yellow('🔧 Ignoring existing patterns (--greenfield mode)'));
+          logInfo(chalk.yellow('🔧 Ignoring existing patterns (--greenfield mode)'));
         }
 
         // Get strategy for the selected mode
@@ -144,7 +162,7 @@ export function createConsultCommand(): Command {
 
         // Display mode selection
         if (options.verbose) {
-          console.log(chalk.cyan(`🎯 Mode: ${modeType} (${modeType === 'explore' ? 'divergent brainstorming' : 'decisive consensus'})`));
+          logInfo(chalk.cyan(`🎯 Mode: ${modeType} (${modeType === 'explore' ? 'divergent brainstorming' : 'decisive consensus'})`));
         }
 
         // Initialize orchestrator with strategy
@@ -167,18 +185,19 @@ export function createConsultCommand(): Command {
         });
 
         // Persist consultation for analytics (handles transformation to snake_case internally)
+        result.outputFormat = outputFormat;
         const logger = new ConsultLogger();
         const logPaths = await logger.log(result);
-        console.log(chalk.gray(`Logs saved to ${logPaths.jsonPath}`));
+        logInfo(chalk.gray(`Logs saved to ${logPaths.jsonPath}`));
 
         // Format and display output
         const outputFormatter = new OutputFormatter();
-        const output = outputFormatter.formatOutput(result, options.format as OutputFormat);
+        const output = outputFormatter.formatOutput(result, outputFormat);
         console.log('\n' + output.content + '\n');
 
         if (result.debateValueAnalysis) {
           const debateFormatter = new DebateValueFormatter();
-          console.log(debateFormatter.formatValueSummary(result.debateValueAnalysis) + '\n');
+          logInfo(debateFormatter.formatValueSummary(result.debateValueAnalysis) + '\n');
         }
 
       } catch (error: any) {

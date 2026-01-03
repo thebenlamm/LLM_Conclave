@@ -199,4 +199,25 @@ describe('consult command', () => {
 
     consoleSpy.mockRestore();
   });
+
+  it('sets non-interactive mode when --yes is provided', async () => {
+    const cmd = createConsultCommand();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cmd.parseAsync([
+      'node',
+      'test',
+      'consult',
+      '--yes',
+      'test question'
+    ]);
+
+    expect(ConsultOrchestrator).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interactive: false
+      })
+    );
+
+    consoleSpy.mockRestore();
+  });
 });

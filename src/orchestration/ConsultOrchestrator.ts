@@ -1660,12 +1660,15 @@ Your role in consultations:
     if (!this.loadedContext) {
       return undefined;
     }
+    const stdinSource = this.loadedContext.sources.find(s => s.type === 'stdin');
     return {
       files: this.loadedContext.sources.filter(s => s.type === 'file').map(s => s.path),
       projectPath: this.loadedContext.sources.find(s => s.type === 'project')?.path || null,
       totalTokensEstimated: this.loadedContext.totalTokens,
       fileCount: this.loadedContext.fileCount,
-      projectSummaryIncluded: this.loadedContext.projectIncluded
+      projectSummaryIncluded: this.loadedContext.projectIncluded,
+      stdinUsed: Boolean(stdinSource),
+      stdinTokensEstimated: stdinSource?.tokenEstimate
     };
   }
 }
