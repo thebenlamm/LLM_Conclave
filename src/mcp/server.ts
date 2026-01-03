@@ -51,7 +51,7 @@ const server = new Server(
 const TOOLS: Tool[] = [
   {
     name: 'llm_conclave_consult',
-    description: 'Run a fast multi-model consultation (4-round debate). Get consensus from Security Expert (Claude), Architect (GPT-4o), and Pragmatist (Gemini) on technical decisions, architecture, security, or any question requiring diverse expert perspectives.',
+    description: 'Run a structured 4-phase consultation (positions → synthesis → debate → resolution). Faster but may produce thinner results than discuss. Use llm_conclave_discuss for complex decisions needing deeper analysis.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -80,7 +80,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'llm_conclave_discuss',
-    description: 'Run a democratic consensus discussion where all agents contribute equally. Best for brainstorming, exploring multiple perspectives, or collaborative problem-solving. Supports custom personas (security, performance, creative, etc.)',
+    description: 'Run a free-form multi-round discussion where agents debate and build on each other\'s ideas. RECOMMENDED for complex decisions - produces more thorough analysis than structured consult. Best for architecture, build-vs-buy, security review, or any decision needing diverse expert perspectives.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -98,8 +98,8 @@ const TOOLS: Tool[] = [
         },
         rounds: {
           type: 'number',
-          description: 'Number of discussion rounds',
-          default: 3,
+          description: 'Number of discussion rounds (more = deeper analysis)',
+          default: 4,
         },
       },
       required: ['task'],
@@ -272,7 +272,7 @@ async function handleDiscuss(args: {
   personas?: string;
   rounds?: number;
 }) {
-  const { task, project: projectPath, personas, rounds = 3 } = args;
+  const { task, project: projectPath, personas, rounds = 4 } = args;
 
   // Resolve configuration
   const config = ConfigCascade.resolve({});
