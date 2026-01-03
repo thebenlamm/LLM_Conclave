@@ -27,6 +27,24 @@ describe('ConsultationFileLogger', () => {
     question: 'Test question',
     context: '',
     mode: 'converge',
+    projectContext: {
+      projectType: 'brownfield',
+      frameworkDetected: 'Next.js',
+      frameworkVersion: '14',
+      architecturePattern: 'app_router',
+      techStack: {
+        stateManagement: 'Zustand',
+        styling: 'Tailwind',
+        testing: ['Vitest'],
+        api: 'tRPC',
+        database: 'PostgreSQL',
+        orm: 'Prisma',
+        cicd: 'GitHub Actions'
+      },
+      indicatorsFound: ['package.json', 'README.md'],
+      documentationUsed: ['README.md'],
+      biasApplied: true
+    },
     agents: [
       { name: 'Agent1', model: 'gpt-4o', provider: 'openai' },
       { name: 'Agent2', model: 'claude-sonnet-4-5', provider: 'anthropic' }
@@ -102,12 +120,18 @@ describe('ConsultationFileLogger', () => {
   });
 
   it('should create log directory if it doesn\'t exist', async () => {
-    expect(fs.existsSync(testLogDir)).toBe(false);
+    const freshLogDir = path.join(os.tmpdir(), `consult-test-create-${Date.now()}`);
+    if (fs.existsSync(freshLogDir)) {
+      fs.rmSync(freshLogDir, { recursive: true, force: true });
+    }
+    expect(fs.existsSync(freshLogDir)).toBe(false);
 
+    const freshLogger = new ConsultationFileLogger(freshLogDir);
     const result = createMockResult();
-    await logger.logConsultation(result);
+    await freshLogger.logConsultation(result);
 
-    expect(fs.existsSync(testLogDir)).toBe(true);
+    expect(fs.existsSync(freshLogDir)).toBe(true);
+    fs.rmSync(freshLogDir, { recursive: true, force: true });
   });
 
   it('should write JSON log file', async () => {
@@ -123,6 +147,24 @@ describe('ConsultationFileLogger', () => {
     expect(parsed.consultation_id).toBe('test-123');
     expect(parsed.schema_version).toBe('1.0');
     expect(parsed.question).toBe('Test question');
+    expect(parsed.project_context).toEqual({
+      project_type: 'brownfield',
+      framework_detected: 'Next.js',
+      framework_version: '14',
+      architecture_pattern: 'app_router',
+      tech_stack: {
+        state_management: 'Zustand',
+        styling: 'Tailwind',
+        testing: ['Vitest'],
+        api: 'tRPC',
+        database: 'PostgreSQL',
+        orm: 'Prisma',
+        cicd: 'GitHub Actions'
+      },
+      indicators_found: ['package.json', 'README.md'],
+      documentation_used: ['README.md'],
+      bias_applied: true
+    });
   });
 
   it('should write Markdown log file', async () => {
@@ -142,8 +184,7 @@ describe('ConsultationFileLogger', () => {
     const invalidLogger = new ConsultationFileLogger('/root/no-permission');
     const result = createMockResult();
 
-    // Should not throw
-    await expect(invalidLogger.logConsultation(result)).resolves.toBeUndefined();
+    await expect(invalidLogger.logConsultation(result)).rejects.toBeDefined();
   });
 
   it('should return log directory path', () => {

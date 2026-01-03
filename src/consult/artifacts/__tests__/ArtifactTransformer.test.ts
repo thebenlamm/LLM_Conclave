@@ -7,7 +7,10 @@ import {
   IndependentArtifact,
   SynthesisArtifact,
   CrossExamArtifact,
-  VerdictArtifact
+  VerdictArtifact,
+  ConsultationResult,
+  ConsultState,
+  PromptVersions
 } from '../../../types/consult';
 
 describe('ArtifactTransformer', () => {
@@ -124,6 +127,80 @@ describe('ArtifactTransformer', () => {
       const json = ArtifactTransformer.synthesisToJSON(typescriptArtifact);
       const restored = ArtifactTransformer.synthesisFromJSON(json);
       expect(restored).toEqual(typescriptArtifact);
+    });
+  });
+
+  describe('ConsultationResult Transformation', () => {
+    it('should include project context metadata in snake_case output', () => {
+      const promptVersions: PromptVersions = {
+        mode: 'converge',
+        independentPromptVersion: 'v1',
+        synthesisPromptVersion: 'v1',
+        crossExamPromptVersion: 'v1',
+        verdictPromptVersion: 'v1'
+      };
+
+      const result: ConsultationResult = {
+        consultationId: 'consult-123',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        question: 'Test question',
+        context: 'Context',
+        mode: 'converge',
+        projectContext: {
+          projectType: 'brownfield',
+          frameworkDetected: 'Next.js',
+          frameworkVersion: '14',
+          architecturePattern: 'app_router',
+          techStack: {
+            stateManagement: 'Zustand',
+            styling: 'Tailwind',
+            testing: ['Vitest'],
+            api: 'tRPC',
+            database: 'PostgreSQL',
+            orm: 'Prisma',
+            cicd: 'GitHub Actions'
+          },
+          indicatorsFound: ['package.json', 'tsconfig.json'],
+          documentationUsed: ['README.md'],
+          biasApplied: true
+        },
+        agents: [],
+        state: ConsultState.Complete,
+        rounds: 4,
+        completedRounds: 4,
+        responses: {},
+        consensus: 'Consensus',
+        confidence: 0.9,
+        recommendation: 'Recommendation',
+        reasoning: {},
+        concerns: [],
+        dissent: [],
+        perspectives: [],
+        cost: { tokens: { input: 0, output: 0, total: 0 }, usd: 0 },
+        durationMs: 1000,
+        promptVersions
+      };
+
+      const json = ArtifactTransformer.consultationResultToJSON(result);
+
+      expect(json.project_context).toEqual({
+        project_type: 'brownfield',
+        framework_detected: 'Next.js',
+        framework_version: '14',
+        architecture_pattern: 'app_router',
+        tech_stack: {
+          state_management: 'Zustand',
+          styling: 'Tailwind',
+          testing: ['Vitest'],
+          api: 'tRPC',
+          database: 'PostgreSQL',
+          orm: 'Prisma',
+          cicd: 'GitHub Actions'
+        },
+        indicators_found: ['package.json', 'tsconfig.json'],
+        documentation_used: ['README.md'],
+        bias_applied: true
+      });
     });
   });
 

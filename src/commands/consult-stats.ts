@@ -58,7 +58,7 @@ export function createConsultStatsCommand(): Command {
   return cmd;
 }
 
-function displayDashboard(metrics: any, timeRange: string): void {
+export function displayDashboard(metrics: any, timeRange: string): void {
   if (metrics.totalConsultations === 0) {
     console.log(chalk.yellow('\n📭 No consultations found.\n'));
     console.log('Run your first consultation:');
@@ -128,6 +128,78 @@ function displayDashboard(metrics: any, timeRange: string): void {
   console.log(chalk.cyan('│  ') + `• Avg Confidence: ${metrics.quality.avgConfidence}%`.padEnd(width - 6) + chalk.cyan('  │'));
   console.log(chalk.cyan('│  ') + `• High Confidence (≥85%): ${metrics.quality.highConfidence}`.padEnd(width - 6) + chalk.cyan('  │'));
   console.log(chalk.cyan('│  ') + `• Low Confidence (<70%): ${metrics.quality.lowConfidence}`.padEnd(width - 6) + chalk.cyan('  │'));
+  console.log(chalk.cyan('├' + '─'.repeat(width - 2) + '┤'));
+
+  // Debate Value Metrics
+  console.log(chalk.cyan('│  ') + chalk.bold('Debate Value Metrics'.padEnd(width - 6)) + chalk.cyan('  │'));
+  const avgTotalAgents = metrics.debateValue.avgTotalAgents || 0;
+  const avgChangeRatePercent = Math.round(metrics.debateValue.avgChangeRate * 100);
+  console.log(
+    chalk.cyan('│  ') +
+    `• Avg Position Changes: ${metrics.debateValue.avgPositionChanges}/${avgTotalAgents} agents (${avgChangeRatePercent}%)`
+      .padEnd(width - 6) +
+    chalk.cyan('  │')
+  );
+  const avgConfidenceIncreasePercent = Math.round(metrics.debateValue.avgConfidenceIncrease * 100);
+  console.log(
+    chalk.cyan('│  ') +
+    `• Avg Confidence Increase: +${avgConfidenceIncreasePercent}%`
+      .padEnd(width - 6) +
+    chalk.cyan('  │')
+  );
+  console.log(
+    chalk.cyan('│  ') +
+    `• Avg Convergence Score: ${metrics.debateValue.avgConvergenceScore.toFixed(2)}`
+      .padEnd(width - 6) +
+    chalk.cyan('  │')
+  );
+  const highValuePercent = metrics.totalConsultations > 0
+    ? Math.round((metrics.debateValue.highValueDebates / metrics.totalConsultations) * 100)
+    : 0;
+  console.log(
+    chalk.cyan('│  ') +
+    `• High-Value Debates (>50% change): ${metrics.debateValue.highValueDebates} (${highValuePercent}%)`
+      .padEnd(width - 6) +
+    chalk.cyan('  │')
+  );
+  console.log(
+    chalk.cyan('│  ') +
+    `• Semantic Comparison Cost: $${metrics.debateValue.totalSemanticComparisonCost.toFixed(4)}`
+      .padEnd(width - 6) +
+    chalk.cyan('  │')
+  );
+  console.log(chalk.cyan('├' + '─'.repeat(width - 2) + '┤'));
+
+  // Project Context Metrics
+  console.log(chalk.cyan('│  ') + chalk.bold('Project Context'.padEnd(width - 6)) + chalk.cyan('  │'));
+  const projectCounts = metrics.projectInsights?.projectTypeCounts || { brownfield: 0, greenfield: 0, unknown: 0 };
+  const projectTotal = projectCounts.brownfield + projectCounts.greenfield + projectCounts.unknown;
+  const brownfieldPercent = projectTotal > 0 ? Math.round((projectCounts.brownfield / projectTotal) * 100) : 0;
+  const greenfieldPercent = projectTotal > 0 ? Math.round((projectCounts.greenfield / projectTotal) * 100) : 0;
+  console.log(
+    chalk.cyan('│  ') +
+    `• Brownfield: ${projectCounts.brownfield} (${brownfieldPercent}%)`
+      .padEnd(width - 6) +
+    chalk.cyan('  │')
+  );
+  console.log(
+    chalk.cyan('│  ') +
+    `• Greenfield: ${projectCounts.greenfield} (${greenfieldPercent}%)`
+      .padEnd(width - 6) +
+    chalk.cyan('  │')
+  );
+
+  const frameworks = metrics.projectInsights?.frameworkUsage || {};
+  const frameworkEntries = Object.entries(frameworks);
+  if (frameworkEntries.length === 0) {
+    console.log(chalk.cyan('│  ') + '• Frameworks: none'.padEnd(width - 6) + chalk.cyan('  │'));
+  } else {
+    console.log(chalk.cyan('│  ') + '• Frameworks:'.padEnd(width - 6) + chalk.cyan('  │'));
+    frameworkEntries.slice(0, 3).forEach(([framework, count]) => {
+      console.log(chalk.cyan('│  ') + `    - ${framework}: ${count}`.padEnd(width - 6) + chalk.cyan('  │'));
+    });
+  }
+
   console.log(chalk.cyan('└' + '─'.repeat(width - 2) + '┘'));
 
   // Success Criteria Validation

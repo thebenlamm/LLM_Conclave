@@ -52,6 +52,12 @@ export class StatsQuery {
     // 4. Quality Metrics
     const quality = this.queryQuality(where);
 
+    // 5. Debate Value Metrics
+    const debateValue = this.queryDebateValue(where);
+
+    // 6. Project Context Metrics
+    const projectInsights = this.queryProjectInsights(where);
+
     return {
       totalConsultations: usage.total,
       dateRange: usage.dateRange,
@@ -60,7 +66,9 @@ export class StatsQuery {
       byState: usage.byState,
       performance,
       cost,
-      quality
+      quality,
+      debateValue,
+      projectInsights
     };
   }
 
@@ -202,6 +210,74 @@ export class StatsQuery {
     };
   }
 
+  private queryDebateValue(where: { clause: string; params: any[] }): any {
+    const stats = this.db!.prepare(`
+      SELECT
+        AVG(agents_changed_position) as avg_changed,
+        AVG(total_agents) as avg_total_agents,
+        AVG(change_rate) as avg_rate,
+        AVG(avg_confidence_increase) as avg_confidence_increase,
+        AVG(convergence_score) as avg_convergence,
+        SUM(semantic_comparison_cost) as total_cost,
+        COUNT(CASE WHEN change_rate > 0.5 THEN 1 END) as high_value
+      FROM consultations
+      WHERE ${where.clause} AND change_rate IS NOT NULL
+    `).get(...where.params) as any;
+
+    return {
+      avgPositionChanges: Number((stats.avg_changed || 0).toFixed(2)),
+      avgChangeRate: Number((stats.avg_rate || 0).toFixed(2)),
+      avgConfidenceIncrease: Number((stats.avg_confidence_increase || 0).toFixed(3)),
+      avgConvergenceScore: Number((stats.avg_convergence || 0).toFixed(2)),
+      highValueDebates: stats.high_value || 0,
+      totalSemanticComparisonCost: Number((stats.total_cost || 0).toFixed(4)),
+      avgTotalAgents: Number((stats.avg_total_agents || 0).toFixed(1))
+    };
+  }
+
+  private queryProjectInsights(where: { clause: string; params: any[] }): any {
+    const projectTypeRows = this.db!.prepare(`
+      SELECT project_type as projectType, count(*) as count
+      FROM consultations
+      WHERE ${where.clause}
+      GROUP BY project_type
+    `).all(...where.params) as any[];
+
+    const projectTypeCounts = {
+      brownfield: 0,
+      greenfield: 0,
+      unknown: 0
+    };
+
+    projectTypeRows.forEach(row => {
+      if (row.projectType === 'brownfield') {
+        projectTypeCounts.brownfield = row.count;
+      } else if (row.projectType === 'greenfield') {
+        projectTypeCounts.greenfield = row.count;
+      } else {
+        projectTypeCounts.unknown += row.count;
+      }
+    });
+
+    const frameworkRows = this.db!.prepare(`
+      SELECT framework_detected as framework, count(*) as count
+      FROM consultations
+      WHERE ${where.clause} AND framework_detected IS NOT NULL
+      GROUP BY framework_detected
+      ORDER BY count DESC
+    `).all(...where.params) as any[];
+
+    const frameworkUsage: Record<string, number> = {};
+    frameworkRows.forEach(row => {
+      frameworkUsage[row.framework] = row.count;
+    });
+
+    return {
+      projectTypeCounts,
+      frameworkUsage
+    };
+  }
+
   private getEmptyMetrics(): ConsultMetrics {
     const now = new Date().toISOString();
     return {
@@ -212,7 +288,20 @@ export class StatsQuery {
       byState: { completed: 0, aborted: 0 },
       performance: { p50: 0, p95: 0, p99: 0, avgDuration: 0, fastest: { id: '', durationMs: 0 }, slowest: { id: '', durationMs: 0 } },
       cost: { total: 0, avgPerConsultation: 0, totalTokens: 0, byProvider: {}, mostExpensive: { id: '', cost: 0 }, cheapest: { id: '', cost: 0 } },
-      quality: { avgConfidence: 0, highConfidence: 0, lowConfidence: 0, withDissent: 0 }
+      quality: { avgConfidence: 0, highConfidence: 0, lowConfidence: 0, withDissent: 0 },
+      debateValue: {
+        avgPositionChanges: 0,
+        avgChangeRate: 0,
+        avgConfidenceIncrease: 0,
+        avgConvergenceScore: 0,
+        highValueDebates: 0,
+        totalSemanticComparisonCost: 0,
+        avgTotalAgents: 0
+      },
+      projectInsights: {
+        projectTypeCounts: { brownfield: 0, greenfield: 0, unknown: 0 },
+        frameworkUsage: {}
+      }
     };
   }
 
