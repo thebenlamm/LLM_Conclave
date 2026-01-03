@@ -52,13 +52,20 @@ export class SynthesisSchema {
       this.validateConsensusPoint(cp, index);
     });
 
-    // Validate Tensions
+    // Validate Tensions (filter out invalid ones instead of failing)
     if (!Array.isArray(artifact.tensions)) {
       throw new Error('tensions must be an array');
     }
+    const validTensions: any[] = [];
     artifact.tensions.forEach((t: any, index: number) => {
-      this.validateTension(t, index);
+      const validationError = this.validateTension(t, index);
+      if (validationError) {
+        console.error(`[SynthesisSchema] Warning: Skipping invalid tension at index ${index}: ${validationError}`);
+      } else {
+        validTensions.push(t);
+      }
     });
+    artifact.tensions = validTensions;
 
     // Validate Priority Order
     if (!Array.isArray(artifact.priorityOrder)) {
@@ -90,21 +97,23 @@ export class SynthesisSchema {
     }
   }
 
-  private static validateTension(t: any, index: number): void {
+  private static validateTension(t: any, index: number): string | null {
     if (typeof t.topic !== 'string' || t.topic.length === 0) {
-      throw new Error(`Tension at index ${index} missing valid 'topic' string`);
+      return `missing valid 'topic' string`;
     }
     if (!Array.isArray(t.viewpoints)) {
-      throw new Error(`Tension at index ${index} must have 'viewpoints' array`);
+      return `must have 'viewpoints' array`;
     }
     if (t.viewpoints.length < 2) {
-      throw new Error('Tension must have at least 2 viewpoints');
+      return `needs at least 2 viewpoints (got ${t.viewpoints.length})`;
     }
-    t.viewpoints.forEach((vp: any, vpIndex: number) => {
+    for (let vpIndex = 0; vpIndex < t.viewpoints.length; vpIndex++) {
+      const vp = t.viewpoints[vpIndex];
       if (typeof vp.agent !== 'string' || typeof vp.viewpoint !== 'string') {
-        throw new Error(`Tension at index ${index}, viewpoint ${vpIndex} invalid: must have 'agent' and 'viewpoint' strings`);
+        return `viewpoint ${vpIndex} invalid: must have 'agent' and 'viewpoint' strings`;
       }
-    });
+    }
+    return null; // Valid
   }
 
   /**
