@@ -1,6 +1,6 @@
 # Story 4.4: Brownfield Project Detection with Documentation Bias
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -99,100 +99,100 @@ So that consultations leverage project-specific context instead of generic advic
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create BrownfieldDetector Module (AC: #1, #2)
-  - [ ] Create `src/consult/context/BrownfieldDetector.ts`
-  - [ ] Define `BrownfieldIndicator` interface
-  - [ ] Define `BrownfieldAnalysis` interface
-  - [ ] Define `TechStackAnalysis` interface
-  - [ ] Implement `detectBrownfield(projectPath: string): Promise<BrownfieldAnalysis>`
-  - [ ] Implement `countSourceFiles(dirs: string[]): Promise<number>` helper
-  - [ ] Implement `checkGitCommits(): Promise<number>` helper
-  - [ ] Add unit tests in `src/consult/context/__tests__/BrownfieldDetector.test.ts`
+- [x] Task 1: Create BrownfieldDetector Module (AC: #1, #2)
+  - [x] Create `src/consult/context/BrownfieldDetector.ts`
+  - [x] Define `BrownfieldIndicator` interface
+  - [x] Define `BrownfieldAnalysis` interface
+  - [x] Define `TechStackAnalysis` interface
+  - [x] Implement `detectBrownfield(projectPath: string): Promise<BrownfieldAnalysis>`
+  - [x] Implement `countSourceFiles(dirs: string[]): Promise<number>` helper
+  - [x] Implement `checkGitCommits(): Promise<number>` helper
+  - [x] Add unit tests in `src/consult/context/__tests__/BrownfieldDetector.test.ts`
 
-- [ ] Task 2: Extend Framework Detection (AC: #2)
-  - [ ] Leverage existing `ProjectScanner._detectNodeFramework()` in `src/init/ProjectScanner.ts`
-  - [ ] Create `src/consult/context/FrameworkDetector.ts` that extends detection
-  - [ ] Add Next.js App Router vs Pages Router detection (check for `app/` vs `pages/` directory)
-  - [ ] Add version detection from package.json dependencies
-  - [ ] Add Python framework detection (Django/Flask/FastAPI from requirements.txt)
-  - [ ] Add Ruby framework detection (Rails from Gemfile)
-  - [ ] Add Java framework detection (Spring Boot from pom.xml/build.gradle)
-  - [ ] Add Rust framework detection (from Cargo.toml)
-  - [ ] Add unit tests for each framework detection
+- [x] Task 2: Extend Framework Detection (AC: #2)
+  - [x] Leverage existing `ProjectScanner._detectNodeFramework()` in `src/init/ProjectScanner.ts`
+  - [x] Create `src/consult/context/FrameworkDetector.ts` that extends detection
+  - [x] Add Next.js App Router vs Pages Router detection (check for `app/` vs `pages/` directory)
+  - [x] Add version detection from package.json dependencies
+  - [x] Add Python framework detection (Django/Flask/FastAPI from requirements.txt)
+  - [x] Add Ruby framework detection (Rails from Gemfile)
+  - [x] Add Java framework detection (Spring Boot from pom.xml/build.gradle)
+  - [x] Add Rust framework detection (from Cargo.toml)
+  - [x] Add unit tests for each framework detection
 
-- [ ] Task 3: Implement Tech Stack Analysis (AC: #2)
-  - [ ] Create `TechStackAnalyzer` class within BrownfieldDetector
-  - [ ] Detect state management (Redux, Zustand, MobX, Jotai, Recoil, Context)
-  - [ ] Detect styling (Tailwind, styled-components, Emotion, CSS Modules, Sass)
-  - [ ] Detect testing (Jest, Vitest, Mocha, Playwright, Cypress, Testing Library)
-  - [ ] Detect API patterns (tRPC, REST, GraphQL, gRPC)
-  - [ ] Detect database/ORM (Prisma, TypeORM, Drizzle, Mongoose, Sequelize)
-  - [ ] Detect CI/CD patterns from .github/workflows, .gitlab-ci.yml, etc.
+- [x] Task 3: Implement Tech Stack Analysis (AC: #2)
+  - [x] Create `TechStackAnalyzer` class within BrownfieldDetector
+  - [x] Detect state management (Redux, Zustand, MobX, Jotai, Recoil, Context)
+  - [x] Detect styling (Tailwind, styled-components, Emotion, CSS Modules, Sass)
+  - [x] Detect testing (Jest, Vitest, Mocha, Playwright, Cypress, Testing Library)
+  - [x] Detect API patterns (tRPC, REST, GraphQL, gRPC)
+  - [x] Detect database/ORM (Prisma, TypeORM, Drizzle, Mongoose, Sequelize)
+  - [x] Detect CI/CD patterns from .github/workflows, .gitlab-ci.yml, etc.
 
-- [ ] Task 4: Implement Documentation Discovery (AC: #3)
-  - [ ] Create `DocumentationDiscovery` class
-  - [ ] Implement `discoverDocumentation(projectPath: string): Promise<DocumentationResult>`
-  - [ ] Search for standard doc files (README.md, ARCHITECTURE.md, CONTRIBUTING.md, DESIGN.md)
-  - [ ] Search docs/ directory for markdown files
-  - [ ] Search .github/ directory for templates and guidelines
-  - [ ] Extract package.json description and keywords
-  - [ ] Optionally scan main entry points for JSDoc comments (configurable, may be slow)
-  - [ ] Return list of found documentation with paths and excerpts
+- [x] Task 4: Implement Documentation Discovery (AC: #3)
+  - [x] Create `DocumentationDiscovery` class
+  - [x] Implement `discoverDocumentation(projectPath: string): Promise<DocumentationResult>`
+  - [x] Search for standard doc files (README.md, ARCHITECTURE.md, CONTRIBUTING.md, DESIGN.md)
+  - [x] Search docs/ directory for markdown files
+  - [x] Search .github/ directory for templates and guidelines
+  - [x] Extract package.json description and keywords
+  - [x] Optionally scan main entry points for JSDoc comments (configurable, may be slow)
+  - [x] Return list of found documentation with paths and excerpts
 
-- [ ] Task 5: Create Context Augmenter (AC: #4)
-  - [ ] Create `src/consult/context/ContextAugmenter.ts`
-  - [ ] Implement `augmentPrompt(basePrompt: string, brownfieldAnalysis: BrownfieldAnalysis): string`
-  - [ ] Format project context block with detected stack
-  - [ ] Add brownfield-specific guidance rules
-  - [ ] Handle greenfield case (no augmentation, different guidance)
+- [x] Task 5: Create Context Augmenter (AC: #4)
+  - [x] Create `src/consult/context/ContextAugmenter.ts`
+  - [x] Implement `augmentPrompt(basePrompt: string, brownfieldAnalysis: BrownfieldAnalysis): string`
+  - [x] Format project context block with detected stack
+  - [x] Add brownfield-specific guidance rules
+  - [x] Handle greenfield case (no augmentation, different guidance)
 
-- [ ] Task 6: Integrate with ConsultOrchestrator (AC: #1-#5)
-  - [ ] Modify `src/orchestration/ConsultOrchestrator.ts`
-  - [ ] Add `brownfieldAnalysis` to orchestrator options
-  - [ ] Before Round 1, if `--project` flag used:
-    - [ ] Run BrownfieldDetector
-    - [ ] Run DocumentationDiscovery
-    - [ ] Store analysis result
-  - [ ] Pass augmented prompts to Round 1 agents
-  - [ ] Include `projectContext` in ConsultationResult
+- [x] Task 6: Integrate with ConsultOrchestrator (AC: #1-#5)
+  - [x] Modify `src/orchestration/ConsultOrchestrator.ts`
+  - [x] Add `brownfieldAnalysis` to orchestrator options
+  - [x] Before Round 1, if `--project` flag used:
+    - [x] Run BrownfieldDetector
+    - [x] Run DocumentationDiscovery
+    - [x] Store analysis result
+  - [x] Pass augmented prompts to Round 1 agents
+  - [x] Include `projectContext` in ConsultationResult
 
-- [ ] Task 7: Add CLI Flags (AC: #5, #6)
-  - [ ] Modify `src/commands/consult.ts`
-  - [ ] Add `--greenfield` flag option
-  - [ ] When `--greenfield` used, skip brownfield detection
-  - [ ] Display appropriate status messages based on detection result
+- [x] Task 7: Add CLI Flags (AC: #5, #6)
+  - [x] Modify `src/commands/consult.ts`
+  - [x] Add `--greenfield` flag option
+  - [x] When `--greenfield` used, skip brownfield detection
+  - [x] Display appropriate status messages based on detection result
 
-- [ ] Task 8: Update ConsultationResult Types (AC: #7)
-  - [ ] Add `ProjectContextMetadata` interface to `src/types/consult.ts`
-  - [ ] Add `projectContext` field to ConsultationResult
-  - [ ] Add JSON schema for snake_case serialization
+- [x] Task 8: Update ConsultationResult Types (AC: #7)
+  - [x] Add `ProjectContextMetadata` interface to `src/types/consult.ts`
+  - [x] Add `projectContext` field to ConsultationResult
+  - [x] Add JSON schema for snake_case serialization
 
-- [ ] Task 9: Update ConsultLogger (AC: #7)
-  - [ ] Modify `src/consult/logging/ConsultationFileLogger.ts`
-  - [ ] Include `project_context` in JSONL output
-  - [ ] Ensure snake_case conversion for all nested fields
+- [x] Task 9: Update ConsultLogger (AC: #7)
+  - [x] Modify `src/consult/logging/ConsultationFileLogger.ts`
+  - [x] Include `project_context` in JSONL output
+  - [x] Ensure snake_case conversion for all nested fields
 
-- [ ] Task 10: Update SQLite Analytics (AC: #7)
-  - [ ] Add `project_type` column to consultations table
-  - [ ] Add `framework_detected` column
-  - [ ] Add `tech_stack` JSON column
-  - [ ] Create migration for new columns
-  - [ ] Update AnalyticsIndexer to capture project context
+- [x] Task 10: Update SQLite Analytics (AC: #7)
+  - [x] Add `project_type` column to consultations table
+  - [x] Add `framework_detected` column
+  - [x] Add `tech_stack` JSON column
+  - [x] Create migration for new columns
+  - [x] Update AnalyticsIndexer to capture project context
 
-- [ ] Task 11: Update Stats Query for Project Insights
-  - [ ] Add project type distribution to StatsQuery
-  - [ ] Add framework usage breakdown
-  - [ ] Add brownfield vs greenfield consultation counts
+- [x] Task 11: Update Stats Query for Project Insights
+  - [x] Add project type distribution to StatsQuery
+  - [x] Add framework usage breakdown
+  - [x] Add brownfield vs greenfield consultation counts
 
-- [ ] Task 12: Unit and Integration Tests
-  - [ ] Test brownfield detection with various project structures
-  - [ ] Test framework detection accuracy
-  - [ ] Test tech stack analysis
-  - [ ] Test documentation discovery
-  - [ ] Test context augmentation
-  - [ ] Test CLI flag behavior
-  - [ ] Test logging and analytics capture
-  - [ ] Integration test: full consultation with brownfield context
+- [x] Task 12: Unit and Integration Tests
+  - [x] Test brownfield detection with various project structures
+  - [x] Test framework detection accuracy
+  - [x] Test tech stack analysis
+  - [x] Test documentation discovery
+  - [x] Test context augmentation
+  - [x] Test CLI flag behavior
+  - [x] Test logging and analytics capture
+  - [x] Integration test: full consultation with brownfield context
 
 ## Dev Notes
 
@@ -743,7 +743,64 @@ describe('BrownfieldDetector', () => {
 {{agent_model_name_version}}
 
 ### Debug Log References
+- `npm test -- --runTestsByPath src/consult/context/__tests__/BrownfieldDetector.test.ts --watchman=false`
+  (watchman error without `--watchman=false`)
+- `npm test -- --runTestsByPath src/consult/context/__tests__/FrameworkDetector.test.ts --watchman=false`
+- `npm test -- --runTestsByPath src/consult/context/__tests__/TechStackAnalyzer.test.ts --watchman=false`
+- `npm test -- --runTestsByPath src/consult/context/__tests__/DocumentationDiscovery.test.ts --watchman=false`
+- `npm test -- --runTestsByPath src/consult/context/__tests__/ContextAugmenter.test.ts --watchman=false`
+- `npm test -- --runTestsByPath src/orchestration/__tests__/ConsultOrchestrator.test.ts --watchman=false`
+  (timed out after tests completed due to Jest open handles warning)
+- `npm test -- --runTestsByPath src/commands/__tests__/consult.test.ts --watchman=false`
+- `npm test -- --runTestsByPath src/consult/artifacts/__tests__/ArtifactTransformer.test.ts --watchman=false`
+- `npm test -- --runTestsByPath src/consult/logging/__tests__/ConsultationFileLogger.test.ts --watchman=false`
+- `npm test -- --runTestsByPath src/consult/analytics/__tests__/ProjectContextAnalytics.test.ts --watchman=false`
 
 ### Completion Notes List
+- Implemented `BrownfieldDetector` with indicator checks and helper methods.
+- Added unit tests covering brownfield vs greenfield classification.
+- Implemented `FrameworkDetector` with Node and cross-language framework detection.
+- Added version detection and Next.js router pattern detection.
+- Added unit tests for framework detection cases.
+- Implemented `TechStackAnalyzer` and wired it into brownfield detection.
+- Added unit test coverage for tech stack detection signals.
+- Implemented `DocumentationDiscovery` and wired documentation results into brownfield analysis.
+- Added tests for documentation discovery across standard docs, docs/ content, and package metadata.
+- Implemented `ContextAugmenter` for brownfield/greenfield prompt handling.
+- Added tests for context augmentation output.
+- Integrated brownfield detection into `ConsultOrchestrator` and added project context metadata output.
+- Wired Round 1 prompts through strategy-based prompt generation with optional brownfield augmentation.
+- Added `--greenfield` CLI flag and routed project options into orchestrator.
+- Added project context metadata to consultation types and JSON serialization.
+- Added analytics migration and indexing for project context metadata plus stats dashboard reporting.
+- Added tests for logging, analytics, CLI flags, and brownfield orchestration flow.
 
 ### File List
+- src/consult/context/BrownfieldDetector.ts
+- src/consult/context/__tests__/BrownfieldDetector.test.ts
+- src/consult/context/FrameworkDetector.ts
+- src/consult/context/__tests__/FrameworkDetector.test.ts
+- src/init/ProjectScanner.ts
+- src/consult/context/TechStackAnalyzer.ts
+- src/consult/context/__tests__/TechStackAnalyzer.test.ts
+- src/consult/context/DocumentationDiscovery.ts
+- src/consult/context/__tests__/DocumentationDiscovery.test.ts
+- src/consult/context/ContextAugmenter.ts
+- src/consult/context/__tests__/ContextAugmenter.test.ts
+- src/orchestration/ConsultOrchestrator.ts
+- src/types/consult.ts
+- src/commands/consult.ts
+- src/consult/artifacts/ArtifactTransformer.ts
+- src/consult/artifacts/__tests__/ArtifactTransformer.test.ts
+- src/consult/logging/__tests__/ConsultationFileLogger.test.ts
+- src/consult/analytics/AnalyticsIndexer.ts
+- src/consult/analytics/StatsQuery.ts
+- src/consult/analytics/__tests__/ProjectContextAnalytics.test.ts
+- src/consult/analytics/schemas/migrations/003_project_context.sql
+- src/commands/consult-stats.ts
+- src/commands/__tests__/consult.test.ts
+- src/orchestration/__tests__/ConsultOrchestrator.test.ts
+
+### Change Log
+
+- 2026-01-02: Implemented brownfield context detection, orchestration integration, analytics updates, and tests.

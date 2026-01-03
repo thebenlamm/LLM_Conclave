@@ -156,12 +156,14 @@ export default class ProjectScanner {
 
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
 
+      if (deps['next']) return 'Next.js';
       if (deps['react']) return 'React';
       if (deps['vue']) return 'Vue';
       if (deps['@angular/core']) return 'Angular';
-      if (deps['next']) return 'Next.js';
+      if (deps['svelte']) return 'Svelte';
       if (deps['express']) return 'Express';
-      if (deps['nestjs']) return 'NestJS';
+      if (deps['fastify']) return 'Fastify';
+      if (deps['@nestjs/core'] || deps['nestjs']) return 'NestJS';
 
       return 'Node.js';
     } catch (error) {

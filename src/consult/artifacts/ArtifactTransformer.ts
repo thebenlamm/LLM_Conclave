@@ -287,6 +287,26 @@ export class ArtifactTransformer {
       question: result.question,
       context: result.context,
       mode: result.mode,
+      project_context: result.projectContext
+        ? {
+            project_type: result.projectContext.projectType,
+            framework_detected: result.projectContext.frameworkDetected,
+            framework_version: result.projectContext.frameworkVersion,
+            architecture_pattern: result.projectContext.architecturePattern,
+            tech_stack: {
+              state_management: result.projectContext.techStack.stateManagement,
+              styling: result.projectContext.techStack.styling,
+              testing: result.projectContext.techStack.testing,
+              api: result.projectContext.techStack.api,
+              database: result.projectContext.techStack.database,
+              orm: result.projectContext.techStack.orm,
+              cicd: result.projectContext.techStack.cicd
+            },
+            indicators_found: result.projectContext.indicatorsFound,
+            documentation_used: result.projectContext.documentationUsed,
+            bias_applied: result.projectContext.biasApplied
+          }
+        : undefined,
       agents: result.agents,
       agent_responses: result.agentResponses
         ? result.agentResponses.map(response => ({
@@ -321,6 +341,31 @@ export class ArtifactTransformer {
       concerns: result.concerns,
       dissent: result.dissent.map(d => this.dissentToJSON(d)),
       perspectives: result.perspectives,
+      debate_value_analysis: result.debateValueAnalysis
+        ? {
+            agents_changed_position: result.debateValueAnalysis.agentsChangedPosition,
+            total_agents: result.debateValueAnalysis.totalAgents,
+            change_rate: result.debateValueAnalysis.changeRate,
+            avg_confidence_increase: result.debateValueAnalysis.avgConfidenceIncrease,
+            key_influencers: result.debateValueAnalysis.keyInfluencers,
+            convergence_score: result.debateValueAnalysis.convergenceScore,
+            semantic_comparison_cost: result.debateValueAnalysis.semanticComparisonCost,
+            agent_analyses: result.debateValueAnalysis.agentAnalyses.map(analysis => ({
+              agent_id: analysis.agentId,
+              agent_name: analysis.agentName,
+              round1_position: analysis.round1Position,
+              round1_confidence: analysis.round1Confidence,
+              round4_position: analysis.round4Position,
+              round4_confidence: analysis.round4Confidence,
+              position_changed: analysis.positionChanged,
+              change_magnitude: analysis.changeMagnitude,
+              confidence_delta: analysis.confidenceDelta,
+              influenced_by: analysis.influencedBy,
+              semantic_reasoning: analysis.semanticReasoning
+            })),
+            key_insights: result.debateValueAnalysis.keyInsights
+          }
+        : undefined,
       cost: result.cost,
       duration_ms: result.durationMs,
       prompt_versions: {

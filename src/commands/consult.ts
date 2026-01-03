@@ -10,6 +10,7 @@ import { ArtifactTransformer } from '../consult/artifacts/ArtifactTransformer';
 import { ConsultationResult, OutputFormat } from '../types/consult';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory';
 import { StrategyFactory, ModeType } from '../consult/strategies';
+import { DebateValueFormatter } from '../consult/analysis/DebateValueFormatter';
 
 /**
  * Consult command - Fast multi-model consultation
@@ -28,6 +29,7 @@ export function createConsultCommand(): Command {
     .option('--confidence-threshold <threshold>', 'Confidence threshold for early termination (0.0-1.0)', parseFloat, 0.90)
     .option('-q, --quick', 'Single round consultation (faster)', false)
     .option('-v, --verbose', 'Show full agent conversation', false)
+    .option('--greenfield', 'Ignore brownfield detection and use greenfield mode', false)
     .action(async (questionArgs: string[], options: any) => {
       const question = questionArgs.join(' ');
       if (!question.trim()) {
@@ -56,6 +58,10 @@ export function createConsultCommand(): Command {
         // Load context
         const context = await loadContext(options);
 
+        if (options.greenfield) {
+          console.log(chalk.yellow('🔧 Ignoring existing patterns (--greenfield mode)'));
+        }
+
         // Get strategy for the selected mode
         const strategy = StrategyFactory.create(modeType);
 
@@ -69,7 +75,9 @@ export function createConsultCommand(): Command {
           maxRounds: options.quick ? 1 : 4,
           verbose: options.verbose,
           strategy,
-          confidenceThreshold: threshold
+          confidenceThreshold: threshold,
+          projectPath: options.project,
+          greenfield: options.greenfield
         });
 
         // Execute consultation
@@ -84,6 +92,11 @@ export function createConsultCommand(): Command {
         // Format and display output
         const output = FormatterFactory.format(result, options.format as OutputFormat);
         console.log('\n' + output + '\n');
+
+        if (result.debateValueAnalysis) {
+          const debateFormatter = new DebateValueFormatter();
+          console.log(debateFormatter.formatValueSummary(result.debateValueAnalysis) + '\n');
+        }
 
       } catch (error: any) {
         if (error?.message === 'Consultation cancelled by user') {

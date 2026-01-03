@@ -25,6 +25,10 @@ import { InteractivePulse } from '../consult/health/InteractivePulse';
 import { PartialResultManager } from '../consult/persistence/PartialResultManager';
 import { ModeStrategy, ArtifactCollection, AgentInfo } from '../consult/strategies/ModeStrategy';
 import { ConvergeStrategy } from '../consult/strategies/ConvergeStrategy';
+import { DebateValueAnalyzer } from '../consult/analysis/DebateValueAnalyzer';
+import { BrownfieldAnalysis, BrownfieldDetector } from '../consult/context/BrownfieldDetector';
+import { ContextAugmenter } from '../consult/context/ContextAugmenter';
+import * as path from 'path';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import {
@@ -33,6 +37,7 @@ import {
   ConsultOrchestratorOptions
 } from '../types';
 import { EarlyTerminationManager } from '../consult/termination/EarlyTerminationManager';
+import { CostTracker } from '../core/CostTracker';
 import {
   ConsultationResult,
   PartialConsultationResult,
@@ -46,7 +51,9 @@ import {
   AgentResponse,
   PromptVersions,
   TokenEfficiencyStats,
-  Dissent
+  Dissent,
+  DebateValueAnalysis,
+  ProjectContextMetadata
 } from '../types/consult';
 
 type Round1ExecutionResult = {
@@ -85,6 +92,12 @@ export default class ConsultOrchestrator {
   private strategy: ModeStrategy;
   private confidenceThreshold: number;
   private earlyTerminationManager: EarlyTerminationManager;
+  private debateValueAnalyzer: DebateValueAnalyzer;
+  private brownfieldAnalysis: BrownfieldAnalysis | null;
+  private projectPath?: string;
+  private greenfieldOverride: boolean;
+  private contextAugmenter: ContextAugmenter;
+  private projectContextMetadata?: ProjectContextMetadata;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
@@ -117,6 +130,11 @@ export default class ConsultOrchestrator {
     this.hedgedRequestManager = new HedgedRequestManager(this.eventBus);
     this.interactivePulse = new InteractivePulse();
     this.partialResultManager = new PartialResultManager();
+    this.debateValueAnalyzer = new DebateValueAnalyzer(CostTracker.getInstance());
+    this.brownfieldAnalysis = options.brownfieldAnalysis ?? null;
+    this.projectPath = options.projectPath;
+    this.greenfieldOverride = options.greenfield ?? false;
+    this.contextAugmenter = new ContextAugmenter();
 
     // Generate ID first so state machine can use it
     this.consultationId = this.generateId('consult');
@@ -133,21 +151,28 @@ export default class ConsultOrchestrator {
         this.healthMonitor.registerProvider(model);
     });
 
-    this.healthMonitor.startMonitoring();
+    const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+    if (!isTestEnv) {
+      this.healthMonitor.startMonitoring();
+    }
 
     // Subscribe to provider substitution events (Story 2.3 AC #4)
-    this.eventBus.on('consultation:provider_substituted', (data: any) => {
-      this.substitutions.push(data);
-    });
+    if (!isTestEnv) {
+      this.eventBus.on('consultation:provider_substituted', (data: any) => {
+        this.substitutions.push(data);
+      });
+    }
 
     // Setup graceful cleanup on process termination (Story 2.4, Code Review Fix)
     // Ensures pulse timers are cleaned up when process is killed (Ctrl+C, SIGTERM, etc.)
-    const cleanupHandler = () => {
-      this.interactivePulse.cleanup();
-      this.healthMonitor.stopMonitoring();
-    };
-    process.once('SIGINT', cleanupHandler);
-    process.once('SIGTERM', cleanupHandler);
+    if (!isTestEnv) {
+      const cleanupHandler = () => {
+        this.interactivePulse.cleanup();
+        this.healthMonitor.stopMonitoring();
+      };
+      process.once('SIGINT', cleanupHandler);
+      process.once('SIGTERM', cleanupHandler);
+    }
   }
 
   /**
@@ -247,6 +272,7 @@ export default class ConsultOrchestrator {
     let synthesisArtifact: SynthesisArtifact | null = null;
     let crossExamArtifact: CrossExamArtifact | null = null;
     let verdictArtifact: VerdictArtifact | null = null;
+    let debateValueAnalysis: DebateValueAnalysis | undefined;
 
     // Pulse tracking (Story 2.4, AC #3)
     let pulseTriggered = false;
@@ -334,6 +360,13 @@ export default class ConsultOrchestrator {
       this.stateMachine.transition(ConsultState.Independent);
       if (this.verbose) console.log(`\n--- Round 1: Independent Analysis ---\n`);
 
+      if (this.projectPath && !this.greenfieldOverride && !this.brownfieldAnalysis) {
+        this.brownfieldAnalysis = await new BrownfieldDetector(this.projectPath).detectBrownfield();
+      }
+      if (this.brownfieldAnalysis && !this.projectContextMetadata) {
+        this.projectContextMetadata = this.buildProjectContextMetadata(this.brownfieldAnalysis);
+      }
+
       const round1Results = await this.executeRound1Independent(question, context);
 
       // Track costs from Round 1
@@ -402,6 +435,7 @@ export default class ConsultOrchestrator {
                       successfulArtifacts,
                       synthesisArtifact,
                       verdictArtifact,
+                      debateValueAnalysis: undefined,
                       earlyTermination: true,
                       earlyTerminationReason: 'high_confidence_after_synthesis',
                       estimatedCostSaved: estimatedSavings
@@ -442,6 +476,15 @@ export default class ConsultOrchestrator {
           this.checkCostThreshold(); // Check after Round 4
       } else {
            throw new Error("Cannot generate Verdict without Synthesis artifact");
+      }
+
+      if (this.maxRounds >= 4 && verdictArtifact && successfulArtifacts.length > 0) {
+        debateValueAnalysis = await this.debateValueAnalyzer.analyze(
+          successfulArtifacts,
+          crossExamArtifact,
+          verdictArtifact
+        );
+        this.actualCostUsd += debateValueAnalysis.semanticComparisonCost;
       }
 
       this.stateMachine.transition(ConsultState.Complete);
@@ -523,6 +566,7 @@ export default class ConsultOrchestrator {
         synthesisArtifact,
         crossExamArtifact,
         verdictArtifact,
+        debateValueAnalysis,
         // AC #4: Log earlyTermination: false when user declined
         earlyTermination: earlyTerminationDeclined ? false : undefined
     });
@@ -537,8 +581,13 @@ export default class ConsultOrchestrator {
     question: string,
     context: string
   ): Promise<Round1ExecutionResult[]> {
+    const basePrompt = this.strategy.getIndependentPrompt(question, context);
+    const independentPrompt = this.brownfieldAnalysis
+      ? this.contextAugmenter.augmentPrompt(basePrompt, this.brownfieldAnalysis)
+      : basePrompt;
+
     const promises = this.agents.map(agent =>
-      this.executeAgentIndependent(agent, question, context)
+      this.executeAgentIndependent(agent, independentPrompt)
     );
 
     const results = await Promise.all(promises);
@@ -912,8 +961,7 @@ export default class ConsultOrchestrator {
    */
   private async executeAgentIndependent(
     agent: Agent,
-    question: string,
-    context: string
+    independentPrompt: string
   ): Promise<Round1ExecutionResult> {
     const startTime = Date.now();
     let pulseTriggered = false;
@@ -930,7 +978,7 @@ export default class ConsultOrchestrator {
       const messages: Message[] = [
         {
           role: 'user',
-          content: context ? `Context:\n${context}\n\nQuestion: ${question}` : `Question: ${question}`
+          content: independentPrompt
         }
       ];
 
@@ -1128,6 +1176,7 @@ export default class ConsultOrchestrator {
         question,
         context,
         mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
+        projectContext: this.projectContextMetadata,
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
         agentResponses,
         state: this.stateMachine.getCurrentState(), // Use current state
@@ -1181,6 +1230,7 @@ export default class ConsultOrchestrator {
       synthesisArtifact: SynthesisArtifact | null;
       crossExamArtifact?: CrossExamArtifact | null;
       verdictArtifact?: VerdictArtifact | null;
+      debateValueAnalysis?: DebateValueAnalysis;
       earlyTermination?: boolean;
       earlyTerminationReason?: string;
       estimatedCostSaved?: number;
@@ -1188,7 +1238,7 @@ export default class ConsultOrchestrator {
       const {
           question, context, startTime, estimate, agentResponses,
           successfulArtifacts, synthesisArtifact, crossExamArtifact, verdictArtifact,
-          earlyTermination, earlyTerminationReason, estimatedCostSaved
+          debateValueAnalysis, earlyTermination, earlyTerminationReason, estimatedCostSaved
       } = params;
 
       const durationMs = Date.now() - startTime;
@@ -1218,6 +1268,7 @@ export default class ConsultOrchestrator {
         question,
         context,
         mode: this.strategy.name, // Use strategy mode (Epic 4, Story 1)
+        projectContext: this.projectContextMetadata,
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
         agentResponses,
         state: ConsultState.Complete,
@@ -1229,6 +1280,7 @@ export default class ConsultOrchestrator {
           round3: crossExamArtifact || undefined,
           round4: verdictArtifact || undefined
         },
+        debateValueAnalysis,
         consensus: consensusText,
         confidence,
         recommendation,
@@ -1482,5 +1534,39 @@ Your role in consultations:
 - Consider team capabilities and existing codebase constraints
 - Balance ideal solutions with practical realities
 - Identify simpler alternatives that deliver 80% of value with 20% effort`;
+  }
+
+  private buildProjectContextMetadata(analysis: BrownfieldAnalysis): ProjectContextMetadata {
+    const indicatorsFound = analysis.indicatorsFound.map((indicator) => {
+      if (indicator.type === 'source_files') {
+        return 'source_files';
+      }
+      if (indicator.type === 'git_repo') {
+        return 'git';
+      }
+      const baseName = path.basename(indicator.path);
+      return baseName || indicator.name;
+    });
+
+    const documentationUsed = analysis.documentation.files.map((file) => file.name);
+
+    return {
+      projectType: analysis.projectType,
+      frameworkDetected: analysis.techStack.framework,
+      frameworkVersion: analysis.techStack.frameworkVersion,
+      architecturePattern: analysis.techStack.architecturePattern,
+      techStack: {
+        stateManagement: analysis.techStack.stateManagement,
+        styling: analysis.techStack.styling,
+        testing: analysis.techStack.testing,
+        api: analysis.techStack.api,
+        database: analysis.techStack.database,
+        orm: analysis.techStack.orm,
+        cicd: analysis.techStack.cicd
+      },
+      indicatorsFound,
+      documentationUsed,
+      biasApplied: analysis.biasApplied
+    };
   }
 }

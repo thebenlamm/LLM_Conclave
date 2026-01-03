@@ -7,6 +7,7 @@
  */
 
 import type { ModeStrategy } from '../consult/strategies/ModeStrategy';
+import type { BrownfieldAnalysis } from '../consult/context/BrownfieldDetector';
 
 // ============================================================================
 // State Machine Types
@@ -154,6 +155,36 @@ export interface VerdictArtifact {
 }
 
 // ============================================================================
+// Debate Value Analysis Types (TypeScript - camelCase)
+// ============================================================================
+
+export interface AgentPositionChange {
+  agentId: string;
+  agentName: string;
+  round1Position: string;
+  round1Confidence: number;
+  round4Position: string;
+  round4Confidence: number;
+  positionChanged: boolean;
+  changeMagnitude: 'same' | 'minor' | 'moderate' | 'significant';
+  confidenceDelta: number;
+  influencedBy: string[];
+  semanticReasoning: string;
+}
+
+export interface DebateValueAnalysis {
+  agentsChangedPosition: number;
+  totalAgents: number;
+  changeRate: number;
+  avgConfidenceIncrease: number;
+  keyInfluencers: string[];
+  convergenceScore: number;
+  semanticComparisonCost: number;
+  agentAnalyses: AgentPositionChange[];
+  keyInsights: string[];
+}
+
+// ============================================================================
 // Consultation Result (TypeScript - camelCase)
 // ============================================================================
 
@@ -163,6 +194,7 @@ export interface ConsultationResult {
   question: string;
   context: string;
   mode: 'explore' | 'converge';
+  projectContext?: ProjectContextMetadata;
 
   // Agents
   agents: {
@@ -184,6 +216,9 @@ export interface ConsultationResult {
     round3?: CrossExamArtifact;
     round4?: VerdictArtifact;
   };
+
+  // Debate Value Analysis (Epic 4, Story 3)
+  debateValueAnalysis?: DebateValueAnalysis;
 
   // Final Results
   consensus: string;
@@ -264,6 +299,25 @@ export interface PromptVersions {
   verdictPromptVersion: string;
 }
 
+export interface ProjectContextMetadata {
+  projectType: 'brownfield' | 'greenfield';
+  frameworkDetected: string | null;
+  frameworkVersion: string | null;
+  architecturePattern: string | null;
+  techStack: {
+    stateManagement: string | null;
+    styling: string | null;
+    testing: string[];
+    api: string | null;
+    database: string | null;
+    orm: string | null;
+    cicd: string | null;
+  };
+  indicatorsFound: string[];
+  documentationUsed: string[];
+  biasApplied: boolean;
+}
+
 // ============================================================================
 // Metrics Types (TypeScript - camelCase)
 // ============================================================================
@@ -314,6 +368,27 @@ export interface ConsultMetrics {
     highConfidence: number; // count >= 0.85
     lowConfidence: number; // count < 0.70
     withDissent: number;
+  };
+
+  // Debate Value Metrics
+  debateValue: {
+    avgPositionChanges: number;
+    avgChangeRate: number;
+    avgConfidenceIncrease: number;
+    avgConvergenceScore: number;
+    highValueDebates: number;
+    totalSemanticComparisonCost: number;
+    avgTotalAgents: number;
+  };
+
+  // Project Context Metrics
+  projectInsights: {
+    projectTypeCounts: {
+      brownfield: number;
+      greenfield: number;
+      unknown: number;
+    };
+    frameworkUsage: Record<string, number>;
   };
 }
 
@@ -435,4 +510,7 @@ export interface ConsultOrchestratorOptions {
   verbose?: boolean;
   strategy?: ModeStrategy;
   confidenceThreshold?: number;
+  projectPath?: string;
+  greenfield?: boolean;
+  brownfieldAnalysis?: BrownfieldAnalysis | null;
 }

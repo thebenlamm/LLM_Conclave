@@ -6,6 +6,7 @@ import { ArtifactTransformer } from '../../consult/artifacts/ArtifactTransformer
 import ConsultLogger from '../../utils/ConsultLogger';
 import { Command } from 'commander';
 import { ConsultationResult } from '../../types/consult';
+import * as os from 'os';
 
 // Mock dependencies
 jest.mock('../../orchestration/ConsultOrchestrator');
@@ -119,6 +120,30 @@ describe('consult command', () => {
 
     expect(mockConsultLoggerInstance.log).toHaveBeenCalledWith(expect.any(Object));
     
+    consoleSpy.mockRestore();
+  });
+
+  it('should pass project options and greenfield flag to orchestrator', async () => {
+    const cmd = createConsultCommand();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cmd.parseAsync([
+      'node',
+      'test',
+      'consult',
+      'test question',
+      '--project',
+      os.tmpdir(),
+      '--greenfield'
+    ]);
+
+    expect(ConsultOrchestrator).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectPath: os.tmpdir(),
+        greenfield: true
+      })
+    );
+
     consoleSpy.mockRestore();
   });
 });

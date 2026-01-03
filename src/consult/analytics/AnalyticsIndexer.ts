@@ -67,6 +67,14 @@ export class AnalyticsIndexer {
       {
         version: 1,
         sql: fs.readFileSync(path.join(migrationsPath, '001_initial_schema.sql'), 'utf8')
+      },
+      {
+        version: 2,
+        sql: fs.readFileSync(path.join(migrationsPath, '002_debate_value_metrics.sql'), 'utf8')
+      },
+      {
+        version: 3,
+        sql: fs.readFileSync(path.join(migrationsPath, '003_project_context.sql'), 'utf8')
       }
       // Future migrations go here:
       // { version: 2, sql: fs.readFileSync(path.join(migrationsPath, '002_...')) }
@@ -109,7 +117,16 @@ export class AnalyticsIndexer {
         created_at TEXT NOT NULL,
         schema_version TEXT,
         state TEXT NOT NULL,
-        has_dissent INTEGER DEFAULT 0
+        has_dissent INTEGER DEFAULT 0,
+        project_type TEXT,
+        framework_detected TEXT,
+        tech_stack TEXT,
+        agents_changed_position INTEGER,
+        total_agents INTEGER,
+        change_rate REAL,
+        avg_confidence_increase REAL,
+        convergence_score REAL,
+        semantic_comparison_cost REAL
       );
 
       CREATE TABLE IF NOT EXISTS consultation_agents (
@@ -134,6 +151,8 @@ export class AnalyticsIndexer {
       CREATE INDEX IF NOT EXISTS idx_consultations_cost ON consultations(total_cost);
       CREATE INDEX IF NOT EXISTS idx_consultations_mode ON consultations(mode);
       CREATE INDEX IF NOT EXISTS idx_consultations_state ON consultations(state);
+      CREATE INDEX IF NOT EXISTS idx_consultations_project_type ON consultations(project_type);
+      CREATE INDEX IF NOT EXISTS idx_consultations_framework ON consultations(framework_detected);
     `);
   }
 
@@ -170,8 +189,11 @@ export class AnalyticsIndexer {
     const insertConsultation = this.db.prepare(`
       INSERT OR REPLACE INTO consultations (
         id, question, mode, final_recommendation, confidence, 
-        total_cost, total_tokens, duration_ms, created_at, schema_version, state, has_dissent
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        total_cost, total_tokens, duration_ms, created_at, schema_version, state, has_dissent,
+        project_type, framework_detected, tech_stack,
+        agents_changed_position, total_agents, change_rate, avg_confidence_increase,
+        convergence_score, semantic_comparison_cost
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertAgent = this.db.prepare(`
@@ -203,7 +225,16 @@ export class AnalyticsIndexer {
         res.timestamp,
         '1.0',
         res.state || 'complete', // Default state for old logs
-        (res.dissent && res.dissent.length > 0) ? 1 : 0
+        (res.dissent && res.dissent.length > 0) ? 1 : 0,
+        res.projectContext?.projectType ?? null,
+        res.projectContext?.frameworkDetected ?? null,
+        res.projectContext?.techStack ? JSON.stringify(res.projectContext.techStack) : null,
+        res.debateValueAnalysis?.agentsChangedPosition ?? null,
+        res.debateValueAnalysis?.totalAgents ?? null,
+        res.debateValueAnalysis?.changeRate ?? null,
+        res.debateValueAnalysis?.avgConfidenceIncrease ?? null,
+        res.debateValueAnalysis?.convergenceScore ?? null,
+        res.debateValueAnalysis?.semanticComparisonCost ?? null
       );
 
       // 2. Clear and insert agents atomically (defensive check for old logs without agents array)
@@ -302,7 +333,27 @@ export class AnalyticsIndexer {
             agents: data.agents || [],
             responses: data.responses || {},
             dissent: data.dissent || [],
-            agentResponses: data.agent_responses || []
+            agentResponses: data.agent_responses || [],
+            projectContext: data.project_context
+              ? {
+                  projectType: data.project_context.project_type,
+                  frameworkDetected: data.project_context.framework_detected,
+                  frameworkVersion: data.project_context.framework_version,
+                  architecturePattern: data.project_context.architecture_pattern,
+                  techStack: {
+                    stateManagement: data.project_context.tech_stack?.state_management ?? null,
+                    styling: data.project_context.tech_stack?.styling ?? null,
+                    testing: data.project_context.tech_stack?.testing ?? [],
+                    api: data.project_context.tech_stack?.api ?? null,
+                    database: data.project_context.tech_stack?.database ?? null,
+                    orm: data.project_context.tech_stack?.orm ?? null,
+                    cicd: data.project_context.tech_stack?.cicd ?? null
+                  },
+                  indicatorsFound: data.project_context.indicators_found ?? [],
+                  documentationUsed: data.project_context.documentation_used ?? [],
+                  biasApplied: data.project_context.bias_applied ?? false
+                }
+              : undefined
           };
 
           this.indexConsultation(result as ConsultationResult);
