@@ -11,6 +11,8 @@ export { ContextSource, LoadedContext };
 
 export class ContextLoader {
   private readonly tokenThreshold = 10000;
+  private readonly maxFileBytes = 2 * 1024 * 1024;
+  private readonly baseDir = process.cwd();
 
   async loadFileContext(filePaths: string[]): Promise<LoadedContext> {
     // Validate input - filter empty strings and check for valid paths
@@ -23,8 +25,20 @@ export class ContextLoader {
     const errors: string[] = [];
 
     for (const filePath of validPaths) {
+      if (filePath.includes('\0')) {
+        errors.push(`Invalid path (null byte detected): ${filePath}`);
+        continue;
+      }
+
       // Use raw path for checking, but resolve for storing
       const absolutePath = path.resolve(filePath);
+      if (!path.isAbsolute(filePath)) {
+        const normalizedBase = path.resolve(this.baseDir) + path.sep;
+        if (!absolutePath.startsWith(normalizedBase)) {
+          errors.push(`Context file path escapes working directory: ${filePath}`);
+          continue;
+        }
+      }
 
       // Validate file exists
       try {
@@ -34,12 +48,20 @@ export class ContextLoader {
         continue;
       }
 
-      // Check if it's a file
+      // Check if it's a file and not a symlink
       try {
-        const stats = await fsPromises.stat(absolutePath);
+        const stats = await fsPromises.lstat(absolutePath);
+        if (stats.isSymbolicLink()) {
+          errors.push(`Symlinks are not allowed for context files: ${filePath}`);
+          continue;
+        }
         if (!stats.isFile()) {
            errors.push(`Path is not a file: ${filePath}`);
            continue;
+        }
+        if (stats.size > this.maxFileBytes) {
+          errors.push(`Context file too large (${Math.round(stats.size / 1024)}KB): ${filePath}`);
+          continue;
         }
       } catch {
          // Should have been caught by access, but just in case
