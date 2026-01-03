@@ -103,10 +103,12 @@ export default class ConsultOrchestrator {
   private projectContextMetadata?: ProjectContextMetadata;
   private loadedContext?: LoadedContext;
   private scrubbingReport?: ScrubReport;
+  private interactive: boolean;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
     this.verbose = options.verbose || false;
+    this.interactive = options.interactive ?? true;
     // Use provided strategy or default to ConvergeStrategy (matches MVP behavior)
     this.strategy = options.strategy || new ConvergeStrategy();
     this.confidenceThreshold = options.confidenceThreshold ?? 0.90;
@@ -123,6 +125,12 @@ export default class ConsultOrchestrator {
             console.error('[MCP] Auto-accepting early termination');
             return true;
         }
+        // Auto-accept early termination if non-interactive
+        if (!this.interactive) {
+            console.log(chalk.yellow('[Non-Interactive] Auto-accepting early termination'));
+            return true;
+        }
+
         const { confirm } = await inquirer.prompt([{
             type: 'confirm',
             name: 'confirm',
@@ -278,7 +286,11 @@ export default class ConsultOrchestrator {
    * @param options - Optional execution overrides
    * @returns Consultation result with consensus, confidence, and costs
    */
-  async consult(question: string, context: string = '', options: { scrubbingReport?: ScrubReport } = {}): Promise<ConsultationResult> {
+  async consult(
+    question: string, 
+    context: string = '', 
+    options: { scrubbingReport?: ScrubReport; allowCostOverruns?: boolean } = {}
+  ): Promise<ConsultationResult> {
     const startTime = Date.now();
     let estimate: CostEstimate | null = null;
     let agentResponses: AgentResponse[] = [];
@@ -345,12 +357,21 @@ export default class ConsultOrchestrator {
       const config = ConfigCascade.resolve({}, process.env);
 
       // Check if user consent is needed
-      if (this.costGate.shouldPromptUser(estimate, config)) {
+      if (options.allowCostOverruns) {
+        // Forced approval via --yes
+        console.log(chalk.green(`💰 Estimated cost: $${estimate.estimatedCostUsd.toFixed(4)} (approved via --yes)`));
+        this.eventBus.emitEvent('consultation:user_consent' as any, {
+          consultation_id: this.consultationId,
+          approved: true,
+          auto_approved: true
+        });
+      } else if (this.costGate.shouldPromptUser(estimate, config)) {
         // Cost exceeds threshold - prompt user
         const consent = await this.costGate.getUserConsent(
           estimate,
           (this.agents || []).length,
-          this.maxRounds
+          this.maxRounds,
+          !this.interactive // Pass nonInteractive flag
         );
 
         if (consent === 'denied') {

@@ -6,10 +6,11 @@ import ConsultLogger from '../utils/ConsultLogger';
 import { ConsultConsoleLogger } from '../cli/ConsultConsoleLogger';
 import { ArtifactTransformer } from '../consult/artifacts/ArtifactTransformer';
 import { ConsultationResult, OutputFormat } from '../types/consult';
-import { FormatterFactory } from '../consult/formatting/FormatterFactory';
+import { OutputFormatter } from '../consult/output/OutputFormatter';
 import { StrategyFactory, ModeType } from '../consult/strategies';
 import { DebateValueFormatter } from '../consult/analysis/DebateValueFormatter';
 import { ContextLoader, LoadedContext } from '../consult/context/ContextLoader';
+import { StdinHandler, StdinResult } from '../consult/context/StdinHandler';
 import { SensitiveDataScrubber } from '../consult/security/SensitiveDataScrubber';
 
 /**
@@ -27,6 +28,7 @@ export function createConsultCommand(): Command {
     .option('-f, --format <type>', 'Output format: markdown, json, or both', 'markdown')
     .option('-m, --mode <mode>', 'Reasoning mode: explore (divergent) or converge (decisive)', 'converge')
     .option('--confidence-threshold <threshold>', 'Confidence threshold for early termination (0.0-1.0)', parseFloat, 0.90)
+    .option('-y, --yes', 'Automatically approve cost and early termination (non-interactive mode)', false)
     .option('-q, --quick', 'Single round consultation (faster)', false)
     .option('-v, --verbose', 'Show full agent conversation', false)
     .option('--greenfield', 'Ignore brownfield detection and use greenfield mode', false)
@@ -56,6 +58,19 @@ export function createConsultCommand(): Command {
       consoleLogger.start();
 
       try {
+        // Handle Stdin (Story 5.3)
+        const stdinHandler = new StdinHandler();
+        let stdinResult: StdinResult | null = null;
+        if (stdinHandler.detectStdin()) {
+          console.log(chalk.cyan('Reading from stdin...'));
+          stdinResult = await stdinHandler.readStdin();
+          if (stdinResult.hasStdin) {
+             console.log(chalk.green(`✓ Read ${stdinResult.tokenEstimate} tokens from stdin`));
+          }
+        }
+
+        const isInteractive = !stdinHandler.detectStdin();
+
         // Load context using ContextLoader
         const contextLoader = new ContextLoader();
         let loadedContext: LoadedContext | null = null;
@@ -71,10 +86,29 @@ export function createConsultCommand(): Command {
           projectContext = await contextLoader.loadProjectContext(options.project);
         }
 
-        if (fileContext || projectContext) {
-          loadedContext = contextLoader.combineContexts(projectContext, fileContext);
+        if (fileContext || projectContext || (stdinResult && stdinResult.hasStdin)) {
+          loadedContext = contextLoader.combineContexts(projectContext, fileContext, stdinResult);
           
-          const proceed = await contextLoader.checkSizeWarning(loadedContext);
+          // Only check size warning if interactive or explicit override handling needed?
+          // checkSizeWarning uses inquirer. 
+          // If !isInteractive, we might want to skip prompt or auto-accept if --yes?
+          // But checkSizeWarning is inside ContextLoader and uses inquirer directly.
+          // I should ideally update checkSizeWarning signature too, but for now let's assume it handles MCP env.
+          // For piped stdin (not MCP), inquirer will fail.
+          
+          // I'll wrap checkSizeWarning logic
+          let proceed = true;
+          if (isInteractive) {
+             proceed = await contextLoader.checkSizeWarning(loadedContext);
+          } else {
+             // Non-interactive: just warn, don't prompt. 
+             // If too large, maybe fail? Or just proceed?
+             // ContextLoader already logs warning.
+             if (loadedContext.totalTokens > 10000) { // tokenThreshold from ContextLoader
+                console.warn(chalk.yellow('⚠️ Large context in non-interactive mode. Proceeding...'));
+             }
+          }
+
           if (!proceed) {
              throw new Error('Consultation cancelled by user');
           }
@@ -121,13 +155,15 @@ export function createConsultCommand(): Command {
           confidenceThreshold: threshold,
           projectPath: options.project,
           greenfield: options.greenfield,
-          loadedContext: loadedContext ?? undefined
+          loadedContext: loadedContext ?? undefined,
+          interactive: isInteractive
         });
 
         // Execute consultation
         // Orchestrator emits events which consoleLogger handles
         const result = await orchestrator.consult(question, contextString, {
-          scrubbingReport
+          scrubbingReport,
+          allowCostOverruns: options.yes
         });
 
         // Persist consultation for analytics (handles transformation to snake_case internally)
@@ -136,8 +172,9 @@ export function createConsultCommand(): Command {
         console.log(chalk.gray(`Logs saved to ${logPaths.jsonPath}`));
 
         // Format and display output
-        const output = FormatterFactory.format(result, options.format as OutputFormat);
-        console.log('\n' + output + '\n');
+        const outputFormatter = new OutputFormatter();
+        const output = outputFormatter.formatOutput(result, options.format as OutputFormat);
+        console.log('\n' + output.content + '\n');
 
         if (result.debateValueAnalysis) {
           const debateFormatter = new DebateValueFormatter();

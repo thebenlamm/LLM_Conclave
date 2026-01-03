@@ -1,6 +1,6 @@
 import { createConsultCommand } from '../consult';
 import ConsultOrchestrator from '../../orchestration/ConsultOrchestrator';
-import { FormatterFactory } from '../../consult/formatting/FormatterFactory';
+import { OutputFormatter } from '../../consult/output/OutputFormatter';
 import ConsultLogger from '../../utils/ConsultLogger';
 
 // Mock dependencies
@@ -10,10 +10,11 @@ jest.mock('../../utils/ConsultLogger');
 jest.mock('../../utils/ProjectContext');
 jest.mock('../../cli/ConsultConsoleLogger');
 jest.mock('../../consult/artifacts/ArtifactTransformer');
-jest.mock('../../consult/formatting/FormatterFactory');
+jest.mock('../../consult/output/OutputFormatter');
 
 describe('consult command formatting integration', () => {
   let mockOrchestratorInstance: any;
+  let mockFormatOutput: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -46,34 +47,37 @@ describe('consult command formatting integration', () => {
     };
     (ConsultLogger as jest.Mock).mockImplementation(() => mockConsultLoggerInstance);
 
-    // Setup Mock FormatterFactory
-    (FormatterFactory.format as jest.Mock).mockReturnValue('Mock Formatted Output');
+    // Setup Mock OutputFormatter
+    mockFormatOutput = jest.fn().mockReturnValue({ content: 'Mock Formatted Output', format: 'markdown' });
+    (OutputFormatter as jest.Mock).mockImplementation(() => ({
+        formatOutput: mockFormatOutput
+    }));
   });
 
-  it('should call FormatterFactory with default markdown format', async () => {
+  it('should call OutputFormatter with default markdown format', async () => {
     const cmd = createConsultCommand();
     jest.spyOn(console, 'log').mockImplementation(() => {});
 
     await cmd.parseAsync(['node', 'test', 'consult', 'test question']);
 
-    expect(FormatterFactory.format).toHaveBeenCalledWith(expect.any(Object), 'markdown');
+    expect(mockFormatOutput).toHaveBeenCalledWith(expect.any(Object), 'markdown');
   });
 
-  it('should call FormatterFactory with specified json format', async () => {
+  it('should call OutputFormatter with specified json format', async () => {
     const cmd = createConsultCommand();
     jest.spyOn(console, 'log').mockImplementation(() => {});
 
     await cmd.parseAsync(['node', 'test', 'consult', '--format', 'json', 'test question']);
 
-    expect(FormatterFactory.format).toHaveBeenCalledWith(expect.any(Object), 'json');
+    expect(mockFormatOutput).toHaveBeenCalledWith(expect.any(Object), 'json');
   });
 
-  it('should call FormatterFactory with specified "both" format', async () => {
+  it('should call OutputFormatter with specified "both" format', async () => {
     const cmd = createConsultCommand();
     jest.spyOn(console, 'log').mockImplementation(() => {});
 
     await cmd.parseAsync(['node', 'test', 'consult', '--format', 'both', 'test question']);
 
-    expect(FormatterFactory.format).toHaveBeenCalledWith(expect.any(Object), 'both');
+    expect(mockFormatOutput).toHaveBeenCalledWith(expect.any(Object), 'both');
   });
 });

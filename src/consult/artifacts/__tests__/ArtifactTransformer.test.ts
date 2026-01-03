@@ -202,6 +202,55 @@ describe('ArtifactTransformer', () => {
         bias_applied: true
       });
     });
+
+    it('should include new fields (stdin, output_format) in snake_case output', () => {
+      const promptVersions: PromptVersions = {
+        mode: 'converge',
+        independentPromptVersion: 'v1',
+        synthesisPromptVersion: 'v1',
+        crossExamPromptVersion: 'v1',
+        verdictPromptVersion: 'v1'
+      };
+
+      const result: ConsultationResult = {
+        consultationId: 'consult-123',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        question: 'Test question',
+        context: 'Context',
+        mode: 'converge',
+        contextMetadata: {
+          files: [],
+          projectPath: null,
+          totalTokensEstimated: 100,
+          fileCount: 0,
+          projectSummaryIncluded: false,
+          stdinUsed: true,
+          stdinTokensEstimated: 50
+        },
+        outputFormat: 'json',
+        agents: [],
+        state: ConsultState.Complete,
+        rounds: 1,
+        completedRounds: 1,
+        responses: {},
+        consensus: 'Consensus',
+        confidence: 0.9,
+        recommendation: 'Recommendation',
+        reasoning: {},
+        concerns: [],
+        dissent: [],
+        perspectives: [],
+        cost: { tokens: { input: 0, output: 0, total: 0 }, usd: 0 },
+        durationMs: 1000,
+        promptVersions
+      };
+
+      const json = ArtifactTransformer.consultationResultToJSON(result);
+
+      expect(json.context_sources.stdin).toBe(true);
+      expect(json.context_sources.stdin_tokens_estimated).toBe(50);
+      expect(json.output_format).toBe('json');
+    });
   });
 
   describe('CrossExamArtifact Transformation', () => {

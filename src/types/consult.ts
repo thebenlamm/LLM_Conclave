@@ -159,7 +159,7 @@ export interface VerdictArtifact {
 // ============================================================================
 
 export interface ContextSource {
-  type: 'file' | 'project';
+  type: 'file' | 'project' | 'stdin';
   path: string;
   content: string;
   tokenEstimate: number;
@@ -170,6 +170,8 @@ export interface ContextSource {
     // For projects
     framework?: string;
     techStack?: any;
+    // For stdin
+    hasStdin?: boolean;
   };
 }
 
@@ -187,6 +189,8 @@ export interface ContextMetadata {
   totalTokensEstimated: number;
   fileCount: number;
   projectSummaryIncluded: boolean;
+  stdinUsed?: boolean;
+  stdinTokensEstimated?: number;
 }
 
 // ============================================================================
@@ -243,6 +247,7 @@ export interface ConsultationResult {
   projectContext?: ProjectContextMetadata;
   contextMetadata?: ContextMetadata;
   scrubbingReport?: ScrubReport;
+  outputFormat?: 'markdown' | 'json' | 'both';
 
   // Agents
   agents: {
@@ -563,5 +568,6 @@ export interface ConsultOrchestratorOptions {
   brownfieldAnalysis?: BrownfieldAnalysis | null;
   loadedContext?: LoadedContext;
   scrubbingReport?: ScrubReport;
+  interactive?: boolean;
 }
 
