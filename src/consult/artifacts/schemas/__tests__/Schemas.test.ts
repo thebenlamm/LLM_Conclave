@@ -113,8 +113,8 @@ describe('SynthesisSchema (Round 2)', () => {
     expect(() => SynthesisSchema.validate(invalid)).toThrow('roundNumber must be 2 for Synthesis artifacts');
   });
 
-  it('should throw error for tension with less than 2 viewpoints', () => {
-    const invalid = {
+  it('should filter out tension with less than 2 viewpoints (lenient validation)', () => {
+    const artifactWithInvalidTension = {
       ...validArtifact,
       tensions: [
         {
@@ -123,7 +123,10 @@ describe('SynthesisSchema (Round 2)', () => {
         }
       ]
     };
-    expect(() => SynthesisSchema.validate(invalid)).toThrow('Tension must have at least 2 viewpoints');
+    // Lenient validation: invalid tensions are filtered out, not rejected
+    expect(() => SynthesisSchema.validate(artifactWithInvalidTension)).not.toThrow();
+    // The invalid tension should be filtered out
+    expect(artifactWithInvalidTension.tensions).toHaveLength(0);
   });
 
   it('should throw error for invalid consensus point confidence', () => {
