@@ -59,12 +59,20 @@ export class HedgedRequestManager {
       }));
 
     // Create Timeout Promise
-    const timeoutPromise = new Promise<'timeout'>((resolve) => 
-      setTimeout(() => resolve('timeout'), HedgedRequestManager.HEDGED_TIMEOUT_MS)
-    );
+    let timeoutId: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<'timeout'>((resolve) => {
+      timeoutId = setTimeout(() => resolve('timeout'), HedgedRequestManager.HEDGED_TIMEOUT_MS);
+    });
 
     // Race Primary against Timeout
-    const firstRace = await Promise.race([primaryPromise, timeoutPromise]);
+    let firstRace: any;
+    try {
+      firstRace = await Promise.race([primaryPromise, timeoutPromise]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
 
     if (firstRace !== 'timeout') {
       // Primary won (fast)
@@ -106,10 +114,17 @@ export class HedgedRequestManager {
 
     // Race Primary (still running) vs Backup
     // Use Promise.allSettled to handle rejections gracefully
-    const raceResult = await Promise.race([
-      primaryPromise.then((result: any) => ({ ...result, rejected: false })).catch((err: any) => ({ source: 'primary', rejected: true, error: err })),
-      backupPromise.then((result: any) => ({ ...result, rejected: false })).catch((err: any) => ({ source: 'backup', rejected: true, error: err }))
-    ]);
+    let raceResult: any;
+    try {
+      raceResult = await Promise.race([
+        primaryPromise.then((result: any) => ({ ...result, rejected: false })).catch((err: any) => ({ source: 'primary', rejected: true, error: err })),
+        backupPromise.then((result: any) => ({ ...result, rejected: false })).catch((err: any) => ({ source: 'backup', rejected: true, error: err }))
+      ]);
+    } catch (err) {
+      controllerPrimary.abort();
+      controllerBackup.abort();
+      throw err;
+    }
 
     // If the winner was rejected, try to wait for the other
     if (raceResult.rejected) {
@@ -126,6 +141,8 @@ export class HedgedRequestManager {
           return this.formatResponse(agent, primaryResult.response, primaryResult.provider, primaryResult.model, startTime);
         }
       } catch (err) {
+        controllerPrimary.abort();
+        controllerBackup.abort();
         // Both failed - throw to trigger user substitution prompt
         throw err;
       }
