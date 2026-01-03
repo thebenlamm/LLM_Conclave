@@ -4,6 +4,191 @@ This document tracks development work done with Claude Code on the LLM Conclave 
 
 ---
 
+## Session: January 2026 - Consult Mode (BMAD 5 Epics Complete)
+
+### Overview
+
+**Goal:** Implement a fast, structured 4-round multi-model consultation system for quick decision-making.
+
+**Approach:** Used BMAD methodology with 5 epics, 24 stories, validated architecture via Conclave.
+
+**Result:** Complete `llm-conclave consult` command with cost controls, analytics, reasoning modes, and flexible I/O.
+
+### What Was Built
+
+#### Epic 1: 4-Round Multi-Model Consultation Engine (8 stories)
+
+**Core consultation pipeline:**
+- State machine orchestration (`ConsultStateMachine.ts`)
+- Fixed expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini)
+- 4-round structured debate:
+  - Round 1: Independent parallel analysis
+  - Round 2: Synthesis with consensus building
+  - Round 3: Cross-examination with challenge/rebuttal
+  - Round 4: Final verdict with recommendation
+- Dual output: Markdown (human) + JSON-LD (machine)
+- Complete logging with prompt versioning
+
+**CLI Command:**
+```bash
+llm-conclave consult "What's the best approach for rate limiting?"
+llm-conclave consult --quick "Quick question"  # Single round
+llm-conclave consult --mode explore "Brainstorm ideas"  # Divergent mode
+```
+
+#### Epic 2: Cost Controls & Resilience (6 stories)
+
+**Features:**
+- Pre-flight cost estimation with user consent
+- Auto-approval threshold (default: $0.50)
+- Provider health monitoring with hedged requests
+- 60-second interactive pulse (soft timeouts instead of hard kills)
+- Session persistence with partial results on interruption
+- Token-efficient debate with artifact filtering in later rounds
+
+**Example:**
+```
+💰 Estimated Cost: $0.24
+   (Input: 57, Expected Output: 24000)
+✅ Approved. Starting execution...
+```
+
+#### Epic 3: Usage Analytics & Cost Visibility (3 stories)
+
+**Features:**
+- SQLite analytics indexer with write-through pattern
+- `llm-conclave consult-stats` dashboard command
+- Metrics: total consultations, p50/p95/p99 response times, costs by provider
+- Success criteria validation against targets
+
+**Example output:**
+```
+📊 LLM Conclave Consultation Statistics
+• Total Consultations: 147
+• Avg per Day: 6.7
+• Median Response Time: 12.3s (p50)
+• Total Cost: $18.42
+• Avg Confidence: 84%
+```
+
+#### Epic 4: Advanced Reasoning Modes (4 stories)
+
+**Features:**
+- **Explore mode** (`--mode explore`): Divergent "Yes, And..." brainstorming
+- **Converge mode** (`--mode converge`): Adversarial truth-seeking (default)
+- Confidence-based early termination (skip rounds when consensus strong)
+- Debate value tracking with agent position analysis
+- Brownfield project detection (biases toward existing patterns)
+
+**Example:**
+```bash
+llm-conclave consult --mode explore "What are creative solutions for..."
+llm-conclave consult --confidence-threshold 0.85 "Should we use Redis?"
+```
+
+#### Epic 5: Flexible Context & Output Options (3 stories)
+
+**Features:**
+- Multi-source context loading: `--context file1.ts,file2.md`
+- Project context: `--project ./myproject`
+- Stdin piping: `cat doc.md | llm-conclave consult "summarize"`
+- Output format selection: `--format markdown|json|both`
+- Sensitive data scrubbing (API keys, passwords auto-masked)
+
+**Example:**
+```bash
+llm-conclave consult -c src/auth.ts,src/db.ts "Review security"
+cat requirements.md | llm-conclave consult "Estimate complexity"
+```
+
+### Architecture Created
+
+```
+src/
+├── orchestration/
+│   └── ConsultOrchestrator.ts      # Main consultation logic
+├── consult/
+│   ├── artifacts/
+│   │   ├── schemas/                # Zod schemas for each round
+│   │   ├── ArtifactTransformer.ts
+│   │   └── ArtifactValidator.ts
+│   ├── strategies/
+│   │   ├── ModeStrategy.ts         # Strategy pattern interface
+│   │   ├── ExploreStrategy.ts      # Divergent prompts
+│   │   └── ConvergeStrategy.ts     # Adversarial prompts
+│   ├── health/
+│   │   ├── ProviderHealthMonitor.ts
+│   │   └── HedgedRequestManager.ts
+│   ├── cost/
+│   │   ├── CostEstimator.ts
+│   │   └── CostGate.ts
+│   ├── analytics/
+│   │   ├── AnalyticsIndexer.ts     # SQLite write-through
+│   │   └── StatsQuery.ts
+│   ├── context/
+│   │   ├── ContextLoader.ts
+│   │   └── SensitiveDataFilter.ts
+│   └── termination/
+│       └── EarlyTerminationManager.ts
+├── commands/
+│   ├── consult.ts                  # CLI entry point
+│   └── consult-stats.ts            # Analytics dashboard
+```
+
+### Key Metrics
+
+- **Total Stories:** 24
+- **Tests:** 360 passing
+- **Build:** Clean TypeScript compilation
+- **End-to-End Test:** ✅ Working
+  - 3 agents completed in ~17s
+  - Early termination at 93% confidence
+  - Cost: $0.007 per consultation
+
+### Bug Fixed During Review
+
+**Issue:** Consult command failing with API format errors
+- Claude: "system: Input should be a valid list"
+- OpenAI: "expected one of a string or array of objects"
+
+**Root cause:** `HedgedRequestManager` was passing `{ signal }` as second parameter to `provider.chat()`, but the method expected `systemPrompt: string`.
+
+**Fix:** Added proper `systemPrompt` parameter threading through HedgedRequestManager (commit `45bb292`).
+
+### Files Created/Modified
+
+**New Files:**
+- `src/orchestration/ConsultOrchestrator.ts` (~1200 lines)
+- `src/consult/**/*.ts` (~30 files)
+- `src/commands/consult.ts`
+- `src/commands/consult-stats.ts`
+
+**BMAD Artifacts:**
+- `_bmad-output/planning-artifacts/prd.md` (19K)
+- `_bmad-output/planning-artifacts/architecture.md` (48K)
+- `_bmad-output/planning-artifacts/epics.md` (71K)
+- `_bmad-output/implementation-artifacts/*.md` (24 story files)
+
+### Git Commits (Recent)
+
+```
+45bb292 fix: Correct system prompt handling in HedgedRequestManager
+9677ed5 fix: Update SynthesisSchema test to match lenient validation behavior
+07ad118 Fix consult output formatting and metadata logging
+395d944 feat: Implement stdin piping and output format selection
+ddfb277 improve: Bump discuss default to 4 rounds, clarify tool descriptions
+```
+
+### Lessons Learned
+
+1. **BMAD methodology works well**: 5 epics, 24 stories provided clear implementation path
+2. **Architecture validation via Conclave**: 90%+ confidence on all 7 major decisions
+3. **Soft timeouts > hard kills**: 60-second interactive pulse gives users control
+4. **Early termination saves money**: Skip rounds when confidence is high
+5. **System prompt handling is provider-specific**: Each LLM API has different expectations
+
+---
+
 ## Session: December 27, 2025 - CLI v2 Major Redesign
 
 ### Overview

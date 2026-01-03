@@ -6,7 +6,8 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
 
 - **Multi-Agent Collaboration**: Configure multiple LLM agents with different models and personas
 - **5 LLM Providers**: OpenAI GPT, Anthropic Claude, xAI Grok, Google Gemini, and Mistral AI
-- **Three Operational Modes**:
+- **Four Operational Modes**:
+  - **Consult Mode**: Fast 4-round structured debate for quick decisions with cost controls
   - **Consensus Mode**: Democratic discussion with judge-coordinated consensus
   - **Orchestrated Mode**: Structured workflow with primary/secondary agents and validation
   - **Iterative Collaborative Mode**: Multi-turn chunk-based discussions where agents respond to each other
@@ -101,6 +102,9 @@ llm-conclave -p ./src "Review this codebase"
 #### Explicit Modes
 
 ```bash
+# Fast multi-model consultation (NEW!)
+llm-conclave consult "What's the best approach for rate limiting?"
+
 # Democratic discussion (consensus mode)
 llm-conclave discuss "Design a payment system"
 
@@ -109,6 +113,48 @@ llm-conclave review -p ./src/auth "Audit security"
 
 # Chunk-based iteration (iterative mode)
 llm-conclave iterate --deep "Fix bugs line by line"
+```
+
+#### Consult Mode (Fast Decision-Making)
+
+**NEW!** Get quick, structured multi-model consultations with cost controls:
+
+```bash
+# Basic consultation
+llm-conclave consult "Should we use Redis or Memcached for caching?"
+
+# Quick mode (single round, faster)
+llm-conclave consult --quick "What's the time complexity of this algorithm?"
+
+# With file context
+llm-conclave consult -c src/auth.ts,src/db.ts "Review security of these files"
+
+# With project context
+llm-conclave consult -p ./src "What's the best way to refactor this?"
+
+# Explore mode (divergent brainstorming)
+llm-conclave consult --mode explore "Creative solutions for user onboarding"
+
+# Pipe content via stdin
+cat requirements.md | llm-conclave consult "Estimate implementation complexity"
+
+# Non-interactive (auto-approve costs)
+llm-conclave consult --yes "Quick question for CI/CD pipeline"
+```
+
+**Features:**
+- **4-Round Structured Debate**: Independent analysis → Synthesis → Cross-examination → Verdict
+- **Fixed Expert Panel**: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini)
+- **Cost Controls**: Pre-flight estimates, user consent, auto-approval threshold
+- **Early Termination**: Skip rounds when confidence is high (saves money)
+- **Brownfield Detection**: Auto-detects existing projects and biases toward consistency
+- **Sensitive Data Scrubbing**: API keys and passwords automatically masked
+
+**Analytics Dashboard:**
+```bash
+llm-conclave consult-stats              # View usage metrics
+llm-conclave consult-stats --week       # Last 7 days
+llm-conclave consult-stats --format json # JSON output
 ```
 
 #### Templates
@@ -177,6 +223,20 @@ llm-conclave --list-templates       # Use: llm-conclave templates
 See **[MIGRATION_GUIDE_V2.md](./MIGRATION_GUIDE_V2.md)** for full migration details.
 
 ### Operational Modes
+
+**Consult Mode (`consult`):**
+- Fast 4-round structured debate for quick decision-making
+- Fixed expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini)
+- Rounds: Independent Analysis → Synthesis → Cross-Examination → Verdict
+- Pre-flight cost estimation with user consent
+- Early termination when confidence is high (saves money)
+- Best for: Architecture decisions, technology choices, quick expert opinions
+
+Example:
+```bash
+llm-conclave consult "Should we use GraphQL or REST for our API?"
+llm-conclave consult --mode explore "Ideas for improving user engagement"
+```
 
 **Consensus Mode (default):**
 - Democratic discussion where all agents contribute equally
