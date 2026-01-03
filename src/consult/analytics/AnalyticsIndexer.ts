@@ -32,6 +32,13 @@ export class AnalyticsIndexer {
       this.runMigrations();
       this.createTables();
     } catch (error: any) {
+      if (this.db) {
+        try {
+          this.db.close();
+        } catch {
+          // ignore close errors during init failure
+        }
+      }
       console.error(`Failed to initialize analytics database: ${error.message}`);
       this.db = null;
     }
@@ -84,11 +91,14 @@ export class AnalyticsIndexer {
     for (const migration of migrations) {
       if (migration.version > version) {
         try {
-          this.db.exec(migration.sql);
-          this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
-            migration.version,
-            new Date().toISOString()
-          );
+          const applyMigration = this.db.transaction(() => {
+            this.db!.exec(migration.sql);
+            this.db!.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
+              migration.version,
+              new Date().toISOString()
+            );
+          });
+          applyMigration();
           console.log(`✅ Applied migration ${migration.version}`);
         } catch (error: any) {
           console.error(`❌ Failed to apply migration ${migration.version}: ${error.message}`);
@@ -289,7 +299,7 @@ export class AnalyticsIndexer {
 
       if (!fs.existsSync(logDir)) return;
 
-      const files = fs.readdirSync(logDir).filter(f => f.endsWith('.json'));
+      const files = fs.readdirSync(logDir).filter(f => f.endsWith('.json') || f.endsWith('.jsonl'));
       let indexedCount = 0;
 
       for (const file of files) {
@@ -297,69 +307,13 @@ export class AnalyticsIndexer {
           const filePath = path.join(logDir, file);
           const content = fs.readFileSync(filePath, 'utf8');
 
-          // Fix Issue #9: Validate JSON before parsing
-          let data: any;
-          try {
-            data = JSON.parse(content);
-          } catch (parseError: any) {
-            console.error(`❌ Invalid JSON in ${file}: ${parseError.message}`);
-            continue; // Skip this file
-          }
-
-          // Fix Issue #9: Validate required fields before indexing
-          if (!data.consultation_id || !data.question || !data.timestamp) {
-            console.error(`❌ Missing required fields in ${file} (needs: consultation_id, question, timestamp)`);
-            continue; // Skip this file
-          }
-
-          // We need to map snake_case JSON to camelCase TypeScript if possible,
-          // but for indexing we can just use the fields directly if we know them.
-          // Actually, using ArtifactTransformer would be better if available.
-          // For now, let's assume we can parse it.
-
-          // Basic mapping for indexing (this might need to be more robust)
-          const result: any = {
-            consultationId: data.consultation_id,
-            question: data.question,
-            mode: data.mode || 'consensus', // Default for old logs
-            recommendation: data.recommendation,
-            confidence: data.confidence,
-            actualCost: data.actual_cost,
-            estimatedCost: data.estimated_cost,
-            cost: data.cost,
-            durationMs: data.duration_ms,
-            timestamp: data.timestamp,
-            state: data.state || 'complete', // Default for old logs
-            agents: data.agents || [],
-            responses: data.responses || {},
-            dissent: data.dissent || [],
-            agentResponses: data.agent_responses || [],
-            projectContext: data.project_context
-              ? {
-                  projectType: data.project_context.project_type,
-                  frameworkDetected: data.project_context.framework_detected,
-                  frameworkVersion: data.project_context.framework_version,
-                  architecturePattern: data.project_context.architecture_pattern,
-                  techStack: {
-                    stateManagement: data.project_context.tech_stack?.state_management ?? null,
-                    styling: data.project_context.tech_stack?.styling ?? null,
-                    testing: data.project_context.tech_stack?.testing ?? [],
-                    api: data.project_context.tech_stack?.api ?? null,
-                    database: data.project_context.tech_stack?.database ?? null,
-                    orm: data.project_context.tech_stack?.orm ?? null,
-                    cicd: data.project_context.tech_stack?.cicd ?? null
-                  },
-                  indicatorsFound: data.project_context.indicators_found ?? [],
-                  documentationUsed: data.project_context.documentation_used ?? [],
-                  biasApplied: data.project_context.bias_applied ?? false
-                }
-              : undefined
-          };
-
-          this.indexConsultation(result as ConsultationResult);
-          indexedCount++;
-          if (indexedCount % 10 === 0) {
-            process.stdout.write(`Rebuilding index... [${indexedCount}/${files.length}] consultations\r`);
+          const entries = this.parseConsultationEntries(file, content);
+          for (const entry of entries) {
+            this.indexConsultation(entry);
+            indexedCount++;
+            if (indexedCount % 10 === 0) {
+              process.stdout.write(`Rebuilding index... [${indexedCount}/${files.length}] consultations\r`);
+            }
           }
         } catch (err: any) {
           // Generic error (not JSON parse or validation)
@@ -380,5 +334,73 @@ export class AnalyticsIndexer {
       this.db.close();
       this.db = null;
     }
+  }
+
+  private parseConsultationEntries(fileName: string, content: string): ConsultationResult[] {
+    const entries: ConsultationResult[] = [];
+    const isJsonl = fileName.endsWith('.jsonl');
+    const lines = isJsonl ? content.split(/\r?\n/) : [content];
+
+    for (const [index, line] of lines.entries()) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      let data: any;
+      try {
+        data = JSON.parse(trimmed);
+      } catch (parseError: any) {
+        const lineInfo = isJsonl ? ` line ${index + 1}` : '';
+        console.error(`❌ Invalid JSON in ${fileName}${lineInfo}: ${parseError.message}`);
+        continue;
+      }
+
+      if (!data.consultation_id || !data.question || !data.timestamp) {
+        const lineInfo = isJsonl ? ` line ${index + 1}` : '';
+        console.error(`❌ Missing required fields in ${fileName}${lineInfo} (needs: consultation_id, question, timestamp)`);
+        continue;
+      }
+
+      const result: ConsultationResult = {
+        consultationId: data.consultation_id,
+        question: data.question,
+        mode: data.mode || 'consensus',
+        recommendation: data.recommendation,
+        confidence: data.confidence,
+        actualCost: data.actual_cost,
+        estimatedCost: data.estimated_cost,
+        cost: data.cost,
+        durationMs: data.duration_ms,
+        timestamp: data.timestamp,
+        state: data.state || 'complete',
+        agents: data.agents || [],
+        responses: data.responses || {},
+        dissent: data.dissent || [],
+        agentResponses: data.agent_responses || [],
+        projectContext: data.project_context
+          ? {
+              projectType: data.project_context.project_type,
+              frameworkDetected: data.project_context.framework_detected,
+              frameworkVersion: data.project_context.framework_version,
+              architecturePattern: data.project_context.architecture_pattern,
+              techStack: {
+                stateManagement: data.project_context.tech_stack?.state_management ?? null,
+                styling: data.project_context.tech_stack?.styling ?? null,
+                testing: data.project_context.tech_stack?.testing ?? [],
+                api: data.project_context.tech_stack?.api ?? null,
+                database: data.project_context.tech_stack?.database ?? null,
+                orm: data.project_context.tech_stack?.orm ?? null,
+                cicd: data.project_context.tech_stack?.cicd ?? null
+              },
+              indicatorsFound: data.project_context.indicators_found ?? [],
+              documentationUsed: data.project_context.documentation_used ?? [],
+              biasApplied: data.project_context.bias_applied ?? false
+            }
+          : undefined
+      };
+
+      entries.push(result);
+    }
+
+    return entries;
   }
 }
