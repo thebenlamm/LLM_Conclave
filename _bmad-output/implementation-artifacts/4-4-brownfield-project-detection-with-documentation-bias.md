@@ -804,3 +804,7 @@ describe('BrownfieldDetector', () => {
 ### Change Log
 
 - 2026-01-02: Implemented brownfield context detection, orchestration integration, analytics updates, and tests.
+- 2026-01-03: Fixed blocking I/O in BrownfieldDetector, resolved context amnesia in later rounds, and optimized DocumentationDiscovery performance during Adversarial Code Review.
+
+## Story Status
+done

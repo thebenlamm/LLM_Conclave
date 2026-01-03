@@ -1,9 +1,12 @@
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
-import { execSync } from 'child_process';
-import { DocumentationDiscovery, DocumentationResult } from './DocumentationDiscovery';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { DocumentationDiscovery, DocumentationResult, STANDARD_DOC_FILES } from './DocumentationDiscovery';
 import { FrameworkDetector } from './FrameworkDetector';
 import { TechStackAnalyzer } from './TechStackAnalyzer';
+
+const execPromise = promisify(exec);
 
 export type BrownfieldIndicatorType =
   | 'source_files'
@@ -76,17 +79,6 @@ const CONFIG_FILES = [
   'prettier.config.js'
 ];
 
-const DOCUMENTATION_FILES = [
-  'README.md',
-  'README.txt',
-  'README',
-  'ARCHITECTURE.md',
-  'CONTRIBUTING.md',
-  'DESIGN.md',
-  'CHANGELOG.md',
-  'API.md'
-];
-
 export class BrownfieldDetector {
   projectPath: string;
 
@@ -152,12 +144,12 @@ export class BrownfieldDetector {
 
   async checkGitCommits(): Promise<number> {
     try {
-      const result = execSync('git rev-list --count HEAD', {
+      const { stdout } = await execPromise('git rev-list --count HEAD', {
         cwd: this.projectPath,
         encoding: 'utf8',
         timeout: 5000
       });
-      const parsed = parseInt(String(result).trim(), 10);
+      const parsed = parseInt(String(stdout).trim(), 10);
       return Number.isFinite(parsed) ? parsed : 0;
     } catch {
       return 0;
@@ -229,7 +221,7 @@ export class BrownfieldDetector {
   private async detectDocumentationIndicators(): Promise<BrownfieldIndicator[]> {
     const indicators: BrownfieldIndicator[] = [];
 
-    for (const file of DOCUMENTATION_FILES) {
+    for (const file of STANDARD_DOC_FILES) {
       const filePath = path.join(this.projectPath, file);
       if (await this.fileExists(filePath)) {
         indicators.push({

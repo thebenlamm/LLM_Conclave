@@ -1,11 +1,11 @@
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { exec } from 'child_process';
 import { BrownfieldDetector } from '../BrownfieldDetector';
 
 jest.mock('child_process', () => ({
-  execSync: jest.fn()
+  exec: jest.fn()
 }));
 
 const createFile = async (filePath: string, content: string = 'test'): Promise<void> => {
@@ -38,10 +38,13 @@ describe('BrownfieldDetector', () => {
     await createFile(path.join(tempDir, 'tsconfig.json'), '{"compilerOptions": {}}');
     await createFile(path.join(tempDir, 'README.md'), '# Test Project');
 
-    (execSync as jest.Mock).mockReturnValue('12\n');
+    (exec as unknown as jest.Mock).mockImplementation((cmd, options, callback) => {
+      callback(null, { stdout: '12\n' });
+    });
 
     const detector = new BrownfieldDetector(tempDir);
     const result = await detector.detectBrownfield();
+
 
     const indicatorTypes = result.indicatorsFound.map((indicator) => indicator.type);
 
@@ -56,8 +59,8 @@ describe('BrownfieldDetector', () => {
   it('classifies project with fewer than 3 indicators as greenfield', async () => {
     await createFile(path.join(tempDir, 'README.md'), '# Minimal Project');
 
-    (execSync as jest.Mock).mockImplementation(() => {
-      throw new Error('not a git repo');
+    (exec as unknown as jest.Mock).mockImplementation((cmd, options, callback) => {
+      callback(new Error('not a git repo'), { stdout: '' });
     });
 
     const detector = new BrownfieldDetector(tempDir);

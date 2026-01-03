@@ -12,7 +12,7 @@ export interface DocumentationResult {
   totalFound: number;
 }
 
-const STANDARD_DOC_FILES = [
+export const STANDARD_DOC_FILES = [
   'README.md',
   'ARCHITECTURE.md',
   'CONTRIBUTING.md',
@@ -27,28 +27,39 @@ export class DocumentationDiscovery {
   }
 
   async discoverDocumentation(): Promise<DocumentationResult> {
-    const files: DocumentationFile[] = [];
+    const filePromises: Promise<DocumentationFile | null>[] = [];
 
+    // Standard docs
     for (const doc of STANDARD_DOC_FILES) {
-      const found = await this.readDocFile(path.join(this.projectPath, doc));
-      if (found) files.push(found);
+      filePromises.push(this.readDocFile(path.join(this.projectPath, doc)));
     }
 
+    // Docs directory
     const docsDir = path.join(this.projectPath, 'docs');
     if (await this.directoryExists(docsDir)) {
-      const docFiles = await this.readDocsDirectory(docsDir);
-      files.push(...docFiles);
+      filePromises.push(this.readDocsDirectory(docsDir).then(files => files.length ? files : null as any)); // Flattening handled later
     }
 
+    // Github docs
     const githubDir = path.join(this.projectPath, '.github');
     if (await this.directoryExists(githubDir)) {
-      const githubFiles = await this.readGithubDocs(githubDir);
-      files.push(...githubFiles);
+      filePromises.push(this.readGithubDocs(githubDir).then(files => files.length ? files : null as any));
     }
 
-    const packageDoc = await this.readPackageMetadata();
-    if (packageDoc) {
-      files.push(packageDoc);
+    // Package metadata
+    filePromises.push(this.readPackageMetadata());
+
+    const results = await Promise.all(filePromises);
+    
+    // Flatten and filter results
+    const files: DocumentationFile[] = [];
+    for (const result of results) {
+      if (!result) continue;
+      if (Array.isArray(result)) {
+        files.push(...result);
+      } else {
+        files.push(result);
+      }
     }
 
     return {
@@ -58,45 +69,35 @@ export class DocumentationDiscovery {
   }
 
   private async readDocsDirectory(dirPath: string): Promise<DocumentationFile[]> {
-    const files: DocumentationFile[] = [];
-
     try {
       const entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        if (!entry.name.toLowerCase().endsWith('.md')) continue;
-
-        const doc = await this.readDocFile(path.join(dirPath, entry.name));
-        if (doc) files.push(doc);
-      }
+      const promises = entries
+        .filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+        .map(entry => this.readDocFile(path.join(dirPath, entry.name)));
+      
+      const results = await Promise.all(promises);
+      return results.filter((doc): doc is DocumentationFile => doc !== null);
     } catch {
-      return files;
+      return [];
     }
-
-    return files;
   }
 
   private async readGithubDocs(dirPath: string): Promise<DocumentationFile[]> {
-    const files: DocumentationFile[] = [];
-
     try {
       const entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        const lower = entry.name.toLowerCase();
+      const promises = entries
+        .filter(entry => {
+          if (!entry.isFile()) return false;
+          const lower = entry.name.toLowerCase();
+          return lower.includes('template') || lower.includes('guide') || lower.includes('cod');
+        })
+        .map(entry => this.readDocFile(path.join(dirPath, entry.name)));
 
-        if (!lower.includes('template') && !lower.includes('guide') && !lower.includes('cod')) {
-          continue;
-        }
-
-        const doc = await this.readDocFile(path.join(dirPath, entry.name));
-        if (doc) files.push(doc);
-      }
+      const results = await Promise.all(promises);
+      return results.filter((doc): doc is DocumentationFile => doc !== null);
     } catch {
-      return files;
+      return [];
     }
-
-    return files;
   }
 
   private async readPackageMetadata(): Promise<DocumentationFile | null> {

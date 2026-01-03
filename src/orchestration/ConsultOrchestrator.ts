@@ -715,6 +715,26 @@ export default class ConsultOrchestrator {
       })
     };
 
+    // Augment prompt with brownfield context (AC #4)
+    if (this.brownfieldAnalysis) {
+      judgeAgent.systemPrompt = this.contextAugmenter.augmentPrompt(judgeAgent.systemPrompt, this.brownfieldAnalysis);
+    } else if (this.greenfieldOverride) {
+      // Explicit greenfield override - force augment with greenfield context (Review Finding)
+      // We construct a synthetic greenfield analysis
+      const greenfieldAnalysis: BrownfieldAnalysis = {
+        projectType: 'greenfield',
+        indicatorsFound: [],
+        indicatorCount: 0,
+        techStack: {
+           framework: null, frameworkVersion: null, architecturePattern: null, stateManagement: null,
+           styling: null, testing: [], api: null, database: null, orm: null, cicd: null
+        },
+        documentation: { files: [], totalFound: 0 },
+        biasApplied: false
+      };
+      judgeAgent.systemPrompt = this.contextAugmenter.augmentPrompt(judgeAgent.systemPrompt, greenfieldAnalysis);
+    }
+
     this.eventBus.emitEvent('agent:thinking' as any, {
       consultation_id: this.consultationId,
       agent_name: judgeAgent.name,
@@ -791,7 +811,25 @@ export default class ConsultOrchestrator {
           return null;
       }
       
-      const systemPrompt = this.strategy.getCrossExamPrompt({ name: agent.name, model: agent.model }, filteredSynthesis);
+      let systemPrompt = this.strategy.getCrossExamPrompt({ name: agent.name, model: agent.model }, filteredSynthesis);
+      
+      // Augment prompt with brownfield context (AC #4)
+      if (this.brownfieldAnalysis) {
+        systemPrompt = this.contextAugmenter.augmentPrompt(systemPrompt, this.brownfieldAnalysis);
+      } else if (this.greenfieldOverride) {
+        const greenfieldAnalysis: BrownfieldAnalysis = {
+            projectType: 'greenfield',
+            indicatorsFound: [],
+            indicatorCount: 0,
+            techStack: {
+               framework: null, frameworkVersion: null, architecturePattern: null, stateManagement: null,
+               styling: null, testing: [], api: null, database: null, orm: null, cicd: null
+            },
+            documentation: { files: [], totalFound: 0 },
+            biasApplied: false
+        };
+        systemPrompt = this.contextAugmenter.augmentPrompt(systemPrompt, greenfieldAnalysis);
+      }
       
       this.eventBus.emitEvent('agent:thinking' as any, {
         consultation_id: this.consultationId,

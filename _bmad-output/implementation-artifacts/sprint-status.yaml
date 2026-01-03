@@ -72,9 +72,9 @@ development_status:
   # Epic 4: Advanced Reasoning Modes
   epic-4: in-progress
   4-1-mode-strategy-pattern-with-explore-and-converge-implementations: "done"
-  4-2-confidence-based-early-termination: done
-  4-3-debate-value-tracking-with-agent-position-analysis: done
-  4-4-brownfield-project-detection-with-documentation-bias: review
+  "4-2-confidence-based-early-termination": done
+  "4-3-debate-value-tracking-with-agent-position-analysis": in-progress
+  "4-4-brownfield-project-detection-with-documentation-bias": done
   epic-4-retrospective: optional
 
   # Epic 5: Flexible Context & Output Options
