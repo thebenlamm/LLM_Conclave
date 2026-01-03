@@ -154,12 +154,12 @@ const defaultPatterns: ScrubPattern[] = [
   // AWS
   {
     pattern: /AKIA[0-9A-Z]{16}/g,
-    replacement: '[REDACTED_AWS_ACCESS_KEY]',
+    replacement: '[REDACTED_AWS_KEY]',
     type: 'aws_key'
   },
   {
-    pattern: /\baws_secret_access_key\s*[=:]\s*['"]?[^\s'"]+['"]?/gi,
-    replacement: 'aws_secret_access_key=[REDACTED_AWS_SECRET]',
+    pattern: /\b(aws_secret_access_key\s*[=:]\s*['"]?)[^\s'"]+(['"]?)/gi,
+    replacement: '$1[REDACTED_AWS_SECRET]$2',
     type: 'aws_secret'
   },
 
@@ -226,46 +226,48 @@ const defaultPatterns: ScrubPattern[] = [
 
   // API Keys (various formats)
   {
-    pattern: /\b[A-Z_]*API_KEY\s*[=:]\s*['"]?[^\s'"]+['"]?/gi,
-    replacement: '[REDACTED_API_KEY]',
+    pattern: /\b([A-Z_]*API_KEY\s*[=:]\s*['"]?)[^\s'"]+(['"]?)/gi,
+    replacement: '$1[REDACTED_API_KEY]$2',
     type: 'api_key'
   },
 
   // Secrets (generic)
   {
-    pattern: /\b[A-Z_]*SECRET[_A-Z]*\s*[=:]\s*['"]?[^\s'"]+['"]?/gi,
-    replacement: '[REDACTED_SECRET]',
+    pattern: /\b([A-Z_]*SECRET[_A-Z]*\s*[=:]\s*['"]?)[^\s'"]+(['"]?)/gi,
+    replacement: '$1[REDACTED_SECRET]$2',
     type: 'secret'
+  },
+
+  // Connection strings
+  {
+    pattern: /\b([A-Z_]*CONNECTION_STRING\s*[=:]\s*['"]?)[^\s'"]+(['"]?)/gi,
+    replacement: '$1[REDACTED_CONNECTION_STRING]$2',
+    type: 'connection_string'
   },
 
   // Passwords
   {
-    pattern: /\bpassword\s*[=:]\s*['"]?[^\s'"]+['"]?/gi,
-    replacement: 'password=[REDACTED_PASSWORD]',
+    pattern: /\b(password\s*[=:]\s*['"]?)[^\s'"]+(['"]?)/gi,
+    replacement: '$1[REDACTED_PASSWORD]$2',
     type: 'password'
   },
   {
-    pattern: /\bPASSWORD\s*[=:]\s*['"]?[^\s'"]+['"]?/g,
-    replacement: 'PASSWORD=[REDACTED_PASSWORD]',
+    pattern: /\b(PASSWORD\s*[=:]\s*['"]?)[^\s'"]+(['"]?)/g,
+    replacement: '$1[REDACTED_PASSWORD]$2',
     type: 'password'
   },
 
   // Tokens (generic)
   {
-    pattern: /\b[A-Z_]*TOKEN\s*[=:]\s*['"]?[^\s'"]+['"]?/gi,
-    replacement: '[REDACTED_TOKEN]',
+    pattern: /\b([A-Z_]*TOKEN\s*[=:]\s*['"]?)[^\s'"]+(['"]?)/gi,
+    replacement: '$1[REDACTED_TOKEN]$2',
     type: 'token'
   },
   {
-    pattern: /\bbearer\s+[a-zA-Z0-9._-]+/gi,
-    replacement: 'Bearer [REDACTED_TOKEN]',
+    pattern: /\b(bearer)\s+[a-zA-Z0-9._-]+/gi,
+    replacement: '$1 [REDACTED_TOKEN]',
     type: 'bearer_token'
   },
 
-  // Connection strings
-  {
-    pattern: /\b[A-Z_]*CONNECTION_STRING\s*[=:]\s*['"]?[^\s'"]+['"]?/gi,
-    replacement: '[REDACTED_CONNECTION_STRING]',
-    type: 'connection_string'
-  }
+  // Connection strings handled earlier to avoid partial redaction
 ];

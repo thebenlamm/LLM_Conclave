@@ -30,7 +30,7 @@ export function createConsultCommand(): Command {
     .option('-q, --quick', 'Single round consultation (faster)', false)
     .option('-v, --verbose', 'Show full agent conversation', false)
     .option('--greenfield', 'Ignore brownfield detection and use greenfield mode', false)
-    .option('--no-scrub', 'Disable sensitive data scrubbing (use with caution)', false)
+    .option('--no-scrub', 'Disable sensitive data scrubbing (use with caution)')
     .action(async (questionArgs: string[], options: any) => {
       const question = questionArgs.join(' ');
       if (!question.trim()) {

@@ -1,11 +1,11 @@
-import { SensitiveDataScrubber, ScrubReport } from '../SensitiveDataScrubber';
+import { SensitiveDataScrubber } from '../SensitiveDataScrubber';
 
 describe('SensitiveDataScrubber', () => {
   describe('API Key Detection', () => {
     it('detects OPENAI_API_KEY format', () => {
       const scrubber = new SensitiveDataScrubber();
       const result = scrubber.scrub('OPENAI_API_KEY=sk-abc123xyz');
-      expect(result.content).toContain('[REDACTED_API_KEY]');
+      expect(result.content).toContain('OPENAI_API_KEY=[REDACTED_API_KEY]');
       expect(result.report.typesDetected).toContain('api_key');
     });
 
@@ -20,6 +20,13 @@ describe('SensitiveDataScrubber', () => {
       const result = scrubber.scrub('key = sk-abcdefghijklmnopqrstuvwxyz1234567890123456789012345678');
       expect(result.report.typesDetected).toContain('openai_key');
       expect(result.content).toContain('[REDACTED_OPENAI_KEY]');
+    });
+
+    it('detects Anthropic sk-ant- keys', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('key = sk-ant-abcdefghijklmnopqrstuvwxyz-1234');
+      expect(result.report.typesDetected).toContain('anthropic_key');
+      expect(result.content).toContain('[REDACTED_ANTHROPIC_KEY]');
     });
   });
 
@@ -78,14 +85,104 @@ MIIEpQIBAAKCAQEA...
     it('detects AKIA keys', () => {
       const scrubber = new SensitiveDataScrubber();
       const result = scrubber.scrub('aws_access_key_id = AKIAIOSFODNN7EXAMPLE');
-      expect(result.content).toContain('[REDACTED_AWS_ACCESS_KEY]');
+      expect(result.content).toContain('[REDACTED_AWS_KEY]');
       expect(result.report.typesDetected).toContain('aws_key');
     });
 
     it('detects aws_secret_access_key', () => {
       const scrubber = new SensitiveDataScrubber();
       const result = scrubber.scrub('aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY');
-      expect(result.content).toContain('[REDACTED_AWS_SECRET]');
+      expect(result.content).toContain('aws_secret_access_key = [REDACTED_AWS_SECRET]');
+      expect(result.report.typesDetected).toContain('aws_secret');
+    });
+  });
+
+  describe('Generic Secret Detection', () => {
+    it('detects SECRET_KEY assignments', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('SECRET_KEY="supersecret"');
+      expect(result.content).toContain('SECRET_KEY="[REDACTED_SECRET]"');
+      expect(result.report.typesDetected).toContain('secret');
+    });
+  });
+
+  describe('Password Detection', () => {
+    it('detects password key/value pairs', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('password: "hunter2"');
+      expect(result.content).toContain('password: "[REDACTED_PASSWORD]"');
+      expect(result.report.typesDetected).toContain('password');
+    });
+  });
+
+  describe('Token Detection', () => {
+    it('detects TOKEN assignments', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('TOKEN=abc123');
+      expect(result.content).toContain('TOKEN=[REDACTED_TOKEN]');
+      expect(result.report.typesDetected).toContain('token');
+    });
+
+    it('detects bearer tokens', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('bearer abc.def-123');
+      expect(result.content).toContain('bearer [REDACTED_TOKEN]');
+      expect(result.report.typesDetected).toContain('bearer_token');
+    });
+  });
+
+  describe('Connection String Detection', () => {
+    it('detects CONNECTION_STRING assignments', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('MY_CONNECTION_STRING="Server=localhost;Password=secret"');
+      expect(result.content).toContain('MY_CONNECTION_STRING="[REDACTED_CONNECTION_STRING]"');
+      expect(result.report.typesDetected).toContain('connection_string');
+    });
+  });
+
+  describe('Third-party Token Detection', () => {
+    it('detects Slack tokens', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('xoxb-1234-abcdef-5678');
+      expect(result.content).toContain('[REDACTED_SLACK_TOKEN]');
+      expect(result.report.typesDetected).toContain('slack_token');
+    });
+
+    it('detects Stripe keys', () => {
+      const scrubber = new SensitiveDataScrubber();
+      // Using sk_test_ prefix with fake pattern to avoid triggering secret scanners
+      const result = scrubber.scrub('sk_test_00000000000000000000000000');
+      expect(result.content).toContain('[REDACTED_STRIPE_TEST_KEY]');
+      expect(result.report.typesDetected).toContain('stripe_key');
+    });
+
+    it('detects SendGrid keys', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('SG.abcdEFGH-1234.ijklMNOP-5678');
+      expect(result.content).toContain('[REDACTED_SENDGRID_KEY]');
+      expect(result.report.typesDetected).toContain('sendgrid_key');
+    });
+
+    it('detects Twilio keys', () => {
+      const scrubber = new SensitiveDataScrubber();
+      // Using obviously fake all-zeros pattern to avoid triggering secret scanners
+      const result = scrubber.scrub('SK00000000000000000000000000000000');
+      expect(result.content).toContain('[REDACTED_TWILIO_KEY]');
+      expect(result.report.typesDetected).toContain('twilio_key');
+    });
+
+    it('detects Google API keys', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('AIzaSyD-abcdefghijABCDEFGHIJ123456789ab');
+      expect(result.content).toContain('[REDACTED_GOOGLE_API_KEY]');
+      expect(result.report.typesDetected).toContain('google_key');
+    });
+
+    it('detects npm tokens', () => {
+      const scrubber = new SensitiveDataScrubber();
+      const result = scrubber.scrub('npm_1234567890abcdefghijklmnopqrstuvwxyz');
+      expect(result.content).toContain('[REDACTED_NPM_TOKEN]');
+      expect(result.report.typesDetected).toContain('npm_token');
     });
   });
 
