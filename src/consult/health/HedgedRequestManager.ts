@@ -30,10 +30,19 @@ export class HedgedRequestManager {
     try {
       // 1. Attempt Primary with Hedging
       return await this.attemptWithHedging(agent, messages, primaryProviderId, healthMonitor, startTime, systemPrompt);
-    } catch (error) {
+    } catch (error: any) {
       // 2. Handle Complete Failure (Primary + Backup failed)
       // AC #3: User Substitution Prompt
-      console.error(`Provider failed: ${primaryProviderId}`, error);
+      // Enhanced error logging for debugging provider issues
+      console.error(`[HedgedRequestManager] Provider failed:`, {
+        provider: primaryProviderId,
+        agent: agent.name,
+        model: agent.model,
+        errorMessage: error?.message,
+        errorStatus: error?.status || error?.statusCode,
+        messageCount: messages.length,
+        elapsedMs: Date.now() - startTime,
+      });
       return await this.handleFailureWithUserPrompt(agent, messages, primaryProviderId, healthMonitor, startTime, error, systemPrompt);
     }
   }
@@ -128,7 +137,11 @@ export class HedgedRequestManager {
 
     // If the winner was rejected, try to wait for the other
     if (raceResult.rejected) {
-      console.warn(`${raceResult.source} failed, waiting for the other provider...`);
+      console.warn(`[HedgedRequestManager] ${raceResult.source} failed, waiting for other provider...`, {
+        failedSource: raceResult.source,
+        errorMessage: raceResult.error?.message,
+        errorStatus: raceResult.error?.status || raceResult.error?.statusCode,
+      });
       try {
         // Wait for the other promise to complete
         if (raceResult.source === 'primary') {

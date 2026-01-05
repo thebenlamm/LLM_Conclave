@@ -90,7 +90,29 @@ export default class MistralProvider extends LLMProvider {
 
       return { text: message.content, usage };
     } catch (error: any) {
-      throw new Error(`Mistral API error: ${error.message}`);
+      // Detailed error logging for debugging
+      const errorDetails = {
+        provider: 'Mistral',
+        model: this.modelName,
+        status: error.status || error.statusCode || 'unknown',
+        code: error.code || 'unknown',
+        type: error.type || error.name || 'unknown',
+        message: error.message,
+        // Include request info for 400 errors (bad request debugging)
+        ...(error.status === 400 && {
+          messageCount: messages.length,
+          hasTools: !!(options.tools?.length),
+          firstMessageRole: messages[0]?.role,
+          lastMessageRole: messages[messages.length - 1]?.role,
+        }),
+        // Include rate limit headers for 429 errors
+        ...(error.status === 429 && {
+          retryAfter: error.headers?.['retry-after'],
+          rateLimitRemaining: error.headers?.['x-ratelimit-remaining'],
+        }),
+      };
+      console.error('[MistralProvider] API Error:', JSON.stringify(errorDetails, null, 2));
+      throw new Error(`Mistral API error (${errorDetails.status}): ${error.message}`);
     }
   }
 

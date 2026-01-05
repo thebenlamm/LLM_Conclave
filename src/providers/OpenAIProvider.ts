@@ -77,7 +77,23 @@ export default class OpenAIProvider extends LLMProvider {
 
       return { text: message.content, usage };
     } catch (error: any) {
-      throw new Error(`OpenAI API error: ${error.message}`);
+      // Detailed error logging for debugging
+      const errorDetails = {
+        provider: 'OpenAI',
+        model: this.modelName,
+        status: error.status || error.statusCode || 'unknown',
+        code: error.code || 'unknown',
+        type: error.type || error.name || 'unknown',
+        message: error.message,
+        // Include rate limit info for 429 errors
+        ...(error.status === 429 && {
+          retryAfter: error.headers?.['retry-after'],
+          rateLimitRemaining: error.headers?.['x-ratelimit-remaining-requests'],
+          rateLimitReset: error.headers?.['x-ratelimit-reset-requests'],
+        }),
+      };
+      console.error('[OpenAIProvider] API Error:', JSON.stringify(errorDetails, null, 2));
+      throw new Error(`OpenAI API error (${errorDetails.status}): ${error.message}`);
     }
   }
 
