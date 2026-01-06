@@ -118,75 +118,8 @@ Default if omitted: generic Primary/Validator/Reviewer agents.`,
       required: ['task'],
     },
   },
-  {
-    name: 'llm_conclave_iterate',
-    description: 'Run iterative collaborative mode where agents work through a task in chunks with multi-turn discussions per chunk. Best for line-by-line reviews, OCR correction, documentation improvement, or any task requiring detailed incremental work.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        task: {
-          type: 'string',
-          description: 'The task to work on iteratively',
-        },
-        project: {
-          type: 'string',
-          description: 'Project context path (file or directory)',
-        },
-        chunkSize: {
-          type: 'number',
-          description: 'Number of units per chunk',
-          default: 3,
-        },
-        maxRounds: {
-          type: 'number',
-          description: 'Max discussion rounds per chunk',
-          default: 5,
-        },
-      },
-      required: ['task'],
-    },
-  },
-  {
-    name: 'llm_conclave_stats',
-    description: 'Get usage analytics including total consultations, costs, performance metrics (p50/p95/p99), success rates, and quality metrics. Useful for tracking budget and measuring value.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        range: {
-          type: 'string',
-          enum: ['week', 'month', 'all'],
-          description: 'Time range for statistics',
-          default: 'all',
-        },
-        format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Output format',
-          default: 'text',
-        },
-      },
-    },
-  },
-  {
-    name: 'llm_conclave_list_sessions',
-    description: 'List recent consultation sessions with their questions, results, and costs. Useful for reviewing past decisions or resuming work.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        limit: {
-          type: 'number',
-          description: 'Maximum number of sessions to return',
-          default: 10,
-        },
-        mode: {
-          type: 'string',
-          enum: ['consult', 'discuss', 'iterate', 'all'],
-          description: 'Filter by mode',
-          default: 'all',
-        },
-      },
-    },
-  },
+  // NOTE: llm_conclave_iterate and llm_conclave_stats removed - not yet implemented
+  // Will be added back when functionality is complete
 ];
 
 // ============================================================================
@@ -210,14 +143,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'llm_conclave_discuss':
         return await handleDiscuss(args as any);
 
-      case 'llm_conclave_iterate':
-        return await handleIterate(args as any);
-
-      case 'llm_conclave_stats':
-        return await handleStats(args as any);
-
-      case 'llm_conclave_list_sessions':
-        return await handleListSessions(args as any);
+      // NOTE: iterate and stats cases removed - not yet implemented
 
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -339,110 +265,9 @@ async function handleDiscuss(args: {
   };
 }
 
-async function handleIterate(args: {
-  task: string;
-  project?: string;
-  chunkSize?: number;
-  maxRounds?: number;
-}) {
-  const { task, project: projectPath, chunkSize = 3, maxRounds = 5 } = args;
-
-  // Note: Iterative mode requires IterativeCollaborativeOrchestrator
-  // This is a simplified implementation - full implementation would need:
-  // 1. Import IterativeCollaborativeOrchestrator
-  // 2. Load project context
-  // 3. Execute iteration
-  // 4. Return formatted results
-
-  return {
-    content: [
-      {
-        type: 'text',
-        text: 'Iterative mode implementation coming soon. Use llm_conclave_discuss or llm_conclave_consult for now.',
-      },
-    ],
-  };
-}
-
-async function handleStats(args: { range?: string; format?: string }) {
-  const { range = 'all', format = 'text' } = args;
-
-  // Note: This requires StatsQuery implementation from Epic 3
-  // Placeholder for now
-  return {
-    content: [
-      {
-        type: 'text',
-        text: 'Stats implementation coming soon. This will show usage, cost, and performance metrics.',
-      },
-    ],
-  };
-}
-
-async function handleListSessions(args: { limit?: number; mode?: string }) {
-  const { limit = 10, mode = 'all' } = args;
-
-  // Read from consult logs directory
-  const logsDir = path.join(process.env.HOME || '', '.llm-conclave', 'consult-logs');
-
-  if (!fs.existsSync(logsDir)) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'No consultation logs found. Run your first consultation with llm_conclave_consult.',
-        },
-      ],
-    };
-  }
-
-  // List JSON files
-  const files = fs.readdirSync(logsDir)
-    .filter(f => f.startsWith('consult-') && f.endsWith('.json'))
-    .sort()
-    .reverse()
-    .slice(0, limit);
-
-  if (files.length === 0) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'No sessions found.',
-        },
-      ],
-    };
-  }
-
-  // Read and format sessions
-  const sessions = files.map(file => {
-    const content = fs.readFileSync(path.join(logsDir, file), 'utf-8');
-    const session = JSON.parse(content);
-    return {
-      id: session.consultation_id || session.consultationId || file,
-      question: session.question,
-      confidence: session.confidence,
-      cost: session.cost?.usd || session.cost,
-      timestamp: session.timestamp,
-    };
-  });
-
-  const output = sessions
-    .map(
-      (s, i) =>
-        `${i + 1}. [${s.timestamp}] ${s.question}\n   Confidence: ${(s.confidence * 100).toFixed(0)}% | Cost: $${s.cost?.toFixed(3) || 'N/A'}`
-    )
-    .join('\n\n');
-
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `Recent Sessions (${sessions.length}):\n\n${output}`,
-      },
-    ],
-  };
-}
+// NOTE: handleIterate, handleStats, and handleListSessions removed
+// These tools are not yet fully implemented and were removed from the MCP interface
+// to avoid confusing other Claude instances. Will be re-added when complete.
 
 // ============================================================================
 // Helper Functions
