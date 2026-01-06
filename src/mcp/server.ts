@@ -94,7 +94,9 @@ const TOOLS: Tool[] = [
         },
         personas: {
           type: 'string',
-          description: `IMPORTANT: Select 3-5 personas relevant to your task. Available personas:
+          description: `Select 3-5 personas relevant to your task.
+
+BUILT-IN PERSONAS:
 - security: OWASP vulnerabilities, auth, encryption (Claude)
 - performance: optimization, scaling, caching (GPT-4o)
 - architect: system design, patterns, trade-offs (Claude Opus)
@@ -106,15 +108,29 @@ const TOOLS: Tool[] = [
 - accessibility: WCAG, a11y patterns (Claude)
 - documentation: API docs, clarity (GPT-4o)
 
-You can also use custom personas defined in ~/.llm-conclave/config.json under "custom_personas".
-Or reference a named persona set with "@" prefix (e.g., "@health" for a health-focused set).
+CUSTOM PERSONAS:
+For domain-specific experts (health, legal, finance, etc.), create ~/.llm-conclave/config.json:
+{
+  "custom_personas": {
+    "healthCoach": {
+      "name": "Health Coach",
+      "model": "claude-sonnet-4-5",
+      "systemPrompt": "You are a certified health coach specializing in..."
+    }
+  },
+  "persona_sets": {
+    "health": ["healthCoach", "nutritionist", "psychologist"]
+  }
+}
 
-Example: "security,architect,pragmatic" for a security-sensitive architecture decision.
+Then use: personas="healthCoach,nutritionist" or personas="@health" (@ expands the set).
+
+Example: "security,architect,pragmatic" for security-sensitive architecture.
 Default if omitted: generic Primary/Validator/Reviewer agents.`,
         },
         config: {
           type: 'string',
-          description: 'Path to custom .llm-conclave.json config file with custom agent definitions. Overrides default config.',
+          description: 'Path to .llm-conclave.json with custom agents. Use when project has domain-specific agent definitions. Format: { "agents": { "AgentName": { "model": "claude-sonnet-4-5", "prompt": "You are..." } } }',
         },
         rounds: {
           type: 'number',

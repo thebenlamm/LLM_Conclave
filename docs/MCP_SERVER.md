@@ -141,28 +141,34 @@ of storing JWT tokens in localStorage vs httpOnly cookies"
 
 **Democratic consensus discussion**
 
-Run a collaborative discussion where agents contribute equally.
+Run a collaborative discussion where agents contribute equally and build on each other's ideas.
 
 **Parameters:**
 - `task` (required): The topic or problem to discuss
-- `project` (optional): Project context path
-- `personas` (optional): Comma-separated personas to use:
-  - `security` - Security Expert
-  - `performance` - Performance Engineer
-  - `architect` - Systems Architect
-  - `creative` - Creative Innovator
-  - `critical` - Critical Analyst
-  - `pragmatic` - Pragmatic Engineer
-  - `qa` - QA Expert
-  - `devops` - DevOps Engineer
-  - `accessibility` - Accessibility Expert
-  - `documentation` - Documentation Specialist
-- `rounds` (optional): Number of rounds (default: 3)
+- `project` (optional): Project context path (file or directory)
+- `config` (optional): Path to custom `.llm-conclave.json` with domain-specific agents
+- `personas` (optional): Comma-separated personas (see below)
+- `rounds` (optional): Number of rounds (default: 4)
 
-**Example prompt:**
+**Built-in Personas:**
+- `security` - Security Expert (Claude) - OWASP, auth, encryption
+- `performance` - Performance Engineer (GPT-4o) - optimization, scaling
+- `architect` - Systems Architect (Claude Opus) - design patterns, trade-offs
+- `creative` - Creative Innovator (Gemini) - novel approaches
+- `skeptic` - Critical Analyst (GPT-4o) - devil's advocate, risks
+- `pragmatic` - Pragmatic Engineer (GPT-4o) - shipping focus, MVP
+- `qa` - QA Expert (GPT-4o) - testing strategies
+- `devops` - DevOps Engineer (Gemini) - CI/CD, infrastructure
+- `accessibility` - Accessibility Expert (Claude) - WCAG, a11y
+- `documentation` - Documentation Specialist (GPT-4o) - API docs
+
+**Example prompts:**
 ```
 "Use llm_conclave_discuss with security and performance personas
 to brainstorm approaches for caching user sessions"
+
+"Use llm_conclave_discuss with architect,pragmatic,skeptic to
+evaluate microservices vs monolith for our MVP"
 ```
 
 **When to use:**
@@ -173,67 +179,107 @@ to brainstorm approaches for caching user sessions"
 
 ---
 
-### 3. `llm_conclave_iterate`
+## Custom Personas (Domain-Specific Experts)
 
-**Iterative collaborative mode** (Coming soon)
+The built-in personas are software engineering focused. For other domains (health, legal, finance, education, etc.), you can define custom personas.
 
-Work through tasks chunk-by-chunk with multi-turn discussions per chunk.
+### Setting Up Custom Personas
 
-**Parameters:**
-- `task` (required): The task to work on
-- `project` (optional): Project context path
-- `chunkSize` (optional): Units per chunk (default: 3)
-- `maxRounds` (optional): Rounds per chunk (default: 5)
+Create `~/.llm-conclave/config.json`:
 
-**When to use:**
-- Line-by-line code review
-- Documentation improvement
-- OCR correction
-- Incremental refactoring
-
----
-
-### 4. `llm_conclave_stats`
-
-**Usage analytics** (Coming soon)
-
-Get statistics on consultations, costs, and performance.
-
-**Parameters:**
-- `range` (optional): `week`, `month`, or `all` (default)
-- `format` (optional): `text` or `json`
-
-**Example prompt:**
-```
-"Use llm_conclave_stats to show me my consultation usage this month"
-```
-
-**When to use:**
-- Tracking consultation budget
-- Measuring value from consultations
-- Performance monitoring
-
----
-
-### 5. `llm_conclave_list_sessions`
-
-**List past consultations**
-
-Browse recent consultation sessions with results and costs.
-
-**Parameters:**
-- `limit` (optional): Max sessions to return (default: 10)
-- `mode` (optional): Filter by `consult`, `discuss`, `iterate`, or `all`
-
-**Example prompt:**
-```
-"Use llm_conclave_list_sessions to show my recent consultations"
+```json
+{
+  "custom_personas": {
+    "healthCoach": {
+      "name": "Health Coach",
+      "description": "Behavior change and habit formation expert",
+      "model": "claude-sonnet-4-5",
+      "systemPrompt": "You are a certified health coach specializing in behavior change, sustainable habit formation, and holistic wellness. You focus on practical, science-backed approaches to health improvement."
+    },
+    "psychologist": {
+      "name": "Clinical Psychologist",
+      "description": "Mental health and cognitive behavioral therapy specialist",
+      "model": "gpt-4o",
+      "systemPrompt": "You are a clinical psychologist with expertise in cognitive behavioral therapy, mental health assessment, and evidence-based therapeutic approaches. You consider psychological factors in all recommendations."
+    },
+    "nutritionist": {
+      "name": "Registered Dietitian",
+      "model": "gpt-4o",
+      "systemPrompt": "You are a registered dietitian with expertise in clinical nutrition, meal planning, and evidence-based dietary interventions. You provide practical, sustainable nutrition guidance."
+    }
+  },
+  "persona_sets": {
+    "health": ["healthCoach", "psychologist", "nutritionist"],
+    "startup": ["architect", "pragmatic", "creative"],
+    "security-review": ["security", "architect", "skeptic"]
+  }
+}
 ```
 
-**When to use:**
-- Reviewing past decisions
-- Finding previous consultation results
-- Tracking costs over time
+### Using Custom Personas
+
+**Individual custom personas:**
+```
+"Use llm_conclave_discuss with healthCoach,psychologist personas
+to design a mental wellness tracking app"
+```
+
+**Persona sets (@ prefix expands the set):**
+```
+"Use llm_conclave_discuss with @health personas to create
+a personalized fitness plan"
+```
+
+**Mix custom + built-in:**
+```
+"Use llm_conclave_discuss with @health,security personas
+to review data privacy for a health app"
+```
+
+### Using Project-Level Config
+
+For project-specific agents, create `.llm-conclave.json` in your project directory and pass it via the `config` parameter:
+
+```json
+{
+  "agents": {
+    "Domain Expert": {
+      "model": "claude-sonnet-4-5",
+      "prompt": "You are an expert in [specific domain]..."
+    },
+    "Validator": {
+      "model": "gpt-4o",
+      "prompt": "You validate solutions against [specific criteria]..."
+    }
+  }
+}
+```
+
+Then invoke with:
+```
+{
+  "tool": "llm_conclave_discuss",
+  "arguments": {
+    "task": "Your task here",
+    "config": "/path/to/project/.llm-conclave.json"
+  }
+}
+```
+
+### Supported Models
+
+When defining custom personas, you can use any model:
+
+| Model | Provider | Best For |
+|-------|----------|----------|
+| `claude-sonnet-4-5` | Anthropic | Nuanced analysis, safety-critical |
+| `claude-opus-4-5` | Anthropic | Complex reasoning, architecture |
+| `gpt-4o` | OpenAI | Fast, balanced, cost-effective |
+| `gemini-2.5-pro` | Google | Creative, brainstorming |
+| `grok-2` | xAI | Alternative perspectives |
+| `mistral-large` | Mistral | European data considerations |
+
+Provider is auto-inferred from model name, or specify explicitly with `"provider": "anthropic"`
 
 ---
 
@@ -503,11 +549,15 @@ Each consultation uses multiple LLM providers:
 
 ## What's Next?
 
-**Coming Soon:**
-- Epic 2: Cost controls with pre-flight estimates and user consent
-- Epic 3: Analytics dashboard with usage tracking
-- Epic 4: Advanced modes (explore vs converge)
-- Epic 5: Stdin support and flexible I/O
+**Already Implemented (via CLI):**
+- Cost controls with pre-flight estimates and user consent
+- Analytics dashboard with usage tracking (`llm-conclave consult-stats`)
+- Advanced modes (explore vs converge)
+- Stdin piping and flexible I/O
+
+**Coming Soon to MCP:**
+- `llm_conclave_iterate` - Chunk-based iterative collaboration
+- `llm_conclave_stats` - Usage analytics via MCP
 
 **See:** `docs/PLANNED_FEATURES.md` for full roadmap
 
