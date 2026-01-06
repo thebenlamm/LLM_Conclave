@@ -51,7 +51,7 @@ const server = new Server(
 const TOOLS: Tool[] = [
   {
     name: 'llm_conclave_consult',
-    description: 'Run a structured 4-phase consultation (positions → synthesis → debate → resolution). Faster but may produce thinner results than discuss. Use llm_conclave_discuss for complex decisions needing deeper analysis.',
+    description: 'Run a structured 4-phase consultation (positions → synthesis → debate → resolution). Uses fixed expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini). Faster but less customizable than discuss. Use llm_conclave_discuss when you need specific personas or deeper analysis.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -94,11 +94,24 @@ const TOOLS: Tool[] = [
         },
         personas: {
           type: 'string',
-          description: 'Comma-separated personas: security, performance, architect, creative, critical, pragmatic, qa, devops, accessibility, documentation',
+          description: `IMPORTANT: Select 3-5 personas relevant to your task. Available personas:
+- security: OWASP vulnerabilities, auth, encryption (Claude)
+- performance: optimization, scaling, caching (GPT-4o)
+- architect: system design, patterns, trade-offs (Claude Opus)
+- creative: novel approaches, brainstorming (Gemini)
+- skeptic: devil's advocate, edge cases, risks (GPT-4o)
+- pragmatic: shipping focus, MVP, technical debt (GPT-4o)
+- qa: testing strategies, edge cases (GPT-4o)
+- devops: CI/CD, infrastructure, deployment (Gemini)
+- accessibility: WCAG, a11y patterns (Claude)
+- documentation: API docs, clarity (GPT-4o)
+
+Example: "security,architect,pragmatic" for a security-sensitive architecture decision.
+Default if omitted: generic Primary/Validator/Reviewer agents.`,
         },
         rounds: {
           type: 'number',
-          description: 'Number of discussion rounds (more = deeper analysis)',
+          description: 'Number of discussion rounds. Use 2-3 for quick decisions, 4-5 for complex topics. Default: 4',
           default: 4,
         },
       },
