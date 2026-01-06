@@ -4,9 +4,13 @@ import { Template } from './types';
 
 export function formatValidationError(error: ZodError, sourceName?: string): string {
   return error.issues.map((err) => {
-    const path = err.path.join('.');
+    const path = err.path.join('.') || 'root';
     const location = sourceName ? ` in '${sourceName}'` : '';
-    const message = `Validation error at '${path}'${location}: ${err.message}`;
+    let detail = err.message;
+    if (detail.startsWith('Invalid enum value. ')) {
+      detail = detail.replace(/^Invalid enum value\. /, '');
+    }
+    const message = `Validation error: Invalid value at '${path}': ${detail}${location}`;
     
     // NFR16: Suggested fix generation
     let suggestion = '';

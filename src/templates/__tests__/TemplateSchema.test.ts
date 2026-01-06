@@ -31,15 +31,15 @@ describe('Template Validation', () => {
   });
 
   test('throws error for missing required fields', () => {
-    const invalidTemplate = { ...validTemplate };
+    const invalidTemplate: any = { ...validTemplate };
     delete invalidTemplate.name;
 
-    expect(() => validateTemplate(invalidTemplate)).toThrow(/Validation error at 'name'/);
+    expect(() => validateTemplate(invalidTemplate)).toThrow(/Validation error: .* at 'name'/);
   });
 
   test('throws error for invalid mode', () => {
     const invalidTemplate = { ...validTemplate, mode: 'invalid-mode' };
-    expect(() => validateTemplate(invalidTemplate)).toThrow(/Validation error at 'mode'/);
+    expect(() => validateTemplate(invalidTemplate)).toThrow(/Validation error: .* at 'mode'/);
     expect(() => validateTemplate(invalidTemplate)).toThrow(/Allowed modes: consensus/); // Check suggestion
   });
 
@@ -48,7 +48,7 @@ describe('Template Validation', () => {
        ...validTemplate,
        agents: [123] // Invalid type
      };
-     expect(() => validateTemplate(invalidTemplate)).toThrow(/Validation error at 'agents.0'/);
+     expect(() => validateTemplate(invalidTemplate)).toThrow(/Validation error: .* at 'agents.0'/);
   });
   
   test('throws error for empty persona string', () => {
