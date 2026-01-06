@@ -169,12 +169,20 @@ export default class ConversationManager {
       finalSolution = await this.conductFinalVote(judge);
     }
 
+    // Count failed agents for reporting
+    const failedAgents = this.conversationHistory
+      .filter((msg: any) => msg.error === true)
+      .map((msg: any) => msg.speaker);
+    const uniqueFailedAgents = [...new Set(failedAgents)];
+
     const result = {
       task: task,
       rounds: this.currentRound,
+      maxRounds: this.maxRounds,
       consensusReached: consensusReached,
       solution: finalSolution,
-      conversationHistory: this.conversationHistory
+      conversationHistory: this.conversationHistory,
+      failedAgents: uniqueFailedAgents,
     };
     
     if (this.eventBus) {
@@ -247,13 +255,27 @@ export default class ConversationManager {
         this.eventBus.emitEvent('error', { message: `Error with agent ${agentName}: ${error.message}` });
       }
 
-      // Add error to history
+      // Extract provider and status from error message for cleaner display
+      const errorMsg = error.message || 'Unknown error';
+      const statusMatch = errorMsg.match(/\((\d{3})\)/);
+      const status = statusMatch ? statusMatch[1] : '';
+      const providerMatch = errorMsg.match(/^(\w+) API error/);
+      const provider = providerMatch ? providerMatch[1] : '';
+
+      // Create user-friendly error message
+      const friendlyError = status === '400' ? `${provider || 'Provider'} rejected request`
+        : status === '429' ? `${provider || 'Provider'} rate limited`
+        : status === '500' || status === '502' || status === '503' ? `${provider || 'Provider'} service error`
+        : errorMsg;
+
+      // Add error to history with cleaner message
       this.conversationHistory.push({
         role: 'assistant',
-        content: `[Error: Unable to respond - ${error.message}]`,
+        content: `[⚠️ ${agentName} unavailable: ${friendlyError}]`,
         speaker: agentName,
         model: agent.model,
-        error: true
+        error: true,
+        errorDetails: errorMsg
       });
     }
   }

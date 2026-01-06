@@ -475,7 +475,7 @@ async function loadContextFromPath(contextPath: string): Promise<string> {
  * Save full discussion to log file and return the file path
  */
 function saveFullDiscussion(result: any): string {
-  const { task, conversationHistory, solution, consensusReached, rounds } = result;
+  const { task, conversationHistory, solution, consensusReached, rounds, maxRounds, failedAgents = [] } = result;
 
   const logsDir = path.join(process.env.HOME || '', '.llm-conclave', 'discuss-logs');
   if (!fs.existsSync(logsDir)) {
@@ -490,7 +490,18 @@ function saveFullDiscussion(result: any): string {
   let fullLog = `# Discussion Log\n\n`;
   fullLog += `**Task:** ${task}\n\n`;
   fullLog += `**Timestamp:** ${new Date().toISOString()}\n\n`;
-  fullLog += `**Rounds:** ${rounds} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
+
+  // Clearer rounds display
+  const roundsDisplay = consensusReached
+    ? `${rounds}/${maxRounds || rounds} (consensus reached early)`
+    : `${rounds}/${maxRounds || rounds}`;
+  fullLog += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
+
+  // Report failed agents
+  if (failedAgents.length > 0) {
+    fullLog += `**⚠️ Unavailable Agents:** ${failedAgents.join(', ')}\n\n`;
+  }
+
   fullLog += `---\n\n`;
 
   if (conversationHistory && conversationHistory.length > 0) {
@@ -527,22 +538,32 @@ function saveFullDiscussion(result: any): string {
  * Format a brief summary for MCP response (keeps context small)
  */
 function formatDiscussionResult(result: any, logFilePath: string): string {
-  const { task, conversationHistory, solution, consensusReached, rounds } = result;
+  const { task, conversationHistory, solution, consensusReached, rounds, maxRounds, failedAgents = [] } = result;
 
   let output = `# Discussion Summary\n\n`;
   output += `**Task:** ${task}\n\n`;
-  output += `**Rounds:** ${rounds} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
 
-  // List participating agents
+  // Clearer rounds display showing actual/max
+  const roundsDisplay = consensusReached
+    ? `${rounds}/${maxRounds || rounds} (consensus reached early)`
+    : `${rounds}/${maxRounds || rounds}`;
+  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
+
+  // List participating agents (excluding failed ones)
   if (conversationHistory && conversationHistory.length > 0) {
     const speakers = new Set<string>();
     for (const msg of conversationHistory) {
       const speaker = msg.speaker || msg.name || 'Unknown';
-      if (speaker !== 'System' && speaker !== 'Judge') {
+      if (speaker !== 'System' && speaker !== 'Judge' && !msg.error) {
         speakers.add(speaker);
       }
     }
     output += `**Agents:** ${Array.from(speakers).join(', ')}\n\n`;
+  }
+
+  // Report failed agents prominently
+  if (failedAgents.length > 0) {
+    output += `**⚠️ Unavailable:** ${failedAgents.join(', ')} (API errors)\n\n`;
   }
 
   // Final solution/recommendation (the key output)
@@ -552,9 +573,16 @@ function formatDiscussionResult(result: any, logFilePath: string): string {
     output += `*No final solution reached*\n\n`;
   }
 
-  // Reference to full log
+  // Estimate cost based on conversation length (rough heuristic)
+  // ~750 tokens per message average, $0.003/1k input, $0.015/1k output
+  const msgCount = conversationHistory?.length || 0;
+  const estimatedTokens = msgCount * 750;
+  const estimatedCost = (estimatedTokens * 0.003 / 1000) + (estimatedTokens * 0.015 / 1000);
   output += `---\n\n`;
-  output += `📄 **Full discussion saved to:** \`${logFilePath}\`\n`;
+  output += `**Est. tokens:** ~${estimatedTokens.toLocaleString()} | **Est. cost:** ~$${estimatedCost.toFixed(3)}\n\n`;
+
+  // Reference to full log
+  output += `📄 **Full discussion:** \`${logFilePath}\`\n`;
 
   return output;
 }
