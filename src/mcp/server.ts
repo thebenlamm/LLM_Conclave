@@ -310,8 +310,11 @@ async function handleDiscuss(args: {
   const conversationManager = new ConversationManager(config, null, false);
   const result = await conversationManager.startConversation(task, judge, projectContext);
 
-  // Format output as markdown summary
-  const summary = formatDiscussionResult(result);
+  // Save full discussion to file (preserves all agent contributions)
+  const logFilePath = saveFullDiscussion(result);
+
+  // Format brief summary for MCP response (keeps context small)
+  const summary = formatDiscussionResult(result, logFilePath);
 
   return {
     content: [
@@ -468,44 +471,90 @@ async function loadContextFromPath(contextPath: string): Promise<string> {
   return context;
 }
 
-function formatDiscussionResult(result: any): string {
+/**
+ * Save full discussion to log file and return the file path
+ */
+function saveFullDiscussion(result: any): string {
   const { task, conversationHistory, solution, consensusReached, rounds } = result;
 
-  let output = `# Discussion Result\n\n`;
-  output += `**Task:** ${task}\n\n`;
-  output += `**Rounds:** ${rounds} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
-
-  if (!conversationHistory || conversationHistory.length === 0) {
-    output += `*No conversation history available*\n\n`;
-    if (solution) {
-      output += `## Solution\n\n${solution}\n\n`;
-    }
-    return output;
+  const logsDir = path.join(process.env.HOME || '', '.llm-conclave', 'discuss-logs');
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
   }
 
-  output += `## Discussion\n\n`;
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `discuss-${timestamp}.md`;
+  const filePath = path.join(logsDir, filename);
 
-  // Group messages by speaker
-  const speakerMessages: Record<string, string[]> = {};
-  for (const msg of conversationHistory) {
-    const speaker = msg.speaker || msg.name || 'Unknown';
-    if (speaker === 'System' || speaker === 'Judge') continue;
-    if (!speakerMessages[speaker]) {
-      speakerMessages[speaker] = [];
+  // Build full discussion log
+  let fullLog = `# Discussion Log\n\n`;
+  fullLog += `**Task:** ${task}\n\n`;
+  fullLog += `**Timestamp:** ${new Date().toISOString()}\n\n`;
+  fullLog += `**Rounds:** ${rounds} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
+  fullLog += `---\n\n`;
+
+  if (conversationHistory && conversationHistory.length > 0) {
+    fullLog += `## Full Discussion\n\n`;
+
+    // Group messages by speaker
+    const speakerMessages: Record<string, string[]> = {};
+    for (const msg of conversationHistory) {
+      const speaker = msg.speaker || msg.name || 'Unknown';
+      if (speaker === 'System' || speaker === 'Judge') continue;
+      if (!speakerMessages[speaker]) {
+        speakerMessages[speaker] = [];
+      }
+      speakerMessages[speaker].push(msg.content);
     }
-    speakerMessages[speaker].push(msg.content);
-  }
 
-  // Output each agent's contributions
-  for (const [speaker, messages] of Object.entries(speakerMessages)) {
-    output += `### ${speaker}\n\n`;
-    output += messages.join('\n\n---\n\n');
-    output += '\n\n';
+    // Output each agent's contributions
+    for (const [speaker, messages] of Object.entries(speakerMessages)) {
+      fullLog += `### ${speaker}\n\n`;
+      fullLog += messages.join('\n\n---\n\n');
+      fullLog += '\n\n';
+    }
   }
 
   if (solution) {
-    output += `## Final Solution\n\n${solution}\n\n`;
+    fullLog += `## Final Solution\n\n${solution}\n\n`;
   }
+
+  fs.writeFileSync(filePath, fullLog, 'utf-8');
+  return filePath;
+}
+
+/**
+ * Format a brief summary for MCP response (keeps context small)
+ */
+function formatDiscussionResult(result: any, logFilePath: string): string {
+  const { task, conversationHistory, solution, consensusReached, rounds } = result;
+
+  let output = `# Discussion Summary\n\n`;
+  output += `**Task:** ${task}\n\n`;
+  output += `**Rounds:** ${rounds} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
+
+  // List participating agents
+  if (conversationHistory && conversationHistory.length > 0) {
+    const speakers = new Set<string>();
+    for (const msg of conversationHistory) {
+      const speaker = msg.speaker || msg.name || 'Unknown';
+      if (speaker !== 'System' && speaker !== 'Judge') {
+        speakers.add(speaker);
+      }
+    }
+    output += `**Agents:** ${Array.from(speakers).join(', ')}\n\n`;
+  }
+
+  // Final solution/recommendation (the key output)
+  if (solution) {
+    output += `## Recommendation\n\n${solution}\n\n`;
+  } else {
+    output += `*No final solution reached*\n\n`;
+  }
+
+  // Reference to full log
+  output += `---\n\n`;
+  output += `📄 **Full discussion saved to:** \`${logFilePath}\`\n`;
 
   return output;
 }
