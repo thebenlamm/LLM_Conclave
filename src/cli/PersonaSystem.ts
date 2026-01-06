@@ -119,8 +119,8 @@ Be constructively critical while proposing alternatives.`,
     pragmatic: {
       name: 'Pragmatic Engineer',
       description: 'Practical, shipping-focused engineer',
-      model: 'mistral-large-latest',
-      provider: 'mistral',
+      model: 'gpt-4o',
+      provider: 'openai',
       systemPrompt: `You are a pragmatic engineer focused on shipping working solutions efficiently.
 
 Your responsibilities:
