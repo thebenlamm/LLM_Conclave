@@ -173,6 +173,60 @@ llm-conclave personas               # List available
 llm-conclave --with security,performance "Review code"
 ```
 
+**Built-in personas:** security, performance, architecture, creative, skeptic, pragmatic, testing, devops, accessibility, documentation
+
+#### Custom Personas
+
+Define your own expert personas in `~/.llm-conclave/config.json`:
+
+```json
+{
+  "custom_personas": {
+    "healthCoach": {
+      "name": "Health Coach",
+      "description": "Behavior change and habit formation expert",
+      "model": "claude-sonnet-4-5",
+      "systemPrompt": "You are a certified health coach specializing in behavior change, habit formation, and sustainable lifestyle modifications..."
+    },
+    "psychologist": {
+      "name": "Clinical Psychologist",
+      "model": "gpt-4o",
+      "systemPrompt": "You are a clinical psychologist with expertise in cognitive behavioral therapy..."
+    }
+  },
+  "persona_sets": {
+    "health": ["healthCoach", "psychologist", "nutritionist"],
+    "startup": ["architect", "pragmatic", "creative"]
+  }
+}
+```
+
+**Usage:**
+
+```bash
+# Use custom persona
+llm-conclave --with healthCoach,psychologist "Design a wellness app"
+
+# Use persona set (@ prefix)
+llm-conclave --with @health "Plan a fitness program"
+
+# Mix custom + built-in
+llm-conclave --with @health,security "Review health data API"
+```
+
+**Via MCP:**
+
+```json
+{
+  "tool": "llm_conclave_discuss",
+  "arguments": {
+    "task": "Design a meditation app",
+    "personas": "healthCoach,psychologist",
+    "config": "/path/to/project/.llm-conclave.json"
+  }
+}
+```
+
 #### Session Management
 
 ```bash

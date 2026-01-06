@@ -3,7 +3,32 @@
  *
  * Users can specify personas instead of manually configuring agents:
  * llm-conclave --with security,performance "Review this code"
+ *
+ * Custom personas can be defined in ~/.llm-conclave/config.json:
+ * {
+ *   "custom_personas": {
+ *     "healthCoach": {
+ *       "name": "Health Coach",
+ *       "description": "Behavior change and habit formation expert",
+ *       "model": "claude-sonnet-4-5",
+ *       "provider": "anthropic",
+ *       "systemPrompt": "You are a certified health coach..."
+ *     }
+ *   },
+ *   "persona_sets": {
+ *     "health": ["healthCoach", "psychologist", "nutritionist"],
+ *     "startup": ["architect", "pragmatic", "creative"]
+ *   }
+ * }
+ *
+ * Usage:
+ * - Custom persona: --with healthCoach,psychologist
+ * - Persona set: --with @health (expands to healthCoach,psychologist,nutritionist)
+ * - Mixed: --with @health,security (combines set + built-in)
  */
+
+import * as fs from 'fs';
+import { ConfigPaths } from '../utils/ConfigPaths.js';
 
 export interface Persona {
   name: string;
@@ -12,6 +37,16 @@ export interface Persona {
   provider: string;
   systemPrompt: string;
   preferredFor: string[];
+}
+
+export interface CustomPersonaConfig {
+  name: string;
+  description?: string;
+  model: string;
+  provider?: string;
+  systemPrompt: string;
+  prompt?: string;  // Alias for systemPrompt (matches .llm-conclave.json agent format)
+  preferredFor?: string[];
 }
 
 export class PersonaSystem {
@@ -217,36 +252,195 @@ Provide recommendations for improving documentation quality and coverage.`,
     }
   };
 
+  // Cache for custom personas loaded from global config
+  private static customPersonasCache: Record<string, Persona> | null = null;
+  private static personaSetsCache: Record<string, string[]> | null = null;
+
   /**
-   * Get a persona by name
+   * Load custom personas from global config (~/.llm-conclave/config.json)
    */
-  static getPersona(name: string): Persona | undefined {
-    return this.personas[name.toLowerCase()];
+  private static loadCustomPersonas(): Record<string, Persona> {
+    if (this.customPersonasCache !== null) {
+      return this.customPersonasCache;
+    }
+
+    this.customPersonasCache = {};
+    const globalConfigPath = ConfigPaths.globalConfig;
+
+    if (!fs.existsSync(globalConfigPath)) {
+      return this.customPersonasCache;
+    }
+
+    try {
+      const content = fs.readFileSync(globalConfigPath, 'utf-8');
+      const globalConfig = JSON.parse(content);
+
+      if (globalConfig.custom_personas) {
+        for (const [key, config] of Object.entries(globalConfig.custom_personas) as [string, CustomPersonaConfig][]) {
+          // Infer provider from model name if not specified
+          const provider = config.provider || this.inferProvider(config.model);
+
+          this.customPersonasCache[key.toLowerCase()] = {
+            name: config.name || key,
+            description: config.description || `Custom persona: ${key}`,
+            model: config.model,
+            provider: provider,
+            systemPrompt: config.systemPrompt || config.prompt || '',
+            preferredFor: config.preferredFor || []
+          };
+        }
+      }
+    } catch (error) {
+      console.warn(`Warning: Could not load custom personas from ${globalConfigPath}`);
+    }
+
+    return this.customPersonasCache;
   }
 
   /**
-   * List all available personas
+   * Load persona sets from global config
+   */
+  private static loadPersonaSets(): Record<string, string[]> {
+    if (this.personaSetsCache !== null) {
+      return this.personaSetsCache;
+    }
+
+    const globalConfigPath = ConfigPaths.globalConfig;
+
+    if (!fs.existsSync(globalConfigPath)) {
+      this.personaSetsCache = {};
+      return this.personaSetsCache;
+    }
+
+    this.personaSetsCache = {};
+
+    try {
+      const content = fs.readFileSync(globalConfigPath, 'utf-8');
+      const globalConfig = JSON.parse(content);
+
+      if (globalConfig.persona_sets) {
+        this.personaSetsCache = globalConfig.persona_sets;
+      }
+    } catch (error) {
+      console.warn(`Warning: Could not load persona sets from ${globalConfigPath}`);
+    }
+
+    return this.personaSetsCache || {};
+  }
+
+  /**
+   * Infer provider from model name
+   */
+  private static inferProvider(model: string): string {
+    const modelLower = model.toLowerCase();
+    if (modelLower.includes('claude') || modelLower.includes('sonnet') || modelLower.includes('opus') || modelLower.includes('haiku')) {
+      return 'anthropic';
+    }
+    if (modelLower.includes('gpt') || modelLower.includes('o1') || modelLower.includes('o3')) {
+      return 'openai';
+    }
+    if (modelLower.includes('gemini')) {
+      return 'google';
+    }
+    if (modelLower.includes('grok')) {
+      return 'xai';
+    }
+    if (modelLower.includes('mistral') || modelLower.includes('mixtral')) {
+      return 'mistral';
+    }
+    return 'openai'; // Default fallback
+  }
+
+  /**
+   * Expand persona set reference (e.g., "@health" -> ["healthCoach", "psychologist", ...])
+   */
+  private static expandPersonaSet(setName: string): string[] {
+    const sets = this.loadPersonaSets();
+    const cleanName = setName.startsWith('@') ? setName.slice(1) : setName;
+    return sets[cleanName] || [];
+  }
+
+  /**
+   * Get all available personas (built-in + custom)
+   */
+  private static getAllPersonas(): Record<string, Persona> {
+    const customPersonas = this.loadCustomPersonas();
+    return { ...this.personas, ...customPersonas };
+  }
+
+  /**
+   * Clear caches (useful for testing or when config changes)
+   */
+  static clearCache(): void {
+    this.customPersonasCache = null;
+    this.personaSetsCache = null;
+  }
+
+  /**
+   * Get a persona by name (checks built-in first, then custom)
+   */
+  static getPersona(name: string): Persona | undefined {
+    const allPersonas = this.getAllPersonas();
+    return allPersonas[name.toLowerCase()];
+  }
+
+  /**
+   * List all available personas (built-in + custom)
    */
   static listPersonas(): Persona[] {
-    return Object.values(this.personas);
+    const allPersonas = this.getAllPersonas();
+    return Object.values(allPersonas);
+  }
+
+  /**
+   * List persona sets from global config
+   */
+  static listPersonaSets(): Record<string, string[]> {
+    return this.loadPersonaSets();
   }
 
   /**
    * Get personas by names (comma-separated string or array)
+   * Supports:
+   * - Built-in personas: "security,architect"
+   * - Custom personas: "healthCoach,psychologist"
+   * - Persona sets: "@health" (expands to personas in the set)
+   * - Mixed: "@health,security" (combines set + individual)
    */
   static getPersonas(names: string | string[]): Persona[] {
     const nameList = typeof names === 'string'
-      ? names.split(',').map(n => n.trim().toLowerCase())
-      : names.map(n => n.toLowerCase());
+      ? names.split(',').map(n => n.trim())
+      : names;
 
+    const allPersonas = this.getAllPersonas();
     const personas: Persona[] = [];
+    const seen = new Set<string>(); // Avoid duplicates
 
     for (const name of nameList) {
-      const persona = this.personas[name];
-      if (persona) {
-        personas.push(persona);
+      // Handle persona set references (e.g., "@health")
+      if (name.startsWith('@')) {
+        const setPersonas = this.expandPersonaSet(name);
+        if (setPersonas.length === 0) {
+          console.warn(`⚠️  Unknown persona set: ${name}. Check ~/.llm-conclave/config.json for available sets.`);
+          continue;
+        }
+        // Recursively get personas from the set
+        for (const setPersonaName of setPersonas) {
+          const persona = allPersonas[setPersonaName.toLowerCase()];
+          if (persona && !seen.has(persona.name)) {
+            personas.push(persona);
+            seen.add(persona.name);
+          }
+        }
       } else {
-        console.warn(`⚠️  Unknown persona: ${name}. Use 'llm-conclave personas' to see available options.`);
+        // Regular persona lookup
+        const persona = allPersonas[name.toLowerCase()];
+        if (persona && !seen.has(persona.name)) {
+          personas.push(persona);
+          seen.add(persona.name);
+        } else if (!persona) {
+          console.warn(`⚠️  Unknown persona: ${name}. Use 'llm-conclave personas' to see available options.`);
+        }
       }
     }
 

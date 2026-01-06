@@ -106,8 +106,15 @@ const TOOLS: Tool[] = [
 - accessibility: WCAG, a11y patterns (Claude)
 - documentation: API docs, clarity (GPT-4o)
 
+You can also use custom personas defined in ~/.llm-conclave/config.json under "custom_personas".
+Or reference a named persona set with "@" prefix (e.g., "@health" for a health-focused set).
+
 Example: "security,architect,pragmatic" for a security-sensitive architecture decision.
 Default if omitted: generic Primary/Validator/Reviewer agents.`,
+        },
+        config: {
+          type: 'string',
+          description: 'Path to custom .llm-conclave.json config file with custom agent definitions. Overrides default config.',
         },
         rounds: {
           type: 'number',
@@ -209,14 +216,15 @@ async function handleDiscuss(args: {
   task: string;
   project?: string;
   personas?: string;
+  config?: string;
   rounds?: number;
 }) {
-  const { task, project: projectPath, personas, rounds = 4 } = args;
+  const { task, project: projectPath, personas, config: configPath, rounds = 4 } = args;
 
-  // Resolve configuration
-  const config = ConfigCascade.resolve({});
+  // Resolve configuration with optional custom config path
+  const config = ConfigCascade.resolve({ config: configPath });
 
-  // Apply personas if specified
+  // Apply personas if specified (supports built-in, custom, and persona sets)
   if (personas) {
     const personaList = PersonaSystem.getPersonas(personas);
     const personaAgents = PersonaSystem.personasToAgents(personaList);
