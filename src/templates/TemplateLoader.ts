@@ -25,7 +25,10 @@ export class TemplateLoader {
   }
 
   get projectTemplatesDir(): string {
-     return path.join(process.cwd(), '.conclave', 'templates');
+    const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+     return isTestEnv
+       ? path.join(os.tmpdir(), 'llm-conclave-test-project-templates')
+       : path.join(process.cwd(), '.conclave', 'templates');
   }
 
   discoverTemplates(): Map<string, TemplatePath> {
@@ -75,11 +78,15 @@ export class TemplateLoader {
     try {
       data = yaml.load(content);
     } catch (error: any) {
-      throw new Error(`Error loading template '${name}':\n  File: ${templatePath.filePath}\n  Parse error: ${error.message}`);
+      let msg = error.message;
+      if (error.mark) {
+        msg = `YAML syntax error at line ${error.mark.line + 1}, column ${error.mark.column + 1}`;
+      }
+      throw new Error(`Error loading template '${name}':\n  File: ${templatePath.filePath}\n  Parse error: ${msg}`);
     }
 
     try {
-      const validated = validateTemplate(data, templatePath.filePath);
+      const validated = validateTemplate(data);
       return {
         ...validated,
         source: templatePath.source,

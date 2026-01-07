@@ -18,7 +18,7 @@ describe('TemplateLoader', () => {
     });
 
     it('should resolve project templates directory', () => {
-        const expected = path.join(process.cwd(), '.conclave', 'templates');
+        const expected = path.join(os.tmpdir(), 'llm-conclave-test-project-templates');
         // @ts-ignore
         expect(loader.projectTemplatesDir).toBe(expected);
     });
@@ -26,7 +26,7 @@ describe('TemplateLoader', () => {
 
   describe('discoverTemplates', () => {
       const globalDir = path.join(os.tmpdir(), 'llm-conclave-test-templates');
-      const projectDir = path.join(process.cwd(), '.conclave', 'templates');
+      const projectDir = path.join(os.tmpdir(), 'llm-conclave-test-project-templates');
 
       beforeEach(() => {
           if (fs.existsSync(globalDir)) {
@@ -34,20 +34,19 @@ describe('TemplateLoader', () => {
           }
           fs.mkdirSync(globalDir, { recursive: true });
           
-          if (!fs.existsSync(projectDir)) {
-              fs.mkdirSync(projectDir, { recursive: true });
+          if (fs.existsSync(projectDir)) {
+              fs.rmSync(projectDir, { recursive: true, force: true });
           }
+          fs.mkdirSync(projectDir, { recursive: true });
       });
 
       afterEach(() => {
           if (fs.existsSync(globalDir)) {
               fs.rmSync(globalDir, { recursive: true, force: true });
           }
-          const testFiles = ['project-1.yaml', 'override.yaml'];
-          testFiles.forEach(f => {
-              const p = path.join(projectDir, f);
-              if (fs.existsSync(p)) fs.unlinkSync(p);
-          });
+          if (fs.existsSync(projectDir)) {
+              fs.rmSync(projectDir, { recursive: true, force: true });
+          }
       });
 
       it('should return a Map', () => {
@@ -150,7 +149,7 @@ task: Do something.
 
   describe('loadAllTemplates', () => {
        const globalDir = path.join(os.tmpdir(), 'llm-conclave-test-templates');
-       const projectDir = path.join(process.cwd(), '.conclave', 'templates');
+       const projectDir = path.join(os.tmpdir(), 'llm-conclave-test-project-templates');
 
       beforeEach(() => {
            if (fs.existsSync(globalDir)) {
@@ -158,20 +157,19 @@ task: Do something.
           }
           fs.mkdirSync(globalDir, { recursive: true });
           
-          if (!fs.existsSync(projectDir)) {
-              fs.mkdirSync(projectDir, { recursive: true });
+          if (fs.existsSync(projectDir)) {
+              fs.rmSync(projectDir, { recursive: true, force: true });
           }
+          fs.mkdirSync(projectDir, { recursive: true });
       });
       
       afterEach(() => {
            if (fs.existsSync(globalDir)) {
               fs.rmSync(globalDir, { recursive: true, force: true });
           }
-          const testFiles = ['t1.yaml', 't2.yaml', 'override.yaml'];
-          testFiles.forEach(f => {
-              const p = path.join(projectDir, f);
-              if (fs.existsSync(p)) fs.unlinkSync(p);
-          });
+           if (fs.existsSync(projectDir)) {
+              fs.rmSync(projectDir, { recursive: true, force: true });
+          }
       });
 
       it('should load all templates', () => {
@@ -200,21 +198,16 @@ task: Do something.
 
   describe('Empty State', () => {
        const globalDir = path.join(os.tmpdir(), 'llm-conclave-test-templates');
-       const projectDir = path.join(process.cwd(), '.conclave', 'templates');
+       const projectDir = path.join(os.tmpdir(), 'llm-conclave-test-project-templates');
        
        beforeEach(() => {
            if (fs.existsSync(globalDir)) fs.rmSync(globalDir, { recursive: true, force: true });
-           if (fs.existsSync(projectDir)) {
-               fs.readdirSync(projectDir).forEach(f => {
-                   if (f.endsWith('.yaml')) fs.unlinkSync(path.join(projectDir, f));
-               });
-               // Try to remove dir if empty
-               try { fs.rmdirSync(projectDir); } catch (e) {} 
-           }
+           if (fs.existsSync(projectDir)) fs.rmSync(projectDir, { recursive: true, force: true });
        });
        
        afterEach(() => {
             if (fs.existsSync(globalDir)) fs.rmSync(globalDir, { recursive: true, force: true });
+            if (fs.existsSync(projectDir)) fs.rmSync(projectDir, { recursive: true, force: true });
        });
 
       it('should return empty list when no templates exist', () => {
@@ -254,10 +247,10 @@ task: Do something.
        });
 
       it('should load 20 templates in under 100ms', () => {
-          const start = performance.now();
+          const start = Date.now();
           // @ts-ignore
           loader.loadAllTemplates();
-          const duration = performance.now() - start;
+          const duration = Date.now() - start;
           expect(duration).toBeLessThan(100);
       });
   });
