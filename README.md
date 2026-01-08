@@ -42,7 +42,7 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
    npm link
    ```
 
-## Quick Start (v2 - New Interface! 🎉)
+## Quick Start
 
 **Zero-config mode** - works immediately without setup:
 
@@ -80,11 +80,11 @@ llm-conclave init
 # Creates .llm-conclave.json with AI-generated agents
 ```
 
-## Usage (v2 CLI)
+## Usage
 
 ### Command Structure
 
-LLM Conclave v2 uses **Git-style subcommands** for better organization:
+LLM Conclave uses **Git-style subcommands** for better organization:
 
 ```bash
 llm-conclave <subcommand> [options] "task"
@@ -102,7 +102,7 @@ llm-conclave -p ./src "Review this codebase"
 #### Explicit Modes
 
 ```bash
-# Fast multi-model consultation (NEW!)
+# Fast multi-model consultation
 llm-conclave consult "What's the best approach for rate limiting?"
 
 # Democratic discussion (consensus mode)
@@ -117,7 +117,7 @@ llm-conclave iterate --deep "Fix bugs line by line"
 
 #### Consult Mode (Fast Decision-Making)
 
-**NEW!** Get quick, structured multi-model consultations with cost controls:
+Get quick, structured multi-model consultations with cost controls:
 
 ```bash
 # Basic consultation
@@ -263,19 +263,6 @@ llm-conclave server -p 8080         # Custom port
 -h, --help                  # Show help
 ```
 
-### v1 Commands (Still Supported)
-
-Old commands still work with deprecation warnings:
-
-```bash
-llm-conclave --orchestrated "task"  # Use: llm-conclave review "task"
-llm-conclave --iterative "task"     # Use: llm-conclave iterate "task"
-llm-conclave --init                 # Use: llm-conclave init
-llm-conclave --list-templates       # Use: llm-conclave templates
-```
-
-See **[MIGRATION_GUIDE_V2.md](./MIGRATION_GUIDE_V2.md)** for full migration details.
-
 ### Operational Modes
 
 **Consult Mode (`consult`):**
@@ -297,7 +284,7 @@ llm-conclave consult --mode explore "Ideas for improving user engagement"
 - Judge coordinates and evaluates consensus after each round
 - Best for open-ended problems requiring diverse perspectives
 
-**Orchestrated Mode (`--orchestrated`):**
+**Orchestrated Mode (`review`):**
 - Structured workflow with designated primary agent
 - Secondary agents provide critiques
 - Optional validation gates for quality assurance
@@ -306,10 +293,10 @@ llm-conclave consult --mode explore "Ideas for improving user engagement"
 
 Example:
 ```bash
-llm-conclave --orchestrated "Correct all 10 lines of oz.txt one at a time"
+llm-conclave review "Correct all 10 lines of oz.txt one at a time"
 ```
 
-**Iterative Collaborative Mode (`--iterative`):**
+**Iterative Collaborative Mode (`iterate`):**
 - Work is divided into configurable chunks (e.g., 3 lines at a time)
 - Each chunk has multiple rounds of discussion
 - **Agents can respond to each other** within each chunk (not one-and-done)
@@ -328,24 +315,24 @@ llm-conclave --orchestrated "Correct all 10 lines of oz.txt one at a time"
 
 Example:
 ```bash
-llm-conclave --iterative --project oz.txt "Correct all OCR errors line by line"
-llm-conclave --iterative --chunk-size 5 "Review and improve documentation"
+llm-conclave iterate -p oz.txt "Correct all OCR errors line by line"
+llm-conclave iterate --chunk-size 5 "Review and improve documentation"
 ```
 
 ### Examples
 
 ```bash
 # Create initial config with AI-generated agents
-llm-conclave --init
+llm-conclave init
 
 # List available templates/runbooks
-llm-conclave --list-templates
+llm-conclave templates
 
 # Run a code review using a predefined template
-llm-conclave --template code-review --project ./src "Review the 'auth' module for security issues"
+llm-conclave template code-review -p ./src "Review the 'auth' module for security issues"
 
 # Run an architecture design session using a template
-llm-conclave --template architecture-design "Design a new payment gateway"
+llm-conclave template architecture-design "Design a new payment gateway"
 
 # Run with inline task (consensus mode)
 llm-conclave "Create a task management application with real-time collaboration"
@@ -354,40 +341,40 @@ llm-conclave "Create a task management application with real-time collaboration"
 llm-conclave ./tasks/project-brief.txt
 
 # Use custom config
-llm-conclave --config ./configs/creative-team.json "Write a short story about AI"
+llm-conclave -c ./configs/creative-team.json "Write a short story about AI"
 
 # Analyze a project directory
-llm-conclave --project ./my-app "Review this code for potential bugs and security issues"
+llm-conclave -p ./my-app "Review this code for potential bugs and security issues"
 
-# Orchestrated mode: Agents can perform actual file operations
-llm-conclave --orchestrated "Correct lines 1-2 of oz.txt"
+# Review mode: Agents can perform actual file operations
+llm-conclave review "Correct lines 1-2 of oz.txt"
 
-# Orchestrated mode: Iterative file processing
-llm-conclave --orchestrated "Correct all 10 lines of document.txt one at a time"
+# Review mode: Iterative file processing
+llm-conclave review "Correct all 10 lines of document.txt one at a time"
 
-# Orchestrated mode: Code refactoring
-llm-conclave --orchestrated --project ./src "Refactor the authentication module"
+# Review mode: Code refactoring
+llm-conclave review -p ./src "Refactor the authentication module"
 
 # Review documentation directory
-llm-conclave --project ./docs "Review my technical writing for clarity and completeness"
+llm-conclave -p ./docs "Review my technical writing for clarity and completeness"
 
 # Investigate a bug
-llm-conclave --project ./src "Find why the login feature isn't working on mobile"
+llm-conclave -p ./src "Find why the login feature isn't working on mobile"
 
 # Iterative collaborative mode: OCR correction with multi-turn discussion
-llm-conclave --iterative --project oz.txt "Correct all OCR errors with collaborative discussion"
+llm-conclave iterate -p oz.txt "Correct all OCR errors with collaborative discussion"
 
 # Iterative mode: Custom chunk size for larger sections
-llm-conclave --iterative --chunk-size 5 --project ./docs "Review and improve each section"
+llm-conclave iterate --chunk-size 5 -p ./docs "Review and improve each section"
 
 # Iterative mode: More rounds of discussion per chunk
-llm-conclave --iterative --max-rounds-per-chunk 7 "Iteratively refine the code"
+llm-conclave iterate --deep "Iteratively refine the code"
 
 # Enable streaming for real-time agent responses
 llm-conclave --stream "Design a microservices architecture"
 
 # Streaming with project context
-llm-conclave --stream --project ./src "Review and explain this codebase"
+llm-conclave --stream -p ./src "Review and explain this codebase"
 ```
 
 ## Session Management & Continuation
@@ -406,22 +393,16 @@ LLM Conclave automatically saves all conversations, allowing you to continue dis
 
 ```bash
 # List all saved sessions
-llm-conclave --list-sessions
+llm-conclave sessions
 
 # List with filters
-llm-conclave --list-sessions --mode consensus --limit 5
-
-# Show details of a specific session
-llm-conclave --show-session session_2025-12-06T20-42-25_a3f2
+llm-conclave sessions --mode consensus --limit 5
 
 # Continue the most recent session
-llm-conclave --continue "Can you elaborate on the scalability concerns?"
+llm-conclave continue "Can you elaborate on the scalability concerns?"
 
 # Resume a specific session by ID
-llm-conclave --resume session_2025-12-06T20-42-25_a3f2 "What about using a database?"
-
-# Delete a session
-llm-conclave --delete-session session_2025-12-06T20-42-25_a3f2
+llm-conclave continue session_2025-12-06T20-42-25_a3f2 "What about using a database?"
 ```
 
 ### Example Workflow
@@ -433,7 +414,7 @@ $ llm-conclave "Evaluate my AI brain storage idea"
 ✓ Session saved: session_2025-12-06T20-42-25_a3f2
 
 # 2. Later, ask a follow-up question
-$ llm-conclave --continue "Can you elaborate on the indexing strategies?"
+$ llm-conclave continue "Can you elaborate on the indexing strategies?"
 → Loading session session_2025-12-06T20-42-25_a3f2...
 → Continuing discussion with 5 agents...
 # ... agents see full context and continue the discussion ...
@@ -441,7 +422,7 @@ $ llm-conclave --continue "Can you elaborate on the indexing strategies?"
   (Parent session: session_2025-12-06T20-42-25_a3f2)
 
 # 3. View session history
-$ llm-conclave --list-sessions
+$ llm-conclave sessions
 Recent Sessions (showing 2):
 
 1. [Dec 6, 9:15 PM] "This is a continuation of a previous discussion..."
@@ -476,7 +457,7 @@ Sessions persist across projects and directories, making it easy to continue con
 
 ## MCP Server (Model Context Protocol)
 
-**NEW**: Expose llm_conclave's multi-agent consultation capabilities as tools for ANY AI assistant!
+Expose llm_conclave's multi-agent consultation capabilities as tools for ANY AI assistant!
 
 Instead of running CLI commands yourself, let your AI assistant invoke consultations as part of solving your problems.
 
@@ -651,8 +632,8 @@ llm-conclave --project ./my-webapp "Review this React app for performance issues
 # 4. Reach consensus on recommendations
 # 5. Output detailed findings to the outputs/ directory
 
-# Or use orchestrated mode for actual file changes:
-llm-conclave --orchestrated --project ./my-webapp "Fix all ESLint errors"
+# Or use review mode for actual file changes:
+llm-conclave review -p ./my-webapp "Fix all ESLint errors"
 # Agents can read, analyze, and directly edit files!
 ```
 
@@ -784,7 +765,7 @@ Additionally, sessions are automatically saved for continuation:
 
 - **`~/.llm-conclave/sessions/`**: Persistent session storage across all projects
   - Each session includes full conversation history, agent configs, costs, and lineage
-  - Use `--list-sessions` to view and `--continue`/`--resume` to continue conversations
+  - Use `sessions` to view and `continue` to resume conversations
   - See [Session Management & Continuation](#session-management--continuation) for details
 
 ## API Keys
@@ -856,7 +837,7 @@ Contributions welcome! Please open an issue or PR.
 
 ## Troubleshooting
 
-**"Configuration file not found"**: Run `llm-conclave --init` to create a config file
+**"Configuration file not found"**: Run `llm-conclave init` to create a config file
 
 **API errors**: Check that your API keys are correctly set in `.env`
 
