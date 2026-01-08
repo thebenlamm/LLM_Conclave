@@ -30,14 +30,15 @@ export class ContextLoader {
         continue;
       }
 
-      // Use raw path for checking, but resolve for storing
-      const absolutePath = path.resolve(filePath);
-      if (!path.isAbsolute(filePath)) {
-        const normalizedBase = path.resolve(this.baseDir) + path.sep;
-        if (!absolutePath.startsWith(normalizedBase)) {
-          errors.push(`Context file path escapes working directory: ${filePath}`);
-          continue;
-        }
+      // Resolve to absolute path and validate it stays within baseDir
+      // SECURITY: Validate ALL paths, not just relative ones (fixes absolute path bypass)
+      const absolutePath = path.resolve(this.baseDir, filePath);
+      const normalizedBase = path.resolve(this.baseDir) + path.sep;
+
+      // Check if resolved path is within sandbox (or IS the baseDir itself)
+      if (!absolutePath.startsWith(normalizedBase) && absolutePath !== path.resolve(this.baseDir)) {
+        errors.push(`Context file path escapes working directory: ${filePath}`);
+        continue;
       }
 
       // Validate file exists

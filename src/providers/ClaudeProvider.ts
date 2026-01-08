@@ -21,38 +21,60 @@ export default class ClaudeProvider extends LLMProvider {
       const { tools = null, stream = false, onToken } = options;
 
       // Claude API expects messages without system role in the messages array
-      // System prompt is passed separately
-      const messageArray = messages.map(msg => {
-        // Handle messages with tool results
-        if (msg.role === 'tool_result') {
-          return {
-            role: 'user',
-            content: [{
-              type: 'tool_result',
-              tool_use_id: msg.tool_use_id,
-              content: msg.content
-            }]
-          };
-        }
+      // System prompt is passed separately - collect any system messages to merge
+      const additionalSystemMessages: string[] = [];
 
-        // Handle messages with tool calls from assistant
-        if (msg.role === 'assistant' && msg.tool_calls) {
-          return {
-            role: 'assistant',
-            content: msg.tool_calls.map((tc: any) => ({
+      const messageArray = messages
+        .filter(msg => {
+          // Extract system messages to merge into system prompt
+          if (msg.role === 'system') {
+            additionalSystemMessages.push(msg.content);
+            return false; // Don't include in message array
+          }
+          return true;
+        })
+        .map(msg => {
+          // Handle messages with tool results
+          if (msg.role === 'tool_result') {
+            return {
+              role: 'user',
+              content: [{
+                type: 'tool_result',
+                tool_use_id: (msg as any).tool_use_id,
+                content: msg.content
+              }]
+            };
+          }
+
+          // Handle messages with tool calls from assistant
+          // FIXED: Preserve text content alongside tool_use blocks
+          if (msg.role === 'assistant' && (msg as any).tool_calls) {
+            const content: any[] = [];
+
+            // Add text content if present (preserves reasoning/explanation)
+            if (msg.content && msg.content.trim()) {
+              content.push({ type: 'text', text: msg.content });
+            }
+
+            // Add tool_use blocks
+            content.push(...(msg as any).tool_calls.map((tc: any) => ({
               type: 'tool_use',
               id: tc.id,
               name: tc.name,
               input: tc.input
-            }))
-          };
-        }
+            })));
 
-        return {
-          role: msg.role === 'assistant' ? 'assistant' : 'user',
-          content: msg.content
-        };
-      });
+            return {
+              role: 'assistant',
+              content
+            };
+          }
+
+          return {
+            role: msg.role === 'assistant' ? 'assistant' : 'user',
+            content: msg.content
+          };
+        });
 
       const params: any = {
         model: this.modelName,
@@ -61,9 +83,15 @@ export default class ClaudeProvider extends LLMProvider {
         temperature: 0.7,
       };
 
-      // Add system prompt if provided
-      if (systemPrompt) {
-        params.system = systemPrompt;
+      // Merge system prompt with any system messages found in conversation
+      // FIXED: System messages merged into system param, not converted to user
+      const combinedSystemPrompt = [
+        systemPrompt,
+        ...additionalSystemMessages
+      ].filter(Boolean).join('\n\n');
+
+      if (combinedSystemPrompt) {
+        params.system = combinedSystemPrompt;
       }
 
       // Add tools if provided

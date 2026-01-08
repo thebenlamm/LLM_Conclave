@@ -168,11 +168,16 @@ export default class GeminiProvider extends LLMProvider {
         const toolResult = msg as any;
         const functionName = lastToolCallsMap.get(toolResult.tool_use_id) || 'unknown';
 
-        // Parse tool content if it's JSON, otherwise pass as-is
-        let responseContent;
+        // Parse tool content and ensure it's an object (Gemini requires object response)
+        let responseContent: Record<string, any>;
         try {
-          // Try to parse as JSON to respect the tool's schema
-          responseContent = JSON.parse(toolResult.content);
+          const parsed = JSON.parse(toolResult.content);
+          // Gemini expects response to be an object, wrap primitives/arrays
+          if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            responseContent = { result: parsed };
+          } else {
+            responseContent = parsed;
+          }
         } catch {
           // If not JSON, wrap in generic result field for compatibility
           responseContent = { result: toolResult.content };

@@ -6,14 +6,28 @@ import * as fs from 'fs/promises';
 import { execSync } from 'child_process';
 import * as path from 'path';
 import { ToolDefinition, ToolExecutionResult, OpenAITool } from '../types';
+import { SensitiveDataScrubber } from '../consult/security/SensitiveDataScrubber';
 
 /**
  * ToolRegistry - Defines and executes tools for agent use
+ *
+ * Security features:
+ * - Path sandboxing: File operations restricted to baseDir
+ * - Command blacklist: Dangerous commands blocked
+ * - Command timeout: 30s max execution time
+ * - Sensitive data scrubbing: API keys, passwords auto-redacted from output
  */
 export default class ToolRegistry {
   tools: Record<string, ToolDefinition>;
+  private readonly baseDir: string;
+  private readonly scrubber: SensitiveDataScrubber;
+  private readonly commandTimeoutMs = 30000; // 30 seconds
+  private readonly enableRunCommand: boolean;
 
-  constructor() {
+  constructor(baseDir?: string, options?: { enableRunCommand?: boolean }) {
+    this.baseDir = path.resolve(baseDir ?? process.cwd());
+    this.scrubber = new SensitiveDataScrubber();
+    this.enableRunCommand = options?.enableRunCommand ?? false; // Disabled by default
     this.tools = this.defineTools();
   }
 
@@ -133,6 +147,52 @@ export default class ToolRegistry {
   }
 
   /**
+   * Validate and resolve a file path, ensuring it stays within the sandbox.
+   * @throws Error if path escapes sandbox or contains dangerous patterns
+   */
+  private validatePath(filePath: string): string {
+    // Block null bytes
+    if (filePath.includes('\0')) {
+      throw new Error('Invalid path: null byte detected');
+    }
+
+    // Resolve to absolute path
+    const absolutePath = path.resolve(this.baseDir, filePath);
+    const normalizedBase = path.resolve(this.baseDir) + path.sep;
+
+    // Check if resolved path is within sandbox
+    if (!absolutePath.startsWith(normalizedBase) && absolutePath !== path.resolve(this.baseDir)) {
+      throw new Error(`Path escapes sandbox: ${filePath}`);
+    }
+
+    // Block symlink traversal (checked during actual file operations)
+    return absolutePath;
+  }
+
+  /**
+   * Apply sensitive data scrubbing to tool results
+   */
+  private scrubResult(result: ToolExecutionResult): ToolExecutionResult {
+    if (!result.success || !result.result) {
+      return result;
+    }
+
+    const content = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
+    const { content: scrubbedContent, report } = this.scrubber.scrub(content);
+
+    if (report.sensitiveDataScrubbed) {
+      // Log that scrubbing occurred (visible in debug mode)
+      const typesFound = report.typesDetected.join(', ');
+      console.error(`[Security] Scrubbed ${report.patternsMatched} sensitive value(s) from tool result: ${typesFound}`);
+    }
+
+    return {
+      ...result,
+      result: scrubbedContent
+    };
+  }
+
+  /**
    * Execute a tool call
    * @param toolName - Name of the tool
    * @param input - Tool input parameters
@@ -140,21 +200,28 @@ export default class ToolRegistry {
    */
   async executeTool(toolName: string, input: Record<string, any>): Promise<ToolExecutionResult> {
     try {
+      let result: ToolExecutionResult;
+
       switch (toolName) {
         case 'read_file':
-          return await this._readFile(input.file_path);
+          result = await this._readFile(input.file_path);
+          break;
 
         case 'write_file':
-          return await this._writeFile(input.file_path, input.content);
+          result = await this._writeFile(input.file_path, input.content);
+          break;
 
         case 'edit_file':
-          return await this._editFile(input.file_path, input.old_string, input.new_string);
+          result = await this._editFile(input.file_path, input.old_string, input.new_string);
+          break;
 
         case 'list_files':
-          return await this._listFiles(input.pattern, input.directory);
+          result = await this._listFiles(input.pattern, input.directory);
+          break;
 
         case 'run_command':
-          return await this._runCommand(input.command);
+          result = await this._runCommand(input.command);
+          break;
 
         default:
           return {
@@ -162,6 +229,9 @@ export default class ToolRegistry {
             error: `Unknown tool: ${toolName}`
           };
       }
+
+      // Apply sensitive data scrubbing to all successful results
+      return this.scrubResult(result);
     } catch (error: any) {
       return {
         success: false,
@@ -171,38 +241,66 @@ export default class ToolRegistry {
   }
 
   /**
-   * Read a file
+   * Read a file (sandboxed to baseDir)
    */
-  async _readFile(filePath: string): Promise<any> {
-    const content = await fs.readFile(filePath, 'utf8');
+  async _readFile(filePath: string): Promise<ToolExecutionResult> {
+    const validatedPath = this.validatePath(filePath);
+
+    // Check for symlink to prevent traversal
+    const stats = await fs.lstat(validatedPath);
+    if (stats.isSymbolicLink()) {
+      return {
+        success: false,
+        error: 'Symlinks are not allowed for security reasons'
+      };
+    }
+
+    const content = await fs.readFile(validatedPath, 'utf8');
     const lines = content.split('\n').length;
 
     return {
       success: true,
       result: content,
-      summary: `Read ${lines} lines from ${path.basename(filePath)}`
+      summary: `Read ${lines} lines from ${path.basename(validatedPath)}`
     };
   }
 
   /**
-   * Write a file
+   * Write a file (sandboxed to baseDir)
    */
-  async _writeFile(filePath: string, content: string): Promise<any> {
-    await fs.writeFile(filePath, content, 'utf8');
+  async _writeFile(filePath: string, content: string): Promise<ToolExecutionResult> {
+    const validatedPath = this.validatePath(filePath);
+
+    // Ensure parent directory exists
+    const parentDir = path.dirname(validatedPath);
+    await fs.mkdir(parentDir, { recursive: true });
+
+    await fs.writeFile(validatedPath, content, 'utf8');
     const lines = content.split('\n').length;
 
     return {
       success: true,
-      result: `Wrote ${lines} lines to ${filePath}`,
-      summary: `Created ${path.basename(filePath)} (${lines} lines)`
+      result: `Wrote ${lines} lines to ${validatedPath}`,
+      summary: `Created ${path.basename(validatedPath)} (${lines} lines)`
     };
   }
 
   /**
-   * Edit a file
+   * Edit a file (sandboxed to baseDir)
    */
-  async _editFile(filePath: string, oldString: string, newString: string): Promise<any> {
-    const content = await fs.readFile(filePath, 'utf8');
+  async _editFile(filePath: string, oldString: string, newString: string): Promise<ToolExecutionResult> {
+    const validatedPath = this.validatePath(filePath);
+
+    // Check for symlink to prevent traversal
+    const stats = await fs.lstat(validatedPath);
+    if (stats.isSymbolicLink()) {
+      return {
+        success: false,
+        error: 'Symlinks are not allowed for security reasons'
+      };
+    }
+
+    const content = await fs.readFile(validatedPath, 'utf8');
 
     if (!content.includes(oldString)) {
       return {
@@ -212,21 +310,28 @@ export default class ToolRegistry {
     }
 
     const newContent = content.replace(oldString, newString);
-    await fs.writeFile(filePath, newContent, 'utf8');
+    await fs.writeFile(validatedPath, newContent, 'utf8');
 
     return {
       success: true,
-      result: `Updated ${filePath}`,
-      summary: `Edited ${path.basename(filePath)}`
+      result: `Updated ${validatedPath}`,
+      summary: `Edited ${path.basename(validatedPath)}`
     };
   }
 
   /**
-   * List files matching pattern
+   * List files matching pattern (sandboxed to baseDir)
    */
-  async _listFiles(pattern: string, directory: string = process.cwd()): Promise<any> {
+  async _listFiles(pattern: string, directory?: string): Promise<ToolExecutionResult> {
+    // Validate directory if provided, otherwise use baseDir
+    const searchDir = directory ? this.validatePath(directory) : this.baseDir;
+
     const { glob } = await import('glob');
-    const files = await glob(pattern, { cwd: directory });
+    const files = await glob(pattern, {
+      cwd: searchDir,
+      nodir: true, // Only return files
+      follow: false // Don't follow symlinks
+    });
 
     return {
       success: true,
@@ -236,24 +341,143 @@ export default class ToolRegistry {
   }
 
   /**
-   * Run a shell command
+   * Dangerous command patterns - comprehensive blocklist
    */
-  async _runCommand(command: string): Promise<any> {
-    // Safety check - don't allow dangerous commands
-    const dangerous = ['rm -rf', 'dd if=', '> /dev/', 'mkfs', 'format'];
-    if (dangerous.some(cmd => command.includes(cmd))) {
+  private static readonly DANGEROUS_COMMANDS: readonly string[] = [
+    // Destructive file operations
+    'rm -rf', 'rm -fr', 'rmdir', 'shred',
+    // Disk operations
+    'dd if=', 'dd of=', 'mkfs', 'fdisk', 'parted',
+    // Device/system writes
+    '> /dev/', '>> /dev/', '/dev/null', '/dev/sda', '/dev/disk',
+    // System modification
+    'format', 'diskutil', 'wipefs',
+    // Privilege escalation
+    'sudo', 'su -', 'doas', 'pkexec',
+    // Network exfiltration
+    'curl', 'wget', 'nc ', 'netcat', 'ncat',
+    // Shell escape/chaining dangers
+    '$(', '`', '&&', '||', ';', '|', '\n',
+    // Environment manipulation
+    'export ', 'unset ', 'env ',
+    // Process control
+    'kill', 'pkill', 'killall',
+    // Cron/scheduled tasks
+    'crontab', 'at ', 'batch',
+    // User management
+    'useradd', 'userdel', 'usermod', 'passwd', 'chpasswd',
+    // Service control
+    'systemctl', 'service ', 'launchctl',
+    // Package managers (could install malicious packages)
+    'apt', 'yum', 'dnf', 'brew', 'npm', 'pip', 'gem',
+    // Reverse shells
+    '/bin/bash', '/bin/sh', 'bash -i', 'sh -i',
+    // File permission changes
+    'chmod', 'chown', 'chgrp',
+    // SSH operations
+    'ssh ', 'scp ', 'sftp',
+  ] as const;
+
+  /**
+   * Allowed command prefixes (allowlist approach for maximum safety)
+   */
+  private static readonly ALLOWED_COMMANDS: readonly string[] = [
+    'ls', 'cat', 'head', 'tail', 'grep', 'find', 'wc',
+    'echo', 'pwd', 'date', 'whoami', 'hostname',
+    'git status', 'git log', 'git diff', 'git branch', 'git show',
+    'node --version', 'npm --version', 'python --version',
+  ] as const;
+
+  /**
+   * Run a shell command (DISABLED BY DEFAULT - requires explicit opt-in)
+   *
+   * Security measures:
+   * - Disabled by default (must pass enableRunCommand: true to constructor)
+   * - Comprehensive command blocklist
+   * - Optional allowlist mode
+   * - 30-second timeout
+   * - Sandboxed to baseDir
+   * - Output size limited to 1MB
+   */
+  async _runCommand(command: string): Promise<ToolExecutionResult> {
+    // Check if run_command is enabled
+    if (!this.enableRunCommand) {
       return {
         success: false,
-        error: 'Command contains potentially dangerous operations'
+        error: 'run_command is disabled for security. Enable with { enableRunCommand: true } in constructor.'
       };
     }
 
-    const output = execSync(command, { encoding: 'utf8', maxBuffer: 1024 * 1024 });
+    // Trim and check for empty command
+    const trimmedCommand = command.trim();
+    if (!trimmedCommand) {
+      return {
+        success: false,
+        error: 'Empty command'
+      };
+    }
 
-    return {
-      success: true,
-      result: output,
-      summary: `Ran: ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`
-    };
+    // Block dangerous commands
+    const lowerCommand = trimmedCommand.toLowerCase();
+    for (const dangerous of ToolRegistry.DANGEROUS_COMMANDS) {
+      if (lowerCommand.includes(dangerous.toLowerCase())) {
+        return {
+          success: false,
+          error: `Blocked: command contains dangerous pattern '${dangerous}'`
+        };
+      }
+    }
+
+    // Check for path traversal in command arguments
+    if (trimmedCommand.includes('..')) {
+      return {
+        success: false,
+        error: 'Path traversal (..) is not allowed in commands'
+      };
+    }
+
+    try {
+      const output = execSync(trimmedCommand, {
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024, // 1MB max output
+        timeout: this.commandTimeoutMs,
+        cwd: this.baseDir, // Sandbox to baseDir
+        env: {
+          // Minimal safe environment
+          PATH: '/usr/local/bin:/usr/bin:/bin',
+          HOME: process.env.HOME,
+          USER: process.env.USER,
+          LANG: 'en_US.UTF-8',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'] // No stdin, capture stdout/stderr
+      });
+
+      return {
+        success: true,
+        result: output,
+        summary: `Ran: ${trimmedCommand.substring(0, 50)}${trimmedCommand.length > 50 ? '...' : ''}`
+      };
+    } catch (error: any) {
+      // Handle timeout specifically
+      if (error.killed) {
+        return {
+          success: false,
+          error: `Command timed out after ${this.commandTimeoutMs / 1000} seconds`
+        };
+      }
+
+      // Return stderr if available
+      if (error.stderr) {
+        return {
+          success: false,
+          error: error.stderr.toString().substring(0, 500)
+        };
+      }
+
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 }

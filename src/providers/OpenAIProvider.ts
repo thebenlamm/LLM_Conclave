@@ -16,12 +16,69 @@ export default class OpenAIProvider extends LLMProvider {
     });
   }
 
+  /**
+   * Convert messages to OpenAI format, handling tool_result messages
+   */
+  private convertMessagesToOpenAIFormat(messages: Message[]): any[] {
+    return messages.map(msg => {
+      // Convert tool_result to OpenAI's tool format
+      if (msg.role === 'tool_result') {
+        const toolResult = msg as any;
+        return {
+          role: 'tool',
+          tool_call_id: toolResult.tool_use_id,
+          content: typeof toolResult.content === 'string'
+            ? toolResult.content
+            : JSON.stringify(toolResult.content)
+        };
+      }
+
+      // Convert assistant messages with tool_calls
+      if (msg.role === 'assistant' && (msg as any).tool_calls) {
+        const assistantMsg = msg as any;
+        return {
+          role: 'assistant',
+          content: msg.content || null,
+          tool_calls: assistantMsg.tool_calls.map((tc: any) => ({
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input)
+            }
+          }))
+        };
+      }
+
+      // Pass through other messages
+      return {
+        role: msg.role,
+        content: msg.content
+      };
+    });
+  }
+
+  /**
+   * Safely parse JSON with fallback
+   */
+  private safeJsonParse(jsonString: string, fallback: any = {}): any {
+    try {
+      return JSON.parse(jsonString);
+    } catch {
+      console.error(`[OpenAIProvider] Failed to parse tool arguments: ${jsonString.substring(0, 100)}`);
+      return fallback;
+    }
+  }
+
   protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
       const { tools = null, stream = false, onToken } = options;
+
+      // Convert messages to OpenAI format (handles tool_result → tool)
+      const convertedMessages = this.convertMessagesToOpenAIFormat(messages);
       const messageArray = systemPrompt
-        ? [{ role: 'system', content: systemPrompt }, ...messages]
-        : messages;
+        ? [{ role: 'system', content: systemPrompt }, ...convertedMessages]
+        : convertedMessages;
 
       const params: any = {
         model: this.modelName,
@@ -56,6 +113,11 @@ export default class OpenAIProvider extends LLMProvider {
 
       const response = await this.client.chat.completions.create(params);
 
+      // Guard against empty choices array
+      if (!response.choices || response.choices.length === 0) {
+        throw new Error('OpenAI returned empty choices array');
+      }
+
       const message = response.choices[0].message;
       const usage = {
         input_tokens: response.usage?.prompt_tokens || 0,
@@ -68,7 +130,7 @@ export default class OpenAIProvider extends LLMProvider {
           tool_calls: message.tool_calls.map((tc: any) => ({
             id: tc.id,
             name: tc.function.name,
-            input: JSON.parse(tc.function.arguments)
+            input: this.safeJsonParse(tc.function.arguments)
           })),
           text: message.content || null,
           usage,
