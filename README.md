@@ -293,7 +293,7 @@ llm-conclave consult --mode explore "Ideas for improving user engagement"
 
 Example:
 ```bash
-llm-conclave review "Correct all 10 lines of oz.txt one at a time"
+llm-conclave review "Correct all 10 lines of document.txt one at a time"
 ```
 
 **Iterative Collaborative Mode (`iterate`):**
@@ -315,7 +315,7 @@ llm-conclave review "Correct all 10 lines of oz.txt one at a time"
 
 Example:
 ```bash
-llm-conclave iterate -p oz.txt "Correct all OCR errors line by line"
+llm-conclave iterate -p document.txt "Correct all OCR errors line by line"
 llm-conclave iterate --chunk-size 5 "Review and improve documentation"
 ```
 
@@ -347,7 +347,7 @@ llm-conclave -c ./configs/creative-team.json "Write a short story about AI"
 llm-conclave -p ./my-app "Review this code for potential bugs and security issues"
 
 # Review mode: Agents can perform actual file operations
-llm-conclave review "Correct lines 1-2 of oz.txt"
+llm-conclave review "Correct lines 1-2 of document.txt"
 
 # Review mode: Iterative file processing
 llm-conclave review "Correct all 10 lines of document.txt one at a time"
@@ -362,7 +362,7 @@ llm-conclave -p ./docs "Review my technical writing for clarity and completeness
 llm-conclave -p ./src "Find why the login feature isn't working on mobile"
 
 # Iterative collaborative mode: OCR correction with multi-turn discussion
-llm-conclave iterate -p oz.txt "Correct all OCR errors with collaborative discussion"
+llm-conclave iterate -p document.txt "Correct all OCR errors with collaborative discussion"
 
 # Iterative mode: Custom chunk size for larger sections
 llm-conclave iterate --chunk-size 5 -p ./docs "Review and improve each section"
@@ -578,10 +578,10 @@ LLM Conclave can analyze individual files or entire directories. Use the `--proj
 
 ```bash
 # Single file
-node index.js --project /path/to/file.txt "your question or task"
+llm-conclave -p /path/to/file.txt "your question or task"
 
 # Directory
-node index.js --project /path/to/project "your question or task"
+llm-conclave -p /path/to/project "your question or task"
 ```
 
 ### How It Works
@@ -623,7 +623,7 @@ node index.js --project /path/to/project "your question or task"
 
 ```bash
 # Point conclave at your project
-llm-conclave --project ./my-webapp "Review this React app for performance issues"
+llm-conclave -p ./my-webapp "Review this React app for performance issues"
 
 # The agents will:
 # 1. Read all source files (excluding node_modules, etc.)
