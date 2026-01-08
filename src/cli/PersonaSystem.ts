@@ -28,7 +28,7 @@
  */
 
 import * as fs from 'fs';
-import { ConfigPaths } from '../utils/ConfigPaths.js';
+import { ConfigPaths } from '../utils/ConfigPaths';
 
 export interface Persona {
   name: string;

@@ -1,4 +1,4 @@
-export type TemplateMode = 'consensus' | 'orchestrated' | 'iterative' | 'consult' | 'discuss';
+export type TemplateMode = 'consensus' | 'orchestrated' | 'iterative' | 'consult' | 'discuss' | 'iterate' | 'review';
 
 export type TemplateOutputFormat = 'markdown' | 'json' | 'both';
 
@@ -7,6 +7,7 @@ export interface TemplateAgentConfig {
   role?: string;
   description?: string;
   systemPrompt: string;
+  prompt?: string;
   model?: string;
   provider?: string;
   temperature?: number;

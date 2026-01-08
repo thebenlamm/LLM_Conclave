@@ -14,7 +14,7 @@ import { createDiscussCommand } from './src/commands/discuss';
 import { createReviewCommand } from './src/commands/review';
 import { createIterateCommand } from './src/commands/iterate';
 import { createConsultCommand } from './src/commands/consult';
-import { createTemplateCommand } from './src/commands/template';
+import { createTemplateCommand, executeTemplate } from './src/commands/template';
 import { createInitCommand } from './src/commands/init';
 import { createTemplatesCommand } from './src/commands/templates';
 import { createSessionsCommand } from './src/commands/sessions';
@@ -42,7 +42,7 @@ program
 
 // Default action (smart mode when no subcommand specified)
 program
-  .argument('[task...]', 'Task for agents to solve')
+  .argument('[task...]','Task for agents to solve')
   .option('-p, --project <path>', 'Project context (file or directory)')
   .option('-c, --config <path>', 'Custom config file')
   .option('--with <personas>', 'Comma-separated list of personas to use (e.g., security,performance)')
@@ -51,6 +51,21 @@ program
   .option('--thorough', 'Thorough mode (maximum rounds)')
   .option('--stream', 'Stream agent responses (default: true)', true)
   .option('--no-stream', 'Disable streaming')
+  .option('-t, --template <name>', 'Run with a predefined template')
+  .hook('preAction', async (thisCommand, actionCommand) => {
+    const opts = thisCommand.opts();
+    if (opts.template) {
+      // Execute template instead of subcommand
+      // Combine arguments from the command that was about to run
+      const args = actionCommand.args; 
+      const task = args.join(' ');
+      
+      // Pass options from root command (opts) merged with actionCommand opts?
+      // Usually root opts are available.
+      await executeTemplate(opts.template, task, opts);
+      process.exit(0);
+    }
+  })
   .action(async (taskArgs: string[], options: any) => {
     const task = taskArgs.join(' ');
 
@@ -79,7 +94,8 @@ async function smartMode(task: string, options: any) {
   const detection = ModeDetector.analyze(task, options);
 
   // Show detection result
-  console.log(chalk.blue(`\n🔍 Task Analysis:`));
+  console.log(chalk.blue(`
+🔍 Task Analysis:`));
   console.log(`   Mode: ${chalk.bold(detection.mode)}`);
   console.log(`   Confidence: ${Math.round(detection.confidence * 100)}%`);
   console.log(`   Reason: ${detection.reason}\n`);
@@ -87,18 +103,20 @@ async function smartMode(task: string, options: any) {
   // If confidence is low, ask user to confirm
   let finalMode = detection.mode;
   if (detection.confidence < 0.8) {
-    const answer = await inquirer.prompt([{
-      type: 'list',
-      name: 'mode',
-      message: 'Confirm mode or choose different:',
-      choices: [
-        { name: `${detection.mode} (suggested)`, value: detection.mode },
-        { name: 'consensus - Democratic discussion', value: 'consensus' },
-        { name: 'orchestrated - Structured review', value: 'orchestrated' },
-        { name: 'iterative - Chunk-based collaboration', value: 'iterative' }
-      ],
-      default: detection.mode
-    }]);
+    const answer = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'mode',
+        message: 'Confirm mode or choose different:',
+        choices: [
+          { name: `${detection.mode} (suggested)`, value: detection.mode },
+          { name: 'consensus - Democratic discussion', value: 'consensus' },
+          { name: 'orchestrated - Structured review', value: 'orchestrated' },
+          { name: 'iterative - Chunk-based collaboration', value: 'iterative' }
+        ],
+        default: detection.mode
+      }
+    ]);
     finalMode = answer.mode;
   }
 
@@ -204,7 +222,8 @@ async function runIterativeMode(task: string, options: any) {
     options.quick ? 'quick' : options.deep ? 'deep' : options.thorough ? 'thorough' : undefined
   );
 
-  console.log(chalk.blue(`Starting iterative mode (${chunkSize} items per chunk, ${maxRounds} rounds)...\n`));
+  console.log(chalk.blue(`Starting iterative mode (${chunkSize} items per chunk, ${maxRounds} rounds)...
+`));
 
   // Convert agents config to Agent[] format
   const ProviderFactory = (await import('./src/providers/ProviderFactory')).default;
