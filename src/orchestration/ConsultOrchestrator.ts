@@ -65,21 +65,21 @@ type Round1ExecutionResult = {
 };
 
 export default class ConsultOrchestrator {
-  private agents: Agent[];
+  private agents!: Agent[];
   private maxRounds: number;
   private verbose: boolean;
-  private stateMachine: ConsultStateMachine;
-  private eventBus: EventBus;
-  private consultationId: string;
-  private costEstimator: CostEstimator;
-  private artifactFilter: ArtifactFilter;
-  private filterConfig: FilterConfig;
-  private costGate: CostGate;
-  private fileLogger: ConsultationFileLogger;
-  private healthMonitor: ProviderHealthMonitor;
-  private hedgedRequestManager: HedgedRequestManager;
-  private interactivePulse: InteractivePulse;
-  private partialResultManager: PartialResultManager;
+  private stateMachine!: ConsultStateMachine;
+  private eventBus!: EventBus;
+  private consultationId!: string;
+  private costEstimator!: CostEstimator;
+  private artifactFilter!: ArtifactFilter;
+  private filterConfig!: FilterConfig;
+  private costGate!: CostGate;
+  private fileLogger!: ConsultationFileLogger;
+  private healthMonitor!: ProviderHealthMonitor;
+  private hedgedRequestManager!: HedgedRequestManager;
+  private interactivePulse!: InteractivePulse;
+  private partialResultManager!: PartialResultManager;
   private estimatedCostUsd: number = 0;
   private actualCostUsd: number = 0;
   private totalTokensUsed: number = 0;
@@ -94,106 +94,139 @@ export default class ConsultOrchestrator {
   // Mode strategy (Epic 4, Story 1)
   private strategy: ModeStrategy;
   private confidenceThreshold: number;
-  private earlyTerminationManager: EarlyTerminationManager;
-  private debateValueAnalyzer: DebateValueAnalyzer;
+  private earlyTerminationManager!: EarlyTerminationManager;
+  private debateValueAnalyzer!: DebateValueAnalyzer;
   private brownfieldAnalysis: BrownfieldAnalysis | null;
   private projectPath?: string;
   private greenfieldOverride: boolean;
-  private contextAugmenter: ContextAugmenter;
+  private contextAugmenter!: ContextAugmenter;
   private projectContextMetadata?: ProjectContextMetadata;
   private loadedContext?: LoadedContext;
   private scrubbingReport?: ScrubReport;
   private interactive: boolean;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
-    this.maxRounds = options.maxRounds || 4; // Default to 4 rounds per Epic 1
+    // Core configuration
+    this.maxRounds = options.maxRounds || 4;
     this.verbose = options.verbose || false;
     this.interactive = options.interactive ?? true;
-    // Use provided strategy or default to ConvergeStrategy (matches MVP behavior)
     this.strategy = options.strategy || new ConvergeStrategy();
     this.confidenceThreshold = options.confidenceThreshold ?? 0.90;
     this.scrubbingReport = options.scrubbingReport;
-    
-    // Initialize EarlyTerminationManager with prompt callback
-    this.earlyTerminationManager = new EarlyTerminationManager(async (message) => {
-        // Skip interactive prompt in test environment
-        if (process.env.NODE_ENV === 'test') {
-            return false;
-        }
-        // Auto-accept early termination in MCP mode (no stdin available)
-        if (process.env.LLM_CONCLAVE_MCP === '1') {
-            console.error('[MCP] Auto-accepting early termination');
-            return true;
-        }
-        // Auto-accept early termination if non-interactive
-        if (!this.interactive) {
-            console.log(chalk.yellow('[Non-Interactive] Auto-accepting early termination'));
-            return true;
-        }
+    this.brownfieldAnalysis = options.brownfieldAnalysis ?? null;
+    this.projectPath = options.projectPath;
+    this.greenfieldOverride = options.greenfield ?? false;
+    this.loadedContext = options.loadedContext;
 
-        const { confirm } = await inquirer.prompt([{
-            type: 'confirm',
-            name: 'confirm',
-            message: message,
-            default: true
-        }]);
-        return confirm;
-    });
+    // Initialize component groups
+    this.initializeCoreComponents();
+    this.initializeCostAndFilterComponents();
+    this.initializeHealthComponents();
 
+    // Initialize early termination with interactive prompt callback
+    this.earlyTerminationManager = this.createEarlyTerminationManager();
+
+    // Generate consultation ID and state machine
+    this.consultationId = this.generateId('consult');
+    this.stateMachine = new ConsultStateMachine(this.consultationId);
+
+    // Initialize agents
+    this.agents = this.initializeAgents();
+
+    // Setup runtime event handlers and cleanup (skipped in test environment)
+    this.setupRuntimeHandlers();
+  }
+
+  /**
+   * Initialize core orchestration components
+   */
+  private initializeCoreComponents(): void {
     this.eventBus = EventBus.getInstance();
-    this.costEstimator = new CostEstimator();
-    this.artifactFilter = new ArtifactFilter();
-    this.filterConfig = new FilterConfig();
-    this.costGate = new CostGate();
     this.fileLogger = new ConsultationFileLogger();
     this.hedgedRequestManager = new HedgedRequestManager(this.eventBus);
     this.interactivePulse = new InteractivePulse();
     this.partialResultManager = new PartialResultManager();
-    this.debateValueAnalyzer = new DebateValueAnalyzer(CostTracker.getInstance());
-    this.brownfieldAnalysis = options.brownfieldAnalysis ?? null;
-    this.projectPath = options.projectPath;
-    this.greenfieldOverride = options.greenfield ?? false;
     this.contextAugmenter = new ContextAugmenter();
-    this.loadedContext = options.loadedContext;
+    this.debateValueAnalyzer = new DebateValueAnalyzer(CostTracker.getInstance());
+  }
 
-    // Generate ID first so state machine can use it
-    this.consultationId = this.generateId('consult');
-    this.stateMachine = new ConsultStateMachine(this.consultationId);
+  /**
+   * Initialize cost estimation and artifact filtering components
+   */
+  private initializeCostAndFilterComponents(): void {
+    this.costEstimator = new CostEstimator();
+    this.artifactFilter = new ArtifactFilter();
+    this.filterConfig = new FilterConfig();
+    this.costGate = new CostGate();
+  }
 
-    // Initialize 3 fixed agents with diverse models
-    this.agents = this.initializeAgents();
-
-
-    // Initialize Health Monitor (Story 2.2)
+  /**
+   * Initialize health monitoring components
+   */
+  private initializeHealthComponents(): void {
     this.healthMonitor = new ProviderHealthMonitor();
-    
-    // Register ALL configured providers (Fix 2)
-    Object.keys(PROVIDER_TIER_MAP).forEach(model => {
-        this.healthMonitor.registerProvider(model);
-    });
 
+    // Register all configured providers
+    Object.keys(PROVIDER_TIER_MAP).forEach(model => {
+      this.healthMonitor.registerProvider(model);
+    });
+  }
+
+  /**
+   * Create early termination manager with interactive prompt callback
+   */
+  private createEarlyTerminationManager(): EarlyTerminationManager {
+    return new EarlyTerminationManager(async (message) => {
+      // Skip interactive prompt in test environment
+      if (process.env.NODE_ENV === 'test') {
+        return false;
+      }
+      // Auto-accept in MCP mode (no stdin available)
+      if (process.env.LLM_CONCLAVE_MCP === '1') {
+        console.error('[MCP] Auto-accepting early termination');
+        return true;
+      }
+      // Auto-accept if non-interactive
+      if (!this.interactive) {
+        console.log(chalk.yellow('[Non-Interactive] Auto-accepting early termination'));
+        return true;
+      }
+
+      const { confirm } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'confirm',
+        message: message,
+        default: true
+      }]);
+      return confirm;
+    });
+  }
+
+  /**
+   * Setup runtime event handlers and cleanup hooks
+   * Skipped in test environment to avoid side effects
+   */
+  private setupRuntimeHandlers(): void {
     const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
-    if (!isTestEnv) {
-      this.healthMonitor.startMonitoring();
+    if (isTestEnv) {
+      return;
     }
+
+    // Start health monitoring
+    this.healthMonitor.startMonitoring();
 
     // Subscribe to provider substitution events (Story 2.3 AC #4)
-    if (!isTestEnv) {
-      this.eventBus.on('consultation:provider_substituted', (data: any) => {
-        this.substitutions.push(data);
-      });
-    }
+    this.eventBus.on('consultation:provider_substituted', (data: any) => {
+      this.substitutions.push(data);
+    });
 
-    // Setup graceful cleanup on process termination (Story 2.4, Code Review Fix)
-    // Ensures pulse timers are cleaned up when process is killed (Ctrl+C, SIGTERM, etc.)
-    if (!isTestEnv) {
-      const cleanupHandler = () => {
-        this.interactivePulse.cleanup();
-        this.healthMonitor.stopMonitoring();
-      };
-      process.once('SIGINT', cleanupHandler);
-      process.once('SIGTERM', cleanupHandler);
-    }
+    // Setup graceful cleanup on process termination
+    const cleanupHandler = () => {
+      this.interactivePulse.cleanup();
+      this.healthMonitor.stopMonitoring();
+    };
+    process.once('SIGINT', cleanupHandler);
+    process.once('SIGTERM', cleanupHandler);
   }
 
   /**

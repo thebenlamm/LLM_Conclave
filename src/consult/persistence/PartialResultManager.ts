@@ -9,6 +9,7 @@ import chalk from 'chalk';
 
 export class PartialResultManager {
   private logDir: string;
+  private signingSecret: string;
 
   constructor(logDir?: string) {
     // Default: ~/.llm-conclave/consult-logs/
@@ -18,6 +19,18 @@ export class PartialResultManager {
       : path.join(os.homedir(), '.llm-conclave', 'consult-logs');
     this.logDir = logDir || defaultLogDir;
     this.ensureLogDirectory();
+
+    // Use provided secret or generate a cryptographically secure random one
+    // If no secret is provided, results from previous sessions cannot be verified
+    if (process.env.CONCLAVE_SECRET) {
+      this.signingSecret = process.env.CONCLAVE_SECRET;
+    } else {
+      this.signingSecret = randomBytes(32).toString('hex');
+      if (!isTestEnv) {
+        console.warn(chalk.yellow('⚠️  No CONCLAVE_SECRET set - using session-generated secret. ' +
+          'Partial results from previous sessions cannot be verified.'));
+      }
+    }
   }
 
   private ensureLogDirectory(): void {
@@ -142,8 +155,7 @@ export class PartialResultManager {
   }
 
   private signResult(result: any): string {
-    const secret = process.env.CONCLAVE_SECRET || 'default-secret';
-    const hmac = createHmac('sha256', secret);
+    const hmac = createHmac('sha256', this.signingSecret);
     const { signature, ...dataToSign } = result;
     hmac.update(JSON.stringify(dataToSign));
     return hmac.digest('hex');

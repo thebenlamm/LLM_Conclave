@@ -103,11 +103,13 @@ export default class GeminiProvider extends LLMProvider {
 
       // Check for function calls
       if (candidate.content.parts.some((p: any) => p.functionCall)) {
+        const timestamp = Date.now();
         return {
           tool_calls: candidate.content.parts
             .filter((p: any) => p.functionCall)
-            .map((p: any) => ({
-              id: p.functionCall.name + '_' + Date.now(), // Gemini doesn't provide IDs
+            .map((p: any, index: number) => ({
+              // Gemini doesn't provide IDs - generate unique ones with timestamp + index + random suffix
+              id: `${p.functionCall.name}_${timestamp}_${index}_${Math.random().toString(36).substring(2, 8)}`,
               name: p.functionCall.name,
               input: p.functionCall.args || {}
             })),

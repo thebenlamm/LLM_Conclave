@@ -17,6 +17,7 @@ import ToolRegistry from '../tools/ToolRegistry';
 import MemoryManager from '../memory/MemoryManager';
 import { EventBus } from '../core/EventBus';
 import TokenCounter from '../utils/TokenCounter';
+import { createChatOptions } from './chatOptionsHelper';
 import {
   Config,
   Agent,
@@ -83,17 +84,11 @@ export default class Orchestrator {
    * Build chat options with streaming callbacks when enabled
    */
   getChatOptions(disableStream: boolean = false, agentName?: string) {
-    if (disableStream || (!this.streamOutput && !this.eventBus)) return {};
-    
-    return { 
-        stream: true, 
-        onToken: (token: string) => {
-            if (this.streamOutput && !disableStream) process.stdout.write(token);
-            if (this.eventBus && agentName) {
-                this.eventBus.emitEvent('token', { agent: agentName, token });
-            }
-        }
-    };
+    return createChatOptions(
+      { streamOutput: this.streamOutput, eventBus: this.eventBus },
+      disableStream,
+      agentName
+    );
   }
 
   /**
@@ -386,7 +381,7 @@ You have access to tools to read and write files, list files, edit files, and ru
 
 Important: Once you've read a file, you have access to its complete contents in the conversation history. If you need additional context from a file you've already read, refer back to that content rather than requesting more information.`;
 
-    const messages = [{ role: 'user', content: prompt }];
+    const messages = [{ role: 'user' as const, content: prompt }];
 
     // DEBUG: Log token counts
     console.log('\n🔍 DEBUG TOKEN ANALYSIS:');
@@ -462,7 +457,7 @@ As a secondary agent, provide a structured critique:
 
 Keep your critique constructive and focused.`;
 
-      const messages = [{ role: 'user', content: critiquePrompt }];
+      const messages = [{ role: 'user' as const, content: critiquePrompt }];
 
       try {
         const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(false, agentName));
@@ -478,13 +473,13 @@ Keep your critique constructive and focused.`;
 
         critiques.push({
           agent: agentName,
-          content: critique
+          content: critique || ''
         });
 
         this.conversationHistory.push({
           phase: 'critique',
           agent: agentName,
-          content: critique,
+          content: critique || '',
           role: 'secondary'
         });
 
@@ -529,7 +524,7 @@ ${critiquesSummary}
 
 Based on the feedback above, provide a revised response. Incorporate valid suggestions while maintaining your domain expertise. Be clear about what you changed and why.`;
 
-    const messages = [{ role: 'user', content: revisionPrompt }];
+    const messages = [{ role: 'user' as const, content: revisionPrompt }];
 
     try {
       const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(false, primaryAgent));
@@ -550,11 +545,11 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
       this.conversationHistory.push({
         phase: 'revision',
         agent: primaryAgent,
-        content: revision,
+        content: revision || '',
         role: 'primary'
       });
 
-      return revision;
+      return revision || '';
     } catch (error: any) {
       if (!quiet) {
         console.error(`Error with ${primaryAgent}: ${error.message}`);
@@ -598,7 +593,7 @@ As a validator, review the above output for your domain concerns. Provide:
 
 Be thorough but concise.`;
 
-      const messages = [{ role: 'user', content: validationPrompt }];
+      const messages = [{ role: 'user' as const, content: validationPrompt }];
 
       try {
         const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(false, validatorName));
@@ -616,18 +611,19 @@ Be thorough but concise.`;
             this.eventBus.emitEvent('agent:response', { agent: validatorName, content: validation });
         }
 
-        const status = this.extractValidationStatus(validation);
+        const validationText = validation || '';
+        const status = this.extractValidationStatus(validationText);
 
         validationResults.push({
           validator: validatorName,
           status,
-          content: validation
+          content: validationText
         });
 
         this.conversationHistory.push({
           phase: 'validation',
           agent: validatorName,
-          content: validation,
+          content: validationText,
           role: 'validator',
           status
         });

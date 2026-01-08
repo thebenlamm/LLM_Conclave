@@ -49,7 +49,8 @@ export class ConfigCascade {
       },
       judge: {
         model: 'gpt-4o',
-        provider: 'openai'
+        provider: 'openai',
+        prompt: 'You are a wise and impartial judge who synthesizes diverse perspectives to reach well-reasoned conclusions. You evaluate arguments fairly, identify common ground, and guide discussions toward consensus.'
       },
       // Built-in default agents (zero-config)
       agents: {
@@ -108,6 +109,43 @@ export class ConfigCascade {
   }
 
   /**
+   * Valid top-level configuration keys that can be set via environment variables
+   */
+  private static readonly VALID_ENV_KEYS = new Set([
+    'mode',
+    'stream',
+    'rounds',
+    'judge',
+    'providers',
+    'agents',
+    'output',
+    'verbose',
+    'quiet',
+    'project',
+    'context',
+    'format',
+    'quick',
+    'confidence',
+    'auto_approve'
+  ]);
+
+  /**
+   * Valid nested configuration keys (parent_child format)
+   */
+  private static readonly VALID_NESTED_KEYS = new Set([
+    'judge_model',
+    'judge_provider',
+    'judge_prompt',
+    'output_format',
+    'output_dir',
+    'providers_openai',
+    'providers_anthropic',
+    'providers_google',
+    'providers_xai',
+    'providers_mistral'
+  ]);
+
+  /**
    * Parse environment variables with CONCLAVE_ prefix
    */
   private static parseEnvVars(envVars: NodeJS.ProcessEnv): any {
@@ -117,6 +155,16 @@ export class ConfigCascade {
       if (!value || !key.startsWith('CONCLAVE_')) continue;
 
       const configKey = key.replace('CONCLAVE_', '').toLowerCase();
+
+      // Validate the key before processing
+      const topLevelKey = configKey.split('_')[0];
+      if (!this.VALID_ENV_KEYS.has(topLevelKey) && !this.VALID_NESTED_KEYS.has(configKey)) {
+        // Skip invalid keys with a warning (only in non-production)
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(`Warning: Unknown environment variable ${key} ignored`);
+        }
+        continue;
+      }
 
       // Handle nested keys (e.g., CONCLAVE_JUDGE_MODEL -> judge.model)
       if (configKey.includes('_')) {

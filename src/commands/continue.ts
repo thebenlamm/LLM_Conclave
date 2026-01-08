@@ -71,14 +71,15 @@ export function createContinueCommand(): Command {
         console.log();
       }
 
-      // Prepare continuation
-      const prepared = continuationHandler.prepareForContinuation(session, task);
-
       // For now, show message that full continuation logic is complex
       // TODO: Implement full continuation logic (see old index.ts line 812-960)
+      // When implementing, use: const prepared = continuationHandler.prepareForContinuation(session, task);
       console.log(chalk.yellow('\n⚠️  Full continuation execution coming soon.'));
       console.log(chalk.cyan('   For now, use: llm-conclave --continue "question"\n'));
       console.log(chalk.gray('   (Using the old CLI interface for continue/resume)\n'));
+
+      // Suppress unused parameter warning until full implementation
+      void task;
     });
 
   return cmd;

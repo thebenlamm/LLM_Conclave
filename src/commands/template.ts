@@ -110,6 +110,10 @@ export async function executeTemplate(name: string | undefined, task: string | u
 
   // 4. Get Task
   let finalTask = task;
+  if (!template) {
+    console.error(chalk.red('Template not loaded. This should not happen.'));
+    process.exit(1);
+  }
   if (!finalTask && !template.task && template.mode !== 'consult') { 
     const answer = await inquirer.prompt([{ 
       type: 'input',

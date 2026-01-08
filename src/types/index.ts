@@ -87,6 +87,41 @@ export interface ChatOptions {
   tools?: ToolDefinition[] | OpenAITool[];
   stream?: boolean;
   onToken?: (token: string) => void;
+  signal?: AbortSignal;
+}
+
+/**
+ * Known JSON Schema type values
+ */
+export type JSONSchemaType = 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object' | 'null';
+
+/**
+ * JSON Schema property definition for OpenAI function parameters
+ */
+export interface JSONSchemaProperty {
+  /** JSON Schema type - prefer using JSONSchemaType values */
+  type: JSONSchemaType | string;
+  description?: string;
+  enum?: (string | number | boolean | null)[];
+  items?: JSONSchemaProperty;
+  properties?: Record<string, JSONSchemaProperty>;
+  required?: string[];
+  default?: unknown;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+}
+
+/**
+ * JSON Schema object for OpenAI function parameters
+ */
+export interface JSONSchemaParameters {
+  type: 'object';
+  properties: Record<string, JSONSchemaProperty>;
+  required?: string[];
+  additionalProperties?: boolean;
 }
 
 export interface OpenAITool {
@@ -94,8 +129,21 @@ export interface OpenAITool {
   function: {
     name: string;
     description: string;
-    parameters: any;
+    parameters: JSONSchemaParameters;
   };
+}
+
+/**
+ * Interface for LLM provider instances.
+ * This interface captures the public contract that all LLM providers must satisfy.
+ * Used to avoid circular dependencies with the abstract LLMProvider class.
+ */
+export interface LLMProviderInterface {
+  modelName: string;
+  chat(messages: Message[], systemPrompt?: string | null, options?: ChatOptions): Promise<ProviderResponse>;
+  getProviderName(): string;
+  getModelName(): string;
+  healthCheck(): Promise<boolean>;
 }
 
 // ============================================================================
@@ -109,7 +157,7 @@ export interface AgentConfig {
 
 export interface Agent {
   name: string;
-  provider: any; // LLMProvider instance
+  provider: LLMProviderInterface;
   systemPrompt: string;
   model: string;
 }

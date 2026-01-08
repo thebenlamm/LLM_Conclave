@@ -1,6 +1,7 @@
 import { Agent } from '../types';
 import ToolRegistry from '../tools/ToolRegistry';
 import { EventBus } from '../core/EventBus';
+import { createChatOptions } from './chatOptionsHelper';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -95,17 +96,11 @@ export default class IterativeCollaborativeOrchestrator {
    * Build chat options with streaming callbacks when enabled
    */
   private getChatOptions(disableStream: boolean = false, agentName?: string) {
-    if (disableStream || (!this.streamOutput && !this.eventBus)) return {};
-    
-    return { 
-        stream: true, 
-        onToken: (token: string) => {
-            if (this.streamOutput && !disableStream) process.stdout.write(token);
-            if (this.eventBus && agentName) {
-                this.eventBus.emitEvent('token', { agent: agentName, token });
-            }
-        }
-    };
+    return createChatOptions(
+      { streamOutput: this.streamOutput, eventBus: this.eventBus },
+      disableStream,
+      agentName
+    );
   }
 
   /**
@@ -298,7 +293,7 @@ Example format:
 
 Return ONLY the JSON array, nothing else.`;
 
-    const messages = [{ role: 'user', content: planningPrompt }];
+    const messages = [{ role: 'user' as const, content: planningPrompt }];
     const response = await this.judge.provider.chat(
       messages,
       this.judge.systemPrompt,
@@ -687,7 +682,7 @@ COMPLETE: [Final result for this chunk]
 If not complete, provide guidance:
 CONTINUE: [Brief guidance on what still needs discussion]`;
 
-    const messages = [{ role: 'user', content: evaluationPrompt }];
+    const messages = [{ role: 'user' as const, content: evaluationPrompt }];
     const response = await this.judge.provider.chat(
       messages,
       this.judge.systemPrompt,
@@ -742,7 +737,7 @@ ${chunkMessages.map(m => m.content).join('\n\n')}
 
 Synthesize the best result from this discussion:`;
 
-    const messages = [{ role: 'user', content: synthesisPrompt }];
+    const messages = [{ role: 'user' as const, content: synthesisPrompt }];
     const response = await this.judge.provider.chat(
       messages,
       this.judge.systemPrompt,

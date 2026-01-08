@@ -202,7 +202,8 @@ export function createConsultCommand(): Command {
 
       } catch (error: any) {
         if (error?.message === 'Consultation cancelled by user') {
-          process.exit(0);
+          // User cancelled - exit gracefully without error
+          return;
         }
 
         console.error(chalk.red(`
@@ -211,7 +212,8 @@ export function createConsultCommand(): Command {
         if (options.verbose) {
           console.error(error.stack);
         }
-        process.exit(1);
+        // Re-throw to let Commander.js handle the exit code
+        throw error;
       }
     });
 

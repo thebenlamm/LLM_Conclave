@@ -204,12 +204,72 @@ export class ConsultStateMachine {
   }
 
   /**
-   * Restore state machine from a snapshot
+   * Validate state machine snapshot data
    */
-  public static fromJSON(data: any): ConsultStateMachine {
+  private static validateSnapshotData(data: unknown): data is {
+    consultation_id: string;
+    current_state: ConsultState;
+    transitions: Array<{ from: ConsultState; to: ConsultState; timestamp: string; reason?: string }>;
+  } {
+    if (!data || typeof data !== 'object') {
+      return false;
+    }
+
+    const obj = data as Record<string, unknown>;
+
+    // Validate consultation_id
+    if (typeof obj.consultation_id !== 'string' || obj.consultation_id.length === 0) {
+      return false;
+    }
+
+    // Validate current_state is a valid ConsultState
+    if (typeof obj.current_state !== 'string' ||
+        !Object.values(ConsultState).includes(obj.current_state as ConsultState)) {
+      return false;
+    }
+
+    // Validate transitions array
+    if (!Array.isArray(obj.transitions)) {
+      return false;
+    }
+
+    // Validate each transition
+    for (const t of obj.transitions) {
+      if (!t || typeof t !== 'object') {
+        return false;
+      }
+      const transition = t as Record<string, unknown>;
+      if (typeof transition.from !== 'string' ||
+          !Object.values(ConsultState).includes(transition.from as ConsultState)) {
+        return false;
+      }
+      if (typeof transition.to !== 'string' ||
+          !Object.values(ConsultState).includes(transition.to as ConsultState)) {
+        return false;
+      }
+      if (typeof transition.timestamp !== 'string') {
+        return false;
+      }
+      if (transition.reason !== undefined && typeof transition.reason !== 'string') {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Restore state machine from a snapshot
+   * @throws Error if data is invalid
+   */
+  public static fromJSON(data: unknown): ConsultStateMachine {
+    if (!ConsultStateMachine.validateSnapshotData(data)) {
+      throw new Error('Invalid state machine snapshot data');
+    }
+
     const machine = new ConsultStateMachine(data.consultation_id);
     machine.currentState = data.current_state;
-    machine.transitions = data.transitions.map((t: any) => ({
+    machine.transitions = data.transitions.map((t) => ({
       from: t.from,
       to: t.to,
       timestamp: t.timestamp,
