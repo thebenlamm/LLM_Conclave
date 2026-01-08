@@ -34,10 +34,14 @@ npm-debug.log*
 *.tar.gz
 *.zip
 
-# BMAD workflow outputs
+# AI IDE configurations (user-specific)
+.claude/
+.gemini/
+CLAUDE.md
+
+# BMAD framework (user-specific)
+_bmad/
 _bmad-output/
-_bmad/bmm/workflows/*/code-review/
-_bmad/bmm/workflows/*/sprint-status/summary_output.md
 
 # Configuration (user-specific)
 .llm-conclave.json
