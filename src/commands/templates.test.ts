@@ -214,4 +214,44 @@ describe('Templates Command', () => {
     const output = consoleSpy.mock.calls.flat().join(' ');
     expect(output).toContain('invalid name');
   });
+
+  it('lists code-review and security-audit as preset templates from loader', async () => {
+    // Setup TemplateLoader mock to return the new presets
+    MockTemplateLoader.prototype.loadAllTemplates.mockReturnValue([
+      {
+        name: 'code-review',
+        description: 'Review code',
+        mode: 'discuss',
+        task: 'task',
+        source: 'preset',
+        filePath: '/path/to/presets/code-review.yaml'
+      },
+      {
+        name: 'security-audit',
+        description: 'Security check',
+        mode: 'consult',
+        task: 'task',
+        source: 'preset',
+        filePath: '/path/to/presets/security-audit.yaml'
+      }
+    ]);
+
+    // TemplateManager no longer has code-review
+    MockTemplateManager.prototype.listTemplates.mockReturnValue([
+      {
+        name: 'architecture-design',
+        description: 'Arch design',
+        mode: 'orchestrated',
+        taskTemplate: 'task',
+        agents: {}
+      } as any
+    ]);
+
+    await command.parseAsync(['node', 'test']);
+
+    const output = consoleSpy.mock.calls.flat().join(' ');
+    expect(output).toContain('code-review');
+    expect(output).toContain('security-audit');
+    expect(output).toContain('architecture-design');
+  });
 });

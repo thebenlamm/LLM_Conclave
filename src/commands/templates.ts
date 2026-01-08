@@ -80,10 +80,12 @@ export function createTemplatesCommand(): Command {
       console.log(chalk.blue('\n📋 Available Templates:\n'));
 
       // Task 3.1: Detect when no user templates are found and show helpful message
+      const trueUserTemplates = userTemplates.filter(t => t.source !== 'preset');
+
       if (userTemplatesLoadFailed) {
         console.log(chalk.red('⚠️  User templates failed to load.'));
         console.log(chalk.gray('   Fix the errors above, then re-run `llm-conclave templates`.\n'));
-      } else if (userTemplates.length === 0) {
+      } else if (trueUserTemplates.length === 0) {
           console.log(chalk.yellow('ℹ️  No user templates found.'));
           console.log(chalk.gray('   Add templates to: .conclave/templates/ or ~/.llm-conclave/templates/'));
           console.log(chalk.gray('\n   Example (code-review.yaml):'));

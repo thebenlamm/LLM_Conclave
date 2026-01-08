@@ -9,7 +9,7 @@
   "scripts": {
     "start": "ts-node index.ts",
     "dev": "ts-node index.ts",
-    "build": "tsc && chmod +x dist/index.js && chmod +x dist/src/mcp/server.js",
+    "build": "tsc && mkdir -p dist/src/templates/presets && cp src/templates/presets/*.yaml dist/src/templates/presets/ && chmod +x dist/index.js && chmod +x dist/src/mcp/server.js",
     "mcp-server": "node dist/src/mcp/server.js",
     "mcp-dev": "ts-node src/mcp/server.ts",
     "test": "jest",

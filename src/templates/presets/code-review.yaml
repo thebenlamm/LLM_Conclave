@@ -1,0 +1,11 @@
+name: code-review
+description: Review code for bugs, security vulnerabilities, and maintainability issues
+mode: discuss
+personas:
+  - security
+  - architecture
+  - pragmatic
+task: "Review the following code and identify issues, improvements, and security concerns"
+rounds: 4
+output:
+  format: markdown

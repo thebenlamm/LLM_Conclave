@@ -31,6 +31,7 @@ export const TemplateSchema = z.object({
   chunkSize: z.number().optional(),
   maxRoundsPerChunk: z.number().optional()
 }).passthrough().refine(data => {
+  if (data.mode === 'consult') return true;
   const hasAgents = data.agents && data.agents.length > 0;
   const hasPersonas = data.personas && data.personas.length > 0;
   return hasAgents || hasPersonas;

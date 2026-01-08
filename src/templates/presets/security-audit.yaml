@@ -1,0 +1,7 @@
+name: security-audit
+description: Deep security analysis using structured multi-model consultation
+mode: consult
+task: "Perform a comprehensive security audit of the following code"
+quick: false
+output:
+  format: markdown

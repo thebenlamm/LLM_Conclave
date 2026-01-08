@@ -31,6 +31,10 @@ export class TemplateLoader {
        : path.join(process.cwd(), '.conclave', 'templates');
   }
 
+  get presetTemplatesDir(): string {
+     return path.join(__dirname, 'presets');
+  }
+
   discoverTemplates(): Map<string, TemplatePath> {
     const templates = new Map<string, TemplatePath>();
     
@@ -43,7 +47,7 @@ export class TemplateLoader {
       }
     };
 
-    const scanDir = (dir: string, source: 'global' | 'project') => {
+    const scanDir = (dir: string, source: 'global' | 'project' | 'preset') => {
         if (!fs.existsSync(dir)) return;
         const files = fs.readdirSync(dir).sort();
         for (const file of files) {
@@ -57,10 +61,16 @@ export class TemplateLoader {
         }
     };
 
+    // Ensure user directories exist
     ensureDir(this.globalTemplatesDir);
     ensureDir(this.projectTemplatesDir);
 
+    // Scan in order of priority (lowest first)
+    // 1. Presets
+    scanDir(this.presetTemplatesDir, 'preset');
+    // 2. Global (overrides presets)
     scanDir(this.globalTemplatesDir, 'global');
+    // 3. Project (overrides all)
     scanDir(this.projectTemplatesDir, 'project');
 
     return templates;
