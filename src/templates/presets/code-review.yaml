@@ -7,5 +7,4 @@ personas:
   - pragmatic
 task: "Review the following code and identify issues, improvements, and security concerns"
 rounds: 4
-output:
-  format: markdown
+outputFormat: markdown

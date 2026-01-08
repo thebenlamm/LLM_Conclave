@@ -70,7 +70,7 @@ export function createTemplatesCommand(): Command {
   mode: discuss
   personas:
     - security
-    - architect
+    - architecture
   task: "Review the following code"
 `));
         console.log(chalk.gray('\n   Docs: README.md#Templates\n'));
