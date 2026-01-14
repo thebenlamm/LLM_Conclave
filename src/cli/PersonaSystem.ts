@@ -49,6 +49,14 @@ export interface CustomPersonaConfig {
   preferredFor?: string[];
 }
 
+/**
+ * Standard instruction appended to all persona prompts requiring explicit participation.
+ * Prevents personas from staying silent when they agree with others.
+ */
+const PARTICIPATION_REQUIREMENT = `
+
+IMPORTANT: You must respond in every discussion round, even if you agree with other participants. If you have no new concerns to raise, explicitly state your agreement (e.g., "I concur with [Agent]'s assessment" or "No additional concerns from my perspective"). Silent agreement is not acceptable - your explicit acknowledgment helps track consensus.`;
+
 export class PersonaSystem {
   private static personas: Record<string, Persona> = {
     security: {
@@ -468,6 +476,7 @@ Provide recommendations for improving documentation quality and coverage.`,
 
   /**
    * Convert personas to agent configuration
+   * Appends participation requirement to ensure all personas respond in every round
    */
   static personasToAgents(personas: Persona[]): Record<string, any> {
     const agents: Record<string, any> = {};
@@ -476,7 +485,7 @@ Provide recommendations for improving documentation quality and coverage.`,
       agents[persona.name] = {
         model: persona.model,
         provider: persona.provider,
-        systemPrompt: persona.systemPrompt
+        systemPrompt: persona.systemPrompt + PARTICIPATION_REQUIREMENT
       };
     }
 

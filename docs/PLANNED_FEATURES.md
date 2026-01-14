@@ -332,6 +332,44 @@ llm-conclave --output-format json --export-transcript ./output "Task"
 
 ---
 
+### Structured Categorization Output (Beta Feedback)
+
+**Status:** Not Started
+**Priority:** Medium
+**Complexity:** Low-Medium
+**Source:** Beta feedback from discuss tool usage (Jan 2026)
+
+**Problem:** When using discuss/consult for categorization tasks (e.g., "Categorize these concerns as A/B/C"), the output is narrative text. Users must manually parse which concerns map to which categories.
+
+**Value:** For categorization and classification tasks, provide machine-readable output that maps items to categories with persona opinions.
+
+**Proposed Solution:**
+```typescript
+interface CategorizationOutput {
+  task: string;
+  categories: Record<string, {
+    items: string[];
+    rationale: string;
+    personaVotes: Record<string, 'agree' | 'disagree' | 'abstain'>;
+  }>;
+  consensus: boolean;
+  dissent: string[];  // Minority opinions
+}
+```
+
+**Usage:**
+```bash
+llm-conclave discuss --format categorization "Categorize these concerns..."
+# Returns JSON with concern IDs mapped to categories
+```
+
+**Implementation Notes:**
+- Could use `--format categorization` or `--structured-output` flag
+- May require detecting categorization tasks automatically
+- Should work with both discuss and consult tools
+
+---
+
 ## Security & Governance
 
 ### Tool Permission Profiles & Sandboxing
