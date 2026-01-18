@@ -63,6 +63,10 @@ export default class ConfigLoader {
       if (!config.judge.model) {
         config.judge.model = 'gpt-4o'; // Default
       }
+      // Normalize systemPrompt to prompt for judge (same as agents)
+      if (!config.judge.prompt && config.judge.systemPrompt) {
+        config.judge.prompt = config.judge.systemPrompt;
+      }
       if (!config.judge.prompt) {
         config.judge.prompt = 'You are the judge and coordinator of a multi-agent discussion. Your role is to evaluate whether the agents have reached a sufficient consensus on the task at hand. After each round, analyze the agents\' responses and determine if they have converged on a solution. If consensus is reached, state "CONSENSUS_REACHED" and summarize the agreed-upon solution. If not, provide guidance to help the agents move toward agreement.';
       }
@@ -81,8 +85,15 @@ export default class ConfigLoader {
         if (!agent.model) {
           errors.push(`Agent "${name}" is missing required "model" field`);
         }
-        if (!agent.prompt) {
-          errors.push(`Agent "${name}" is missing required "prompt" field`);
+        // Accept both 'prompt' and 'systemPrompt' field names (normalize to 'prompt')
+        if (!agent.prompt && !agent.systemPrompt) {
+          errors.push(`Agent "${name}" is missing required "prompt" (or "systemPrompt") field`);
+        } else if (agent.prompt && agent.systemPrompt && agent.prompt !== agent.systemPrompt) {
+          // Warn if both fields are present with different values
+          console.warn(`⚠️  Agent "${name}" has both "prompt" and "systemPrompt" with different values. Using "prompt".`);
+        } else if (!agent.prompt && agent.systemPrompt) {
+          // Normalize systemPrompt to prompt for internal use
+          agent.prompt = agent.systemPrompt;
         }
       }
     }

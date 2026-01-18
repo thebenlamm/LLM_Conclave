@@ -130,12 +130,26 @@ Default if omitted: generic Primary/Validator/Reviewer agents.`,
         },
         config: {
           type: 'string',
-          description: 'Custom agent configuration. Can be either:\n1. File path to .llm-conclave.json\n2. Inline JSON string: \'{"agents":{"Expert":{"model":"claude-sonnet-4-5","prompt":"You are..."}}}\'\n\nInline JSON is useful for one-off custom personas without creating a config file.',
+          description: `Custom agent configuration. Can be either:
+1. File path to .llm-conclave.json
+2. Inline JSON string (see schema below)
+
+REQUIRED FIELDS per agent:
+- "model": The LLM model name (e.g., "claude-sonnet-4-5", "gpt-4o")
+- "prompt" or "systemPrompt": The system prompt for the agent
+
+Example inline JSON:
+{"agents":{"Expert":{"model":"claude-sonnet-4-5","prompt":"You are a domain expert..."},"Reviewer":{"model":"gpt-4o","prompt":"You review and critique solutions..."}}}`,
         },
         rounds: {
           type: 'number',
-          description: 'Number of discussion rounds. Use 2-3 for quick decisions, 4-5 for complex topics. Default: 4',
+          description: 'Maximum number of discussion rounds. Use 2-3 for quick decisions, 4-5 for complex topics. Default: 4',
           default: 4,
+        },
+        min_rounds: {
+          type: 'number',
+          description: 'Minimum rounds before consensus can be reached. Use this to force deeper discussion even when agents agree quickly. Set equal to rounds for guaranteed thorough debate. Default: 0 (no minimum)',
+          default: 0,
         },
       },
       required: ['task'],
@@ -234,8 +248,9 @@ async function handleDiscuss(args: {
   personas?: string;
   config?: string;
   rounds?: number;
+  min_rounds?: number;
 }) {
-  const { task, project: projectPath, personas, config: configPath, rounds = 4 } = args;
+  const { task, project: projectPath, personas, config: configPath, rounds = 4, min_rounds = 0 } = args;
 
   // Resolve configuration with optional custom config path
   const config = ConfigCascade.resolve({ config: configPath });
@@ -255,6 +270,13 @@ async function handleDiscuss(args: {
   }
 
   config.max_rounds = rounds;
+
+  // Validate min_rounds: must be non-negative integer and <= max_rounds
+  const validatedMinRounds = Math.max(0, Math.floor(min_rounds || 0));
+  if (validatedMinRounds > rounds) {
+    throw new Error(`min_rounds (${validatedMinRounds}) cannot exceed rounds (${rounds})`);
+  }
+  config.min_rounds = validatedMinRounds;
 
   // Load project context if specified
   let projectContext = null;

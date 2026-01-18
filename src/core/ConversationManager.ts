@@ -11,6 +11,7 @@ export default class ConversationManager {
   conversationHistory: any[];
   currentRound: number;
   maxRounds: number;
+  minRounds: number;
   memoryManager: any;
 
   streamOutput: boolean;
@@ -29,6 +30,7 @@ export default class ConversationManager {
     this.conversationHistory = [];
     this.currentRound = 0;
     this.maxRounds = config.max_rounds || 20;
+    this.minRounds = config.min_rounds || 0; // Minimum rounds before consensus can be reached
     this.memoryManager = memoryManager;
     this.streamOutput = streamOutput;
     this.eventBus = eventBus;
@@ -41,10 +43,12 @@ export default class ConversationManager {
    */
   initializeAgents() {
     for (const [name, agentConfig] of Object.entries(this.config.agents) as [string, any][]) {
+      // Support both 'prompt' and 'systemPrompt' field names (for compatibility with defaults and custom configs)
+      const systemPrompt = agentConfig.prompt || agentConfig.systemPrompt || '';
       this.agents[name] = {
         name: name,
         provider: ProviderFactory.createProvider(agentConfig.model),
-        systemPrompt: agentConfig.prompt,
+        systemPrompt: systemPrompt,
         model: agentConfig.model
       };
       this.agentOrder.push(name);
@@ -124,17 +128,33 @@ export default class ConversationManager {
 
       const judgeResult = await this.judgeEvaluate(judge);
 
-      if (judgeResult.consensusReached) {
+      // Only allow consensus if we've completed minimum rounds
+      if (judgeResult.consensusReached && this.currentRound >= this.minRounds) {
         consensusReached = true;
         finalSolution = judgeResult.solution;
         console.log(`\n${'='.repeat(80)}`);
         console.log(`CONSENSUS REACHED after ${this.currentRound} rounds!`);
         console.log(`${'='.repeat(80)}\n`);
-        
+
         if (this.eventBus) {
             this.eventBus.emitEvent('status', { message: `Consensus reached after ${this.currentRound} rounds` });
         }
         break;
+      } else if (judgeResult.consensusReached && this.currentRound < this.minRounds) {
+        // Consensus claimed but minimum rounds not met - continue discussion
+        console.log(`\n[Potential consensus detected, but minimum rounds (${this.minRounds}) not yet reached. Round ${this.currentRound}/${this.minRounds}. Continuing discussion...]\n`);
+
+        if (this.eventBus) {
+            this.eventBus.emitEvent('status', { message: `Minimum rounds not met (${this.currentRound}/${this.minRounds}). Continuing.` });
+        }
+
+        // Include judge's actual feedback + guidance to continue exploring
+        const judgeContext = judgeResult.solution || judgeResult.guidance || '';
+        this.conversationHistory.push({
+          role: 'user',
+          content: `Judge's evaluation: ${judgeContext}\n\nNote: While the above solution shows promise, we need more thorough discussion (round ${this.currentRound}/${this.minRounds}). Please challenge assumptions, explore edge cases, identify potential weaknesses, or offer alternative perspectives that haven't been fully considered yet.`,
+          speaker: 'Judge'
+        });
       } else {
         console.log(`Judge: ${judgeResult.guidance}\n`);
         
