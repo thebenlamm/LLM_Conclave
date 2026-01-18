@@ -23,6 +23,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import ConsultOrchestrator from '../orchestration/ConsultOrchestrator.js';
 import ConversationManager from '../core/ConversationManager.js';
+import SessionManager from '../core/SessionManager.js';
+import ContinuationHandler from '../core/ContinuationHandler.js';
 import ProviderFactory from '../providers/ProviderFactory.js';
 import ProjectContext from '../utils/ProjectContext.js';
 import ConsultLogger from '../utils/ConsultLogger.js';
@@ -155,8 +157,48 @@ Example inline JSON:
       required: ['task'],
     },
   },
-  // NOTE: llm_conclave_iterate and llm_conclave_stats removed - not yet implemented
-  // Will be added back when functionality is complete
+  {
+    name: 'llm_conclave_continue',
+    description: 'Continue a previous discussion session with a follow-up question or task. Use this to build on previous conversations without starting from scratch.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: {
+          type: 'string',
+          description: 'Session ID to continue. Omit to use most recent session.',
+        },
+        task: {
+          type: 'string',
+          description: 'Follow-up question or task to continue the discussion with.',
+        },
+        reset: {
+          type: 'boolean',
+          description: 'If true, start fresh with only a summary of the previous session (for token limits). Default: false',
+          default: false,
+        },
+      },
+      required: ['task'],
+    },
+  },
+  {
+    name: 'llm_conclave_sessions',
+    description: 'List recent discussion sessions that can be continued.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Maximum number of sessions to return. Default: 10',
+          default: 10,
+        },
+        mode: {
+          type: 'string',
+          enum: ['consensus', 'orchestrated', 'iterative'],
+          description: 'Filter by discussion mode.',
+        },
+      },
+    },
+  },
 ];
 
 // ============================================================================
@@ -180,7 +222,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'llm_conclave_discuss':
         return await handleDiscuss(args as any);
 
-      // NOTE: iterate and stats cases removed - not yet implemented
+      case 'llm_conclave_continue':
+        return await handleContinue(args as any);
+
+      case 'llm_conclave_sessions':
+        return await handleSessions(args as any);
 
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -298,8 +344,27 @@ async function handleDiscuss(args: {
   // Save full discussion to file (preserves all agent contributions)
   const logFilePath = saveFullDiscussion(result);
 
+  // Save session for potential continuation
+  const sessionManager = new SessionManager();
+  const agents = Object.entries(config.agents).map(([name, agentConfig]: [string, any]) => ({
+    name,
+    model: agentConfig.model,
+    systemPrompt: agentConfig.prompt || agentConfig.systemPrompt || '',
+    provider: ProviderFactory.createProvider(agentConfig.model),
+  }));
+  const session = sessionManager.createSessionManifest(
+    'consensus',
+    task,
+    agents,
+    result.conversationHistory,
+    result,
+    judge,
+    projectContext?.formatContext()
+  );
+  const sessionId = await sessionManager.saveSession(session);
+
   // Format brief summary for MCP response (keeps context small)
-  const summary = formatDiscussionResult(result, logFilePath);
+  const summary = formatDiscussionResult(result, logFilePath, sessionId);
 
   return {
     content: [
@@ -311,9 +376,168 @@ async function handleDiscuss(args: {
   };
 }
 
-// NOTE: handleIterate, handleStats, and handleListSessions removed
-// These tools are not yet fully implemented and were removed from the MCP interface
-// to avoid confusing other Claude instances. Will be re-added when complete.
+/**
+ * Handle session continuation
+ */
+async function handleContinue(args: {
+  session_id?: string;
+  task: string;
+  reset?: boolean;
+}) {
+  const { session_id, task, reset = false } = args;
+  const sessionManager = new SessionManager();
+  const continuationHandler = new ContinuationHandler();
+
+  // Load session (most recent if no ID provided)
+  let session;
+  if (session_id) {
+    session = await sessionManager.loadSession(session_id);
+    if (!session) {
+      throw new Error(`Session '${session_id}' not found. Use llm_conclave_sessions to list available sessions.`);
+    }
+  } else {
+    session = await sessionManager.getMostRecentSession();
+    if (!session) {
+      throw new Error('No sessions found. Run a discussion first using llm_conclave_discuss.');
+    }
+  }
+
+  // Validate session is resumable
+  const validation = continuationHandler.validateResumable(session);
+  if (!validation.isValid) {
+    throw new Error(`Cannot resume session: ${validation.warnings.join(', ')}`);
+  }
+
+  // Prepare continuation context
+  const prepared = continuationHandler.prepareForContinuation(session, task, {
+    resetDiscussion: reset,
+    includeFullHistory: !reset,
+  });
+
+  // Rebuild config from session
+  const config: any = {
+    max_rounds: session.maxRounds || 4,
+    min_rounds: 0,
+    agents: {},
+    judge: {
+      model: session.judge?.model || 'gpt-4o',
+      prompt: session.judge?.systemPrompt || 'You are a judge evaluating agent responses.',
+    },
+  };
+
+  // Reconstruct agents from session
+  for (const agent of session.agents) {
+    config.agents[agent.name] = {
+      model: agent.model,
+      prompt: agent.systemPrompt,
+    };
+  }
+
+  // Create judge
+  const judge = {
+    provider: ProviderFactory.createProvider(config.judge.model),
+    systemPrompt: config.judge.prompt,
+  };
+
+  // Run continuation conversation
+  const conversationManager = new ConversationManager(config, null, false);
+
+  // Inject previous history before starting
+  for (const msg of prepared.mergedHistory) {
+    conversationManager.conversationHistory.push({
+      role: msg.role,
+      content: msg.content,
+      speaker: msg.speaker || (msg.role === 'user' ? 'System' : 'Assistant'),
+    });
+  }
+
+  // Start continuation with the new task
+  const result = await conversationManager.startConversation(prepared.newTask, judge, null);
+
+  // Save as new session with parent reference
+  const agents = Object.entries(config.agents).map(([name, agentConfig]: [string, any]) => ({
+    name,
+    model: agentConfig.model,
+    systemPrompt: agentConfig.prompt || '',
+    provider: ProviderFactory.createProvider(agentConfig.model),
+  }));
+  const newSession = sessionManager.createSessionManifest(
+    'consensus',
+    task,
+    agents,
+    result.conversationHistory,
+    result,
+    judge
+  );
+  // Link to parent session
+  (newSession as any).parentSessionId = session.id;
+  const newSessionId = await sessionManager.saveSession(newSession);
+
+  // Save discussion log
+  const logFilePath = saveFullDiscussion(result);
+
+  // Format response
+  let output = `# Continuation of Session ${session.id}\n\n`;
+  output += `**Original Task:** ${session.task}\n\n`;
+  output += `**Follow-up:** ${task}\n\n`;
+  output += formatDiscussionResult(result, logFilePath, newSessionId);
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: output,
+      },
+    ],
+  };
+}
+
+/**
+ * Handle listing sessions
+ */
+async function handleSessions(args: {
+  limit?: number;
+  mode?: 'consensus' | 'orchestrated' | 'iterative';
+}) {
+  const { limit = 10, mode } = args;
+  const sessionManager = new SessionManager();
+
+  const sessions = await sessionManager.listSessions({ limit, mode });
+
+  if (sessions.length === 0) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: 'No sessions found. Run a discussion first using llm_conclave_discuss.',
+        },
+      ],
+    };
+  }
+
+  let output = `# Recent Sessions (${sessions.length})\n\n`;
+  output += `Use \`llm_conclave_continue\` with a session ID to continue a discussion.\n\n`;
+
+  for (const session of sessions) {
+    const date = new Date(session.timestamp).toLocaleString();
+    const taskPreview = session.task.length > 80 ? session.task.substring(0, 80) + '...' : session.task;
+    const parent = session.parentSessionId ? ' *(continuation)*' : '';
+    output += `### ${session.id}${parent}\n`;
+    output += `- **Date:** ${date}\n`;
+    output += `- **Mode:** ${session.mode}\n`;
+    output += `- **Task:** ${taskPreview}\n`;
+    output += `- **Rounds:** ${session.roundCount} | **Cost:** $${session.cost.toFixed(4)}\n\n`;
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: output,
+      },
+    ],
+  };
+}
 
 // ============================================================================
 // Helper Functions
@@ -421,7 +645,7 @@ function saveFullDiscussion(result: any): string {
 /**
  * Format a brief summary for MCP response (keeps context small)
  */
-function formatDiscussionResult(result: any, logFilePath: string): string {
+function formatDiscussionResult(result: any, logFilePath: string, sessionId?: string): string {
   const { task, conversationHistory, solution, consensusReached, rounds, maxRounds, failedAgents = [] } = result;
 
   let output = `# Discussion Summary\n\n`;
@@ -465,8 +689,11 @@ function formatDiscussionResult(result: any, logFilePath: string): string {
   output += `---\n\n`;
   output += `**Est. tokens:** ~${estimatedTokens.toLocaleString()} | **Est. cost:** ~$${estimatedCost.toFixed(3)}\n\n`;
 
-  // Reference to full log
+  // Reference to full log and session
   output += `📄 **Full discussion:** \`${logFilePath}\`\n`;
+  if (sessionId) {
+    output += `🔄 **Session ID:** \`${sessionId}\` (use llm_conclave_continue to follow up)\n`;
+  }
 
   return output;
 }

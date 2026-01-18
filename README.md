@@ -388,8 +388,9 @@ LLM Conclave automatically saves all conversations, allowing you to continue dis
 - **Continuation**: Ask follow-up questions to any previous conversation
 - **Linked Sessions**: Continuations are linked to their parent sessions
 - **Full Context**: Agents see the complete conversation history when continuing
+- **Reset Option**: Start fresh with just a summary (for token limit management)
 
-### Usage
+### CLI Usage
 
 ```bash
 # List all saved sessions
@@ -403,33 +404,81 @@ llm-conclave continue "Can you elaborate on the scalability concerns?"
 
 # Resume a specific session by ID
 llm-conclave continue session_2025-12-06T20-42-25_a3f2 "What about using a database?"
+
+# Reset history (keep only summary, for long conversations)
+llm-conclave continue --reset "Start fresh but remember what we discussed"
+```
+
+### MCP Usage
+
+When using LLM Conclave via MCP (e.g., from Claude Desktop), you can continue discussions programmatically:
+
+```json
+// List available sessions
+{
+  "tool": "llm_conclave_sessions",
+  "arguments": { "limit": 5 }
+}
+
+// Continue most recent session
+{
+  "tool": "llm_conclave_continue",
+  "arguments": {
+    "task": "What about the edge cases we discussed?"
+  }
+}
+
+// Continue a specific session
+{
+  "tool": "llm_conclave_continue",
+  "arguments": {
+    "session_id": "session_2025-01-17T20-42-25_a3f2",
+    "task": "Can you elaborate on the security concerns?"
+  }
+}
+
+// Reset and start fresh (keeps summary only)
+{
+  "tool": "llm_conclave_continue",
+  "arguments": {
+    "task": "Let's revisit the architecture",
+    "reset": true
+  }
+}
 ```
 
 ### Example Workflow
 
 ```bash
 # 1. Run initial conversation
-$ llm-conclave "Evaluate my AI brain storage idea"
+$ llm-conclave discuss "Evaluate my AI brain storage idea"
 # ... conversation happens ...
-✓ Session saved: session_2025-12-06T20-42-25_a3f2
+🔄 Session ID: session_2025-12-06T20-42-25_a3f2 (use llm_conclave_continue to follow up)
 
 # 2. Later, ask a follow-up question
 $ llm-conclave continue "Can you elaborate on the indexing strategies?"
-→ Loading session session_2025-12-06T20-42-25_a3f2...
-→ Continuing discussion with 5 agents...
+📜 Previous Session:
+   ID: session_2025-12-06T20-42-25_a3f2
+   Task: Evaluate my AI brain storage idea
+   Agents: Primary, Validator, Reviewer
+
+🔄 Continuing with: "Can you elaborate on the indexing strategies?"
 # ... agents see full context and continue the discussion ...
-✓ Continuation saved as session: session_2025-12-06T21-15-30_b7e9
-  (Parent session: session_2025-12-06T20-42-25_a3f2)
+📦 New session saved: session_2025-12-06T21-15-30_b7e9
 
 # 3. View session history
 $ llm-conclave sessions
 Recent Sessions (showing 2):
 
-1. [Dec 6, 9:15 PM] "This is a continuation of a previous discussion..."
-   Mode: consensus | Rounds: 1 | Cost: $0.0156 (continuation)
+1. session_2025-12-06T21-15-30_b7e9 (continuation)
+   Mode: consensus | Dec 6, 9:15 PM
+   Task: Can you elaborate on the indexing strategies?
+   Rounds: 2 | Cost: $0.0156
 
-2. [Dec 6, 8:42 PM] "Evaluate my AI brain storage idea"
-   Mode: consensus | Rounds: 1 | Cost: $0.0234
+2. session_2025-12-06T20-42-25_a3f2
+   Mode: consensus | Dec 6, 8:42 PM
+   Task: Evaluate my AI brain storage idea
+   Rounds: 3 | Cost: $0.0234
 ```
 
 ### What Gets Saved
@@ -437,6 +486,7 @@ Recent Sessions (showing 2):
 Each session includes:
 - Full conversation history with all agent responses
 - Agent configurations (models, system prompts)
+- Judge configuration
 - Task description and final solution
 - Cost and performance metrics
 - Links to parent sessions (for continuations)
@@ -454,6 +504,21 @@ Sessions are stored in `~/.llm-conclave/sessions/` with this structure:
 ```
 
 Sessions persist across projects and directories, making it easy to continue conversations from anywhere.
+
+### How Continuation Works
+
+When you continue a session:
+
+1. **Load Previous Session**: The original session is loaded with full conversation history
+2. **Merge Context**: A continuation prompt is generated that includes:
+   - The original task
+   - The previous conclusion/solution
+   - Your new follow-up question
+3. **Recreate Agents**: The same agents from the original session are recreated
+4. **Run Discussion**: Agents discuss with full context of what was said before
+5. **Save New Session**: A new session is created, linked to the parent session
+
+This allows you to have extended, multi-session conversations while maintaining full context.
 
 ## MCP Server (Model Context Protocol)
 
@@ -498,11 +563,49 @@ Instead of running CLI commands yourself, let your AI assistant invoke consultat
 
 ### Available Tools
 
-- **`llm_conclave_consult`** - Fast 4-round multi-model consultation (Security Expert, Architect, Pragmatist)
+#### Consultation Tools
+
+- **`llm_conclave_consult`** - Fast 4-round multi-model consultation
+  - Fixed expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini)
+  - Parameters: `question` (required), `context`, `quick`, `format`
+
 - **`llm_conclave_discuss`** - Democratic consensus discussion with custom personas
-- **`llm_conclave_iterate`** - Iterative collaborative mode for chunk-based work
-- **`llm_conclave_stats`** - Usage analytics and cost tracking
-- **`llm_conclave_list_sessions`** - Browse past consultation sessions
+  - Parameters: `task` (required), `personas`, `config`, `rounds`, `min_rounds`, `project`
+  - Supports built-in personas (`security`, `architect`, etc.) or custom agents via inline JSON
+
+#### Session Management Tools
+
+- **`llm_conclave_sessions`** - List recent sessions that can be continued
+  - Parameters: `limit` (default: 10), `mode` (filter by consensus/orchestrated/iterative)
+  - Returns session IDs, dates, tasks, and costs
+
+- **`llm_conclave_continue`** - Continue a previous discussion with follow-up questions
+  - Parameters: `task` (required), `session_id` (optional, defaults to most recent), `reset`
+  - Agents see full conversation history from the previous session
+  - Creates a new session linked to the parent
+
+#### Example: Continue a Discussion via MCP
+
+```json
+// First, run a discussion
+{
+  "tool": "llm_conclave_discuss",
+  "arguments": {
+    "task": "Design a user authentication system",
+    "personas": "security,architect,pragmatic"
+  }
+}
+// Output includes: 🔄 Session ID: session_2025-01-17T...
+
+// Later, continue with a follow-up
+{
+  "tool": "llm_conclave_continue",
+  "arguments": {
+    "task": "What about OAuth vs JWT for the mobile app?",
+    "session_id": "session_2025-01-17T..."
+  }
+}
+```
 
 **Full documentation:** See [`docs/MCP_SERVER.md`](docs/MCP_SERVER.md)
 
