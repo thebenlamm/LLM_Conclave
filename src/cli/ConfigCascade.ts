@@ -97,9 +97,20 @@ export class ConfigCascade {
   }
 
   /**
-   * Load project configuration from .llm-conclave.json
+   * Load project configuration from .llm-conclave.json or inline JSON
    */
   private static loadProjectConfig(customPath?: string): any {
+    // Support inline JSON (starts with '{')
+    if (customPath && customPath.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(customPath);
+        return ConfigLoader.validate(parsed);
+      } catch (error: any) {
+        throw new Error(`Failed to parse inline JSON config: ${error.message}`);
+      }
+    }
+
+    // Otherwise treat as file path
     try {
       return ConfigLoader.load(customPath);
     } catch (error) {

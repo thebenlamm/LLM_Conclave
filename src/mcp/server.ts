@@ -130,7 +130,7 @@ Default if omitted: generic Primary/Validator/Reviewer agents.`,
         },
         config: {
           type: 'string',
-          description: 'Path to .llm-conclave.json with custom agents. Use when project has domain-specific agent definitions. Format: { "agents": { "AgentName": { "model": "claude-sonnet-4-5", "prompt": "You are..." } } }',
+          description: 'Custom agent configuration. Can be either:\n1. File path to .llm-conclave.json\n2. Inline JSON string: \'{"agents":{"Expert":{"model":"claude-sonnet-4-5","prompt":"You are..."}}}\'\n\nInline JSON is useful for one-off custom personas without creating a config file.',
         },
         rounds: {
           type: 'number',
