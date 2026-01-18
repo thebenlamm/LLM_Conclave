@@ -150,7 +150,7 @@ Example inline JSON:
         },
         min_rounds: {
           type: 'number',
-          description: 'Minimum rounds before consensus can be reached. Use this to force deeper discussion even when agents agree quickly. Set equal to rounds for guaranteed thorough debate. Default: 0 (no minimum)',
+          description: 'Minimum rounds before consensus can end the discussion early. Consensus detection is disabled until this round completes. Example: min_rounds=4 with rounds=5 means consensus CAN end at round 4, skipping round 5. Set min_rounds equal to rounds for guaranteed full debate with no early exit. Default: 0 (no minimum)',
           default: 0,
         },
       },
