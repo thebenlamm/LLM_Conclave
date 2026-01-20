@@ -50,12 +50,51 @@ export interface CustomPersonaConfig {
 }
 
 /**
- * Standard instruction appended to all persona prompts requiring explicit participation.
- * Prevents personas from staying silent when they agree with others.
+ * Standard instruction appended to all persona prompts requiring substantive participation.
+ * Encourages adversarial thinking and prevents shallow agreement.
  */
 const PARTICIPATION_REQUIREMENT = `
 
-IMPORTANT: You must respond in every discussion round, even if you agree with other participants. If you have no new concerns to raise, explicitly state your agreement (e.g., "I concur with [Agent]'s assessment" or "No additional concerns from my perspective"). Silent agreement is not acceptable - your explicit acknowledgment helps track consensus.`;
+IMPORTANT PARTICIPATION RULES:
+1. You MUST respond in every round with SUBSTANTIVE content.
+2. AVOID shallow agreement like "I agree with X" or "Well said" - this adds no value.
+3. Instead, when you agree with the general direction, IMPROVE it by:
+   - Adding edge cases that weren't considered
+   - Identifying potential failure modes
+   - Suggesting specific implementation details
+   - Noting trade-offs that weren't mentioned
+4. Play devil's advocate when appropriate - challenge assumptions even if you agree overall.
+5. If you truly have nothing new to add, state WHAT was already covered AND WHY it's complete.
+
+Your unique perspective is why you're here. Don't waste it on empty agreement.`;
+
+/**
+ * Alias map for common persona name variations.
+ * Users can use either the alias or the canonical name.
+ */
+const PERSONA_ALIASES: Record<string, string> = {
+  // Common shorthand
+  'architect': 'architecture',
+  'arch': 'architecture',
+  'sec': 'security',
+  'perf': 'performance',
+  'dev': 'devops',
+  'ops': 'devops',
+  'a11y': 'accessibility',
+  'docs': 'documentation',
+  'doc': 'documentation',
+  // Alternative names
+  'innovation': 'creative',
+  'innovator': 'creative',
+  'critic': 'skeptic',
+  'devil': 'skeptic',
+  'devils-advocate': 'skeptic',
+  'practical': 'pragmatic',
+  'engineer': 'pragmatic',
+  'tester': 'qa',
+  'testing': 'qa',
+  'quality': 'qa',
+};
 
 export class PersonaSystem {
   private static personas: Record<string, Persona> = {
@@ -385,11 +424,21 @@ Provide recommendations for improving documentation quality and coverage.`,
   }
 
   /**
-   * Get a persona by name (checks built-in first, then custom)
+   * Resolve a persona name through aliases.
+   * Returns the canonical name if an alias exists, otherwise returns the original.
+   */
+  static resolveAlias(name: string): string {
+    const lower = name.toLowerCase();
+    return PERSONA_ALIASES[lower] || lower;
+  }
+
+  /**
+   * Get a persona by name (checks aliases, then built-in, then custom)
    */
   static getPersona(name: string): Persona | undefined {
     const allPersonas = this.getAllPersonas();
-    return allPersonas[name.toLowerCase()];
+    const resolved = this.resolveAlias(name);
+    return allPersonas[resolved];
   }
 
   /**
@@ -434,15 +483,17 @@ Provide recommendations for improving documentation quality and coverage.`,
         }
         // Recursively get personas from the set
         for (const setPersonaName of setPersonas) {
-          const persona = allPersonas[setPersonaName.toLowerCase()];
+          const resolved = this.resolveAlias(setPersonaName);
+          const persona = allPersonas[resolved];
           if (persona && !seen.has(persona.name)) {
             personas.push(persona);
             seen.add(persona.name);
           }
         }
       } else {
-        // Regular persona lookup
-        const persona = allPersonas[name.toLowerCase()];
+        // Regular persona lookup (with alias resolution)
+        const resolved = this.resolveAlias(name);
+        const persona = allPersonas[resolved];
         if (persona && !seen.has(persona.name)) {
           personas.push(persona);
           seen.add(persona.name);

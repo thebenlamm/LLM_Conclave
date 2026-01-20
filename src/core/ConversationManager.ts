@@ -104,13 +104,17 @@ export default class ConversationManager {
     });
 
     let consensusReached = false;
-    let finalSolution = null;
+    let finalSolution: string | null = null;
+    let keyDecisions: string[] = [];
+    let actionItems: string[] = [];
+    let dissent: string[] = [];
+    let confidence: string = 'MEDIUM';
 
     // Main conversation loop
     while (this.currentRound < this.maxRounds && !consensusReached) {
       this.currentRound++;
       console.log(`\n--- Round ${this.currentRound} ---\n`);
-      
+
       if (this.eventBus) {
         this.eventBus.emitEvent('round:start', { round: this.currentRound });
       }
@@ -131,7 +135,11 @@ export default class ConversationManager {
       // Only allow consensus if we've completed minimum rounds
       if (judgeResult.consensusReached && this.currentRound >= this.minRounds) {
         consensusReached = true;
-        finalSolution = judgeResult.solution;
+        finalSolution = judgeResult.solution || null;
+        keyDecisions = judgeResult.keyDecisions || [];
+        actionItems = judgeResult.actionItems || [];
+        dissent = judgeResult.dissent || [];
+        confidence = judgeResult.confidence || 'MEDIUM';
         console.log(`\n${'='.repeat(80)}`);
         console.log(`CONSENSUS REACHED after ${this.currentRound} rounds!`);
         console.log(`${'='.repeat(80)}\n`);
@@ -186,7 +194,12 @@ export default class ConversationManager {
         this.eventBus.emitEvent('status', { message: 'Max rounds reached. Conducting final vote.' });
       }
 
-      finalSolution = await this.conductFinalVote(judge);
+      const voteResult = await this.conductFinalVote(judge);
+      finalSolution = voteResult.solution;
+      keyDecisions = voteResult.keyDecisions;
+      actionItems = voteResult.actionItems;
+      dissent = voteResult.dissent;
+      confidence = voteResult.confidence;
     }
 
     // Count failed agents for reporting
@@ -201,6 +214,10 @@ export default class ConversationManager {
       maxRounds: this.maxRounds,
       consensusReached: consensusReached,
       solution: finalSolution,
+      keyDecisions: keyDecisions,
+      actionItems: actionItems,
+      dissent: dissent,
+      confidence: confidence,
       conversationHistory: this.conversationHistory,
       failedAgents: uniqueFailedAgents,
     };
@@ -347,6 +364,40 @@ export default class ConversationManager {
   }
 
   /**
+   * Parse structured output from judge responses.
+   * Extracts KEY_DECISIONS, ACTION_ITEMS, DISSENT, and CONFIDENCE from text.
+   */
+  parseStructuredOutput(text: string): {
+    summary: string;
+    keyDecisions: string[];
+    actionItems: string[];
+    dissent: string[];
+    confidence: string;
+  } {
+    const extractSection = (sectionName: string): string[] => {
+      const regex = new RegExp(`${sectionName}:\\s*\\n((?:- [^\\n]+\\n?)+)`, 'i');
+      const match = text.match(regex);
+      if (!match) return [];
+      return match[1]
+        .split('\n')
+        .filter(line => line.trim().startsWith('-'))
+        .map(line => line.replace(/^-\s*/, '').trim())
+        .filter(line => line.length > 0 && line.toLowerCase() !== 'none');
+    };
+
+    const summaryMatch = text.match(/SUMMARY:\s*\n([^\n]+(?:\n[^\n]+)*?)(?=\n\nKEY_DECISIONS:|$)/i);
+    const confidenceMatch = text.match(/CONFIDENCE:\s*(HIGH|MEDIUM|LOW)/i);
+
+    return {
+      summary: summaryMatch ? summaryMatch[1].trim() : text.replace('CONSENSUS_REACHED', '').trim(),
+      keyDecisions: extractSection('KEY_DECISIONS'),
+      actionItems: extractSection('ACTION_ITEMS'),
+      dissent: extractSection('DISSENT'),
+      confidence: confidenceMatch ? confidenceMatch[1].toUpperCase() : 'MEDIUM'
+    };
+  }
+
+  /**
    * Judge evaluates if consensus has been reached
    * Uses cached recent discussion to avoid rebuilding every time
    * @param {Object} judge - Judge instance
@@ -364,13 +415,53 @@ export default class ConversationManager {
         this.lastJudgeCacheRound = this.currentRound;
       }
 
+      // Detect if agents are just agreeing without adding value
+      const agreementPatterns = /I agree|I concur|well said|exactly right|nothing to add|fully support/gi;
+      const agreementMatches = this.cachedRecentDiscussion.match(agreementPatterns) || [];
+      const isShallowAgreement = agreementMatches.length >= 2;
+      const roundContext = this.currentRound > 2 ? `\n\nNote: This is round ${this.currentRound}. ` +
+        (isShallowAgreement ? 'The agents appear to be agreeing superficially. Push them to challenge assumptions, explore edge cases, or identify weaknesses that haven\'t been addressed.' : '') : '';
+
       const judgePrompt = `
 Recent discussion:
 ${this.cachedRecentDiscussion}
+${roundContext}
 
-Based on the above discussion, have the agents reached sufficient consensus on the task?
-If yes, respond with "CONSENSUS_REACHED" on the first line, followed by a summary of the agreed-upon solution.
-If no, provide brief guidance (2-3 sentences) to help the agents converge toward a solution.`;
+Evaluate whether the agents have reached GENUINE consensus. True consensus requires:
+1. Specific, actionable recommendations (not vague agreement)
+2. Trade-offs acknowledged and resolved
+3. Potential objections addressed (not just glossed over)
+4. Each agent contributing distinct value (not just echoing others)
+
+WARNING: "I agree with X" statements without new insights do NOT constitute genuine consensus. This is shallow agreement.
+
+If YES (genuine consensus reached), respond with EXACTLY this format:
+CONSENSUS_REACHED
+
+SUMMARY:
+[2-3 sentence summary of the agreed solution]
+
+KEY_DECISIONS:
+- [Decision 1]
+- [Decision 2]
+- [etc.]
+
+ACTION_ITEMS:
+- [Action 1]
+- [Action 2]
+- [etc.]
+
+DISSENT:
+- [Any minority opinions or unresolved concerns, or "None" if full agreement]
+
+CONFIDENCE: [HIGH/MEDIUM/LOW based on strength of agreement]
+
+If NO (no genuine consensus), provide SPECIFIC, CHALLENGING guidance:
+- If agents are just agreeing: "Play devil's advocate on [specific point]. What could go wrong with [recommendation]? What's the strongest argument AGAINST this approach?"
+- If discussion is circular: "We've covered [X] enough. Focus next on [unexplored aspect Y]."
+- If one perspective is missing: "No one has addressed [gap]. [Agent name], challenge the current thinking."
+
+Your guidance should FORCE new insights, not just encourage more discussion.`;
 
       const messages = [
         {
@@ -388,10 +479,14 @@ If no, provide brief guidance (2-3 sentences) to help the agents converge toward
 
       // Check if consensus reached
       if (text.includes('CONSENSUS_REACHED')) {
-        const solution = text.replace('CONSENSUS_REACHED', '').trim();
+        const structured = this.parseStructuredOutput(text);
         return {
           consensusReached: true,
-          solution: solution
+          solution: structured.summary,
+          keyDecisions: structured.keyDecisions,
+          actionItems: structured.actionItems,
+          dissent: structured.dissent,
+          confidence: structured.confidence
         };
       }
 
@@ -412,9 +507,15 @@ If no, provide brief guidance (2-3 sentences) to help the agents converge toward
   /**
    * Conduct a final vote when max rounds reached
    * @param {Object} judge - Judge instance
-   * @returns {string} - Final solution
+   * @returns {Object} - Structured final decision
    */
-  async conductFinalVote(judge: any) {
+  async conductFinalVote(judge: any): Promise<{
+    solution: string;
+    keyDecisions: string[];
+    actionItems: string[];
+    dissent: string[];
+    confidence: string;
+  }> {
     try {
       const fullDiscussion = this.conversationHistory
         .map(entry => `${entry.speaker}: ${entry.content}`)
@@ -426,7 +527,25 @@ The agents have discussed the following task but haven't reached full consensus 
 Full discussion:
 ${fullDiscussion}
 
-As the judge, please analyze all perspectives and synthesize the best solution based on the discussion. Provide a final decision that incorporates the strongest ideas from each agent.`;
+As the judge, please analyze all perspectives and synthesize the best solution. Respond with EXACTLY this format:
+
+SUMMARY:
+[2-3 sentence summary of the synthesized solution]
+
+KEY_DECISIONS:
+- [Decision 1]
+- [Decision 2]
+- [etc.]
+
+ACTION_ITEMS:
+- [Action 1]
+- [Action 2]
+- [etc.]
+
+DISSENT:
+- [Any minority opinions or unresolved concerns from specific agents]
+
+CONFIDENCE: [HIGH/MEDIUM/LOW based on strength of the synthesized solution]`;
 
       const messages = [
         {
@@ -442,13 +561,26 @@ As the judge, please analyze all perspectives and synthesize the best solution b
         process.stdout.write('\n');
       }
 
-      console.log(`\nJudge's Final Decision:\n${text}\n`);
+      const structured = this.parseStructuredOutput(text);
+      console.log(`\nJudge's Final Decision:\n${structured.summary}\n`);
 
-      return text;
+      return {
+        solution: structured.summary,
+        keyDecisions: structured.keyDecisions,
+        actionItems: structured.actionItems,
+        dissent: structured.dissent,
+        confidence: structured.confidence
+      };
 
     } catch (error: any) {
       console.error(`Error conducting final vote: ${error.message}`);
-      return 'Unable to reach a final decision due to an error.';
+      return {
+        solution: 'Unable to reach a final decision due to an error.',
+        keyDecisions: [],
+        actionItems: [],
+        dissent: [],
+        confidence: 'LOW'
+      };
     }
   }
 }

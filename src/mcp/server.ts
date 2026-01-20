@@ -646,7 +646,19 @@ function saveFullDiscussion(result: any): string {
  * Format a brief summary for MCP response (keeps context small)
  */
 function formatDiscussionResult(result: any, logFilePath: string, sessionId?: string): string {
-  const { task, conversationHistory, solution, consensusReached, rounds, maxRounds, failedAgents = [] } = result;
+  const {
+    task,
+    conversationHistory,
+    solution,
+    consensusReached,
+    rounds,
+    maxRounds,
+    failedAgents = [],
+    keyDecisions = [],
+    actionItems = [],
+    dissent = [],
+    confidence = 'MEDIUM'
+  } = result;
 
   let output = `# Discussion Summary\n\n`;
   output += `**Task:** ${task}\n\n`;
@@ -655,7 +667,7 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   const roundsDisplay = consensusReached
     ? `${rounds}/${maxRounds || rounds} (consensus reached early)`
     : `${rounds}/${maxRounds || rounds}`;
-  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
+  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'} | **Confidence:** ${confidence}\n\n`;
 
   // List participating agents (excluding failed ones)
   if (conversationHistory && conversationHistory.length > 0) {
@@ -676,9 +688,36 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
 
   // Final solution/recommendation (the key output)
   if (solution) {
-    output += `## Recommendation\n\n${solution}\n\n`;
+    output += `## Summary\n\n${solution}\n\n`;
   } else {
     output += `*No final solution reached*\n\n`;
+  }
+
+  // Key Decisions
+  if (keyDecisions.length > 0) {
+    output += `## Key Decisions\n\n`;
+    for (const decision of keyDecisions) {
+      output += `- ${decision}\n`;
+    }
+    output += `\n`;
+  }
+
+  // Action Items
+  if (actionItems.length > 0) {
+    output += `## Action Items\n\n`;
+    for (const item of actionItems) {
+      output += `- ${item}\n`;
+    }
+    output += `\n`;
+  }
+
+  // Dissenting Views / Unresolved Concerns
+  if (dissent.length > 0) {
+    output += `## Dissenting Views\n\n`;
+    for (const concern of dissent) {
+      output += `- ${concern}\n`;
+    }
+    output += `\n`;
   }
 
   // Estimate cost based on conversation length (rough heuristic)
