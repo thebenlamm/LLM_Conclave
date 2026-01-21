@@ -23,6 +23,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import ConsultOrchestrator from '../orchestration/ConsultOrchestrator.js';
 import ConversationManager from '../core/ConversationManager.js';
+import { EventBus } from '../core/EventBus.js';
 import SessionManager from '../core/SessionManager.js';
 import ContinuationHandler from '../core/ContinuationHandler.js';
 import ProviderFactory from '../providers/ProviderFactory.js';
@@ -32,6 +33,7 @@ import { ConfigCascade } from '../cli/ConfigCascade.js';
 import { PersonaSystem } from '../cli/PersonaSystem.js';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory.js';
 import { OutputFormat } from '../types/consult.js';
+import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 
 // Initialize MCP server
 const server = new Server(
@@ -152,6 +154,16 @@ Example inline JSON:
           type: 'number',
           description: 'Minimum rounds before consensus can end the discussion early. Consensus detection is disabled until this round completes. Example: min_rounds=4 with rounds=5 means consensus CAN end at round 4, skipping round 5. Set min_rounds equal to rounds for guaranteed full debate with no early exit. Default: 0 (no minimum)',
           default: 0,
+        },
+        dynamic: {
+          type: 'boolean',
+          description: 'Enable dynamic speaker selection. Instead of round-robin, an LLM moderator chooses who speaks next based on conversation context and agent expertise. Enables more natural discussions where agents can "hand off" to specific experts. Default: false',
+          default: false,
+        },
+        selector_model: {
+          type: 'string',
+          description: `Model to use for speaker selection when dynamic=true. A fast, cheap model is recommended since it runs frequently. Default: ${DEFAULT_SELECTOR_MODEL}`,
+          default: DEFAULT_SELECTOR_MODEL,
         },
       },
       required: ['task'],
@@ -295,8 +307,19 @@ async function handleDiscuss(args: {
   config?: string;
   rounds?: number;
   min_rounds?: number;
+  dynamic?: boolean;
+  selector_model?: string;
 }) {
-  const { task, project: projectPath, personas, config: configPath, rounds = 4, min_rounds = 0 } = args;
+  const {
+    task,
+    project: projectPath,
+    personas,
+    config: configPath,
+    rounds = 4,
+    min_rounds = 0,
+    dynamic = false,
+    selector_model = DEFAULT_SELECTOR_MODEL
+  } = args;
 
   // Resolve configuration with optional custom config path
   const config = ConfigCascade.resolve({ config: configPath });
@@ -337,8 +360,17 @@ async function handleDiscuss(args: {
     systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.',
   };
 
-  // Run conversation (no streaming for MCP)
-  const conversationManager = new ConversationManager(config, null, false);
+  // Run conversation (no streaming for MCP, with optional dynamic speaker selection)
+  // Create a scoped EventBus to avoid cross-talk between concurrent MCP requests
+  const scopedEventBus = EventBus.createInstance();
+  const conversationManager = new ConversationManager(
+    config,
+    null,  // memoryManager
+    false, // no streaming for MCP
+    scopedEventBus,
+    dynamic,
+    selector_model
+  );
   const result = await conversationManager.startConversation(task, judge, projectContext);
 
   // Save full discussion to file (preserves all agent contributions)
@@ -439,8 +471,10 @@ async function handleContinue(args: {
     systemPrompt: config.judge.prompt,
   };
 
-  // Run continuation conversation
-  const conversationManager = new ConversationManager(config, null, false);
+  // Run continuation conversation (no dynamic selection for continuation - preserves original style)
+  // Create a scoped EventBus to avoid cross-talk between concurrent MCP requests
+  const scopedEventBus = EventBus.createInstance();
+  const conversationManager = new ConversationManager(config, null, false, scopedEventBus, false, DEFAULT_SELECTOR_MODEL);
 
   // Inject previous history before starting
   for (const msg of prepared.mergedHistory) {

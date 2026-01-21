@@ -6,6 +6,7 @@ import ConversationManager from '../core/ConversationManager';
 import OutputHandler from '../core/OutputHandler';
 import ProviderFactory from '../providers/ProviderFactory';
 import ProjectContext from '../utils/ProjectContext';
+import { DEFAULT_SELECTOR_MODEL } from '../constants';
 
 /**
  * Discuss command - Consensus mode
@@ -21,8 +22,11 @@ export function createDiscussCommand(): Command {
     .option('-c, --config <path>', 'Custom config file')
     .option('--with <personas>', 'Comma-separated list of personas (e.g., security,performance)')
     .option('-r, --rounds <n>', 'Number of discussion rounds', '3')
+    .option('--min-rounds <n>', 'Minimum rounds before consensus can end discussion', '0')
     .option('--stream', 'Stream agent responses', true)
     .option('--no-stream', 'Disable streaming')
+    .option('--dynamic', 'Use dynamic speaker selection (LLM picks who speaks next)')
+    .option('--selector-model <model>', 'Model for speaker selection', DEFAULT_SELECTOR_MODEL)
     .action(async (taskArgs: string[], options: any) => {
       const task = taskArgs.join(' ');
 
@@ -47,8 +51,9 @@ export function createDiscussCommand(): Command {
         }
       }
 
-      // Set max_rounds from options
+      // Set rounds from options
       config.max_rounds = parseInt(options.rounds);
+      config.min_rounds = parseInt(options.minRounds || '0');
 
       // Load project context if specified
       let projectContext = null;
@@ -57,16 +62,30 @@ export function createDiscussCommand(): Command {
         projectContext = new ProjectContext(options.project);
       }
 
-      console.log(chalk.blue(`Agents: ${Object.keys(config.agents).join(', ')}\n`));
+      // Log configuration
+      const dynamicMode = options.dynamic ? ' (dynamic speaker selection)' : '';
+      console.log(chalk.blue(`Agents: ${Object.keys(config.agents).join(', ')}${dynamicMode}\n`));
+
+      if (options.dynamic) {
+        console.log(chalk.cyan(`Speaker selector: ${options.selectorModel}\n`));
+      }
 
       // Create judge
       const judge = {
         provider: ProviderFactory.createProvider(config.judge.model),
-        systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.'
+        systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.',
+        model: config.judge.model
       };
 
-      // Run conversation
-      const conversationManager = new ConversationManager(config, null, options.stream);
+      // Run conversation with optional dynamic speaker selection
+      const conversationManager = new ConversationManager(
+        config,
+        null,  // memoryManager
+        options.stream,
+        undefined,  // eventBus
+        options.dynamic || false,
+        options.selectorModel || DEFAULT_SELECTOR_MODEL
+      );
       const result = await conversationManager.startConversation(task, judge, projectContext);
 
       // Output results

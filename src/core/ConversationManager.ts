@@ -1,5 +1,7 @@
 import ProviderFactory from '../providers/ProviderFactory';
 import { EventBus } from './EventBus';
+import { SpeakerSelector, AgentInfo } from './SpeakerSelector';
+import { DEFAULT_SELECTOR_MODEL } from '../constants';
 
 /**
  * Manages the multi-agent conversation
@@ -17,13 +19,25 @@ export default class ConversationManager {
   streamOutput: boolean;
   eventBus?: EventBus;
 
+  // Dynamic speaker selection
+  private dynamicSelection: boolean;
+  private speakerSelector?: SpeakerSelector;
+  private selectorModel: string;
+
   // Performance optimizations: message caching
   private messageCache: any[] = [];
   private lastCacheUpdateIndex: number = 0;
   private cachedRecentDiscussion: string = '';
   private lastJudgeCacheRound: number = 0;
 
-  constructor(config: any, memoryManager: any = null, streamOutput: boolean = false, eventBus?: EventBus) {
+  constructor(
+    config: any,
+    memoryManager: any = null,
+    streamOutput: boolean = false,
+    eventBus?: EventBus,
+    dynamicSelection: boolean = false,
+    selectorModel: string = DEFAULT_SELECTOR_MODEL
+  ) {
     this.config = config;
     this.agents = {};
     this.agentOrder = [];
@@ -34,6 +48,8 @@ export default class ConversationManager {
     this.memoryManager = memoryManager;
     this.streamOutput = streamOutput;
     this.eventBus = eventBus;
+    this.dynamicSelection = dynamicSelection;
+    this.selectorModel = selectorModel;
 
     this.initializeAgents();
   }
@@ -42,6 +58,8 @@ export default class ConversationManager {
    * Initialize all agents from configuration
    */
   initializeAgents() {
+    const agentInfos: AgentInfo[] = [];
+
     for (const [name, agentConfig] of Object.entries(this.config.agents) as [string, any][]) {
       // Support both 'prompt' and 'systemPrompt' field names (for compatibility with defaults and custom configs)
       const systemPrompt = agentConfig.prompt || agentConfig.systemPrompt || '';
@@ -52,11 +70,28 @@ export default class ConversationManager {
         model: agentConfig.model
       };
       this.agentOrder.push(name);
+
+      // Build agent info for speaker selector
+      agentInfos.push({
+        name: name,
+        model: agentConfig.model,
+        expertise: SpeakerSelector.extractExpertise(systemPrompt, name)
+      });
     }
 
-    console.log(`Initialized ${this.agentOrder.length} agents: ${this.agentOrder.join(', ')}`);
+    // Initialize speaker selector if dynamic selection enabled
+    if (this.dynamicSelection) {
+      this.speakerSelector = new SpeakerSelector(agentInfos, this.selectorModel, this.eventBus);
+      console.log(`Initialized ${this.agentOrder.length} agents with DYNAMIC speaker selection: ${this.agentOrder.join(', ')}`);
+    } else {
+      console.log(`Initialized ${this.agentOrder.length} agents: ${this.agentOrder.join(', ')}`);
+    }
+
     if (this.eventBus) {
-      this.eventBus.emitEvent('status', { message: `Initialized ${this.agentOrder.length} agents` });
+      this.eventBus.emitEvent('status', {
+        message: `Initialized ${this.agentOrder.length} agents`,
+        dynamicSelection: this.dynamicSelection
+      });
     }
   }
 
@@ -119,9 +154,13 @@ export default class ConversationManager {
         this.eventBus.emitEvent('round:start', { round: this.currentRound });
       }
 
-      // Each agent takes a turn
-      for (const agentName of this.agentOrder) {
-        await this.agentTurn(agentName);
+      // Each agent takes a turn - either dynamic or round-robin
+      if (this.dynamicSelection && this.speakerSelector) {
+        await this.runDynamicRound(task);
+      } else {
+        for (const agentName of this.agentOrder) {
+          await this.agentTurn(agentName);
+        }
       }
 
       // Judge evaluates consensus
@@ -314,6 +353,92 @@ export default class ConversationManager {
         error: true,
         errorDetails: errorMsg
       });
+    }
+  }
+
+  /**
+   * Run a round with dynamic speaker selection.
+   * Instead of fixed order, an LLM moderator selects who speaks next
+   * based on conversation context and agent expertise.
+   */
+  async runDynamicRound(task: string): Promise<void> {
+    if (!this.speakerSelector) {
+      throw new Error('Speaker selector not initialized for dynamic selection');
+    }
+
+    // Start fresh turn tracking for this round
+    this.speakerSelector.startNewRound();
+    const failedAgentsThisRound: Set<string> = new Set();
+
+    let lastSpeaker: string | null = null;
+    let lastResponse: string | null = null;
+    let turnCount = 0;
+    
+    // Safety limit: allow more turns than agents to enable back-and-forth
+    // Default to 20 or 3x agent count, whichever is higher, to prevent infinite loops
+    const maxTurnsPerRound = Math.max(20, this.agentOrder.length * 3);
+
+    while (turnCount < maxTurnsPerRound) {
+      // Select next speaker
+      const selection = await this.speakerSelector.selectNextSpeaker(
+        this.conversationHistory,
+        lastSpeaker,
+        lastResponse,
+        this.currentRound,
+        task,
+        failedAgentsThisRound
+      );
+
+      // Check if round should end
+      if (!selection.shouldContinue) {
+        console.log(`[Round ${this.currentRound} complete: ${selection.reason}]`);
+        break;
+      }
+
+      const agentName = selection.nextSpeaker;
+      
+      // Stop if selector returned a speaker that doesn't exist (safety check)
+      if (!agentName) {
+        console.log(`[Round ${this.currentRound} ended: No next speaker selected]`);
+        break;
+      }
+
+      // Log selection reasoning
+      if (selection.handoffRequested) {
+        console.log(`[Handoff to ${agentName} (requested by ${lastSpeaker})]`);
+      } else if (selection.confidence < 0.6) {
+        console.log(`[Selected ${agentName} - ${selection.reason} (confidence: ${(selection.confidence * 100).toFixed(0)}%)]`);
+      } else {
+        console.log(`[Selected ${agentName} - ${selection.reason}]`);
+      }
+
+      // Execute agent turn and capture response
+      const historyLengthBefore = this.conversationHistory.length;
+      await this.agentTurn(agentName);
+
+      // Get the response that was just added
+      if (this.conversationHistory.length > historyLengthBefore) {
+        const latestEntry = this.conversationHistory[this.conversationHistory.length - 1];
+        
+        // Handle error cases: don't pass error messages as conversation context
+        if (latestEntry.error) {
+          lastResponse = `[System: The previous agent (${agentName}) failed to respond due to an error. Please select a different agent to continue the discussion.]`;
+          // Don't update lastSpeaker so we don't attribute the system message to the agent
+          // Record as failed to prevent immediate re-selection
+          failedAgentsThisRound.add(agentName);
+        } else {
+          lastResponse = latestEntry.content;
+          lastSpeaker = agentName;
+        }
+      }
+
+      // Record turn
+      this.speakerSelector.recordTurn(agentName);
+      turnCount++;
+    }
+
+    if (turnCount >= maxTurnsPerRound) {
+      console.log(`[Round ${this.currentRound} ended: safety limit (${maxTurnsPerRound} turns) reached]`);
     }
   }
 

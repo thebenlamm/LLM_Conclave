@@ -24,7 +24,10 @@ export type EventType =
   | 'consultation:state_change'
   | 'health:check_started'
   | 'health:status_updated'
-  | 'cost:gate_triggered';
+  | 'cost:gate_triggered'
+  // Dynamic Speaker Selection Events
+  | 'speaker:selected'
+  | 'speaker:handoff';
 
 export interface ConclaveEvent {
   type: EventType;
@@ -35,15 +38,33 @@ export interface ConclaveEvent {
 export class EventBus extends EventEmitter {
   private static instance: EventBus;
 
-  private constructor() {
+  /**
+   * Constructor is public to allow creating scoped instances.
+   * Use getInstance() for the global singleton (CLI use).
+   * Use createInstance() or new EventBus() for scoped instances (MCP/concurrent use).
+   */
+  constructor() {
     super();
   }
 
+  /**
+   * Get the global singleton instance.
+   * Use this for CLI commands where only one session runs at a time.
+   * For concurrent requests (MCP server), use createInstance() instead.
+   */
   public static getInstance(): EventBus {
     if (!EventBus.instance) {
       EventBus.instance = new EventBus();
     }
     return EventBus.instance;
+  }
+
+  /**
+   * Create a new scoped EventBus instance.
+   * Use this for concurrent requests (MCP server) to avoid event cross-talk.
+   */
+  public static createInstance(): EventBus {
+    return new EventBus();
   }
 
   public emitEvent(type: EventType, payload: any) {
