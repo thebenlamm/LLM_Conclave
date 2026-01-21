@@ -32,7 +32,10 @@ export class TemplateLoader {
   }
 
   get presetTemplatesDir(): string {
-     return path.join(__dirname, 'presets');
+    const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+    return isTestEnv
+      ? path.join(os.tmpdir(), 'llm-conclave-test-preset-templates')
+      : path.join(__dirname, 'presets');
   }
 
   discoverTemplates(): Map<string, TemplatePath> {

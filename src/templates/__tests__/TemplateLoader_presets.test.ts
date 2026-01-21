@@ -1,11 +1,43 @@
 import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { TemplateLoader } from '../TemplateLoader';
 
 describe('TemplateLoader Presets', () => {
+  const testPresetDir = path.join(os.tmpdir(), 'llm-conclave-test-preset-templates');
+  const realPresetDir = path.join(__dirname, '..', 'presets');
+
+  beforeEach(() => {
+    // Copy real preset files to test preset directory
+    if (fs.existsSync(testPresetDir)) {
+      fs.rmSync(testPresetDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(testPresetDir, { recursive: true });
+
+    // Copy each preset file
+    if (fs.existsSync(realPresetDir)) {
+      const files = fs.readdirSync(realPresetDir);
+      for (const file of files) {
+        if (file.endsWith('.yaml') || file.endsWith('.yml')) {
+          fs.copyFileSync(
+            path.join(realPresetDir, file),
+            path.join(testPresetDir, file)
+          );
+        }
+      }
+    }
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(testPresetDir)) {
+      fs.rmSync(testPresetDir, { recursive: true, force: true });
+    }
+  });
+
   test('should load preset templates', () => {
     const loader = new TemplateLoader();
     const templates = loader.loadAllTemplates();
-    
+
     // Check code-review preset
     const codeReview = templates.find(t => t.name === 'code-review');
     expect(codeReview).toBeDefined();

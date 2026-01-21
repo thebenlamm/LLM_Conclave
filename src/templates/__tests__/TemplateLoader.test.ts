@@ -5,9 +5,21 @@ import * as fs from 'fs';
 
 describe('TemplateLoader', () => {
   let loader: TemplateLoader;
+  const presetDir = path.join(os.tmpdir(), 'llm-conclave-test-preset-templates');
 
   beforeEach(() => {
     loader = new TemplateLoader();
+    // Ensure preset test directory is clean
+    if (fs.existsSync(presetDir)) {
+      fs.rmSync(presetDir, { recursive: true, force: true });
+    }
+  });
+
+  afterEach(() => {
+    // Clean up preset test directory
+    if (fs.existsSync(presetDir)) {
+      fs.rmSync(presetDir, { recursive: true, force: true });
+    }
   });
 
   describe('Path Resolution', () => {
