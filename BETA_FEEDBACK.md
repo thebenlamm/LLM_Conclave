@@ -38,6 +38,8 @@ config='{"agents":{"Expert":{"model":"claude-sonnet-4-5","prompt":"You are..."}}
 ```
 This would eliminate the need to create a separate config file for one-off custom personas.
 
+**✅ FIXED** in commit `95cbe56` - Inline JSON config now supported!
+
 ---
 
 ## 2026-01-19
@@ -83,6 +85,8 @@ This would eliminate the need to create a separate config file for one-off custo
 - Updated PARTICIPATION_REQUIREMENT to discourage "I agree" responses
 - Agents instructed to add edge cases, failure modes, and trade-offs even when agreeing
 
-**Commits:** TBD (all changes in this session)
+**Commits:**
+- `b115231` - feat: Improve discuss output with structured summaries and persona aliases
+- `9fc0986` - feat: Add dynamic speaker selection with robustness fixes
 
 ---

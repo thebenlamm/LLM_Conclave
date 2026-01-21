@@ -146,9 +146,12 @@ Run a collaborative discussion where agents contribute equally and build on each
 **Parameters:**
 - `task` (required): The topic or problem to discuss
 - `project` (optional): Project context path (file or directory)
-- `config` (optional): Path to custom `.llm-conclave.json` with domain-specific agents
+- `config` (optional): Path to custom `.llm-conclave.json` OR inline JSON agent definitions
 - `personas` (optional): Comma-separated personas (see below)
-- `rounds` (optional): Number of rounds (default: 4)
+- `rounds` (optional): Maximum number of rounds (default: 4)
+- `min_rounds` (optional): Minimum rounds before early consensus can end discussion (default: 0)
+- `dynamic` (optional): Enable LLM-based speaker selection instead of round-robin (default: false)
+- `selector_model` (optional): Model for speaker selection when dynamic=true (default: gpt-4o-mini)
 
 **Built-in Personas:**
 - `security` - Security Expert (Claude) - OWASP, auth, encryption
@@ -162,6 +165,17 @@ Run a collaborative discussion where agents contribute equally and build on each
 - `accessibility` - Accessibility Expert (Claude) - WCAG, a11y
 - `documentation` - Documentation Specialist (GPT-4o) - API docs
 
+**Persona Aliases** (for convenience):
+- `arch`, `architecture` → architect
+- `sec` → security
+- `perf` → performance
+- `dev`, `ops` → devops
+- `a11y` → accessibility
+- `docs` → documentation
+- `devil`, `devils-advocate` → skeptic
+- `practical`, `engineer` → pragmatic
+- `tester`, `testing`, `quality` → qa
+
 **Example prompts:**
 ```
 "Use llm_conclave_discuss with security and performance personas
@@ -169,6 +183,44 @@ to brainstorm approaches for caching user sessions"
 
 "Use llm_conclave_discuss with architect,pragmatic,skeptic to
 evaluate microservices vs monolith for our MVP"
+
+"Use llm_conclave_discuss with dynamic speaker selection
+to let agents naturally hand off to each other"
+```
+
+**Dynamic Speaker Selection:**
+
+Enable `dynamic: true` to let an LLM moderator choose who speaks next based on conversation context:
+
+```json
+{
+  "tool": "llm_conclave_discuss",
+  "arguments": {
+    "task": "Design authentication architecture",
+    "personas": "security,architect,pragmatic",
+    "dynamic": true,
+    "selector_model": "gpt-4o-mini"
+  }
+}
+```
+
+Benefits:
+- Natural conversation flow with explicit handoffs (`@Security, what about XSS?`)
+- Prevents ping-pong loops (A→B→A blocked)
+- Circuit breaker falls back to round-robin after failures
+
+**Inline JSON Config:**
+
+Define custom agents directly in the `config` parameter without creating a file:
+
+```json
+{
+  "tool": "llm_conclave_discuss",
+  "arguments": {
+    "task": "Analyze document",
+    "config": "{\"agents\":{\"Expert\":{\"model\":\"claude-sonnet-4-5\",\"prompt\":\"You are a domain expert...\"}}}"
+  }
+}
 ```
 
 **When to use:**
@@ -176,6 +228,42 @@ evaluate microservices vs monolith for our MVP"
 - Exploring design space
 - Getting diverse perspectives
 - Collaborative problem-solving
+- Complex debates requiring dynamic speaker selection
+
+---
+
+## Structured Output
+
+Discussions automatically return structured fields for easier integration:
+
+**Output Fields:**
+- `key_decisions`: Major decisions made during discussion
+- `action_items`: Specific next steps to take
+- `dissent`: Remaining disagreement or minority opinions
+- `confidence`: Confidence level (HIGH/MEDIUM/LOW)
+
+**Example MCP Response:**
+```
+## Summary
+After thorough analysis, the team recommends OAuth 2.0...
+
+## Key Decisions
+- Use OAuth 2.0 with JWT access tokens
+- Implement refresh token rotation
+- Store tokens in httpOnly cookies
+
+## Action Items
+- [ ] Set up OAuth provider configuration
+- [ ] Implement token refresh endpoint
+
+## Dissenting Views
+- Pragmatist raised concerns about MVP timeline complexity
+
+Confidence: HIGH
+```
+
+**Devil's Advocate Mode:**
+The judge automatically detects shallow agreement ("I agree", "I concur") and pushes agents to provide genuine analysis with trade-offs and edge cases.
 
 ---
 
@@ -548,6 +636,14 @@ Each consultation uses multiple LLM providers:
 ---
 
 ## What's Next?
+
+**Recently Implemented:**
+- ✅ Dynamic speaker selection (`dynamic: true`) - LLM chooses who speaks next
+- ✅ Session continuation (`llm_conclave_continue`, `llm_conclave_sessions`)
+- ✅ Structured output (key_decisions, action_items, dissent, confidence)
+- ✅ Persona aliases (17 convenient shortcuts)
+- ✅ Inline JSON config support
+- ✅ Devil's advocate mode (detects shallow agreement)
 
 **Already Implemented (via CLI):**
 - Cost controls with pre-flight estimates and user consent

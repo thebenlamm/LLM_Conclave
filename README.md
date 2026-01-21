@@ -108,6 +108,9 @@ llm-conclave consult "What's the best approach for rate limiting?"
 # Democratic discussion (consensus mode)
 llm-conclave discuss "Design a payment system"
 
+# Dynamic speaker selection (LLM chooses who speaks next)
+llm-conclave discuss --dynamic "Complex architecture debate"
+
 # Structured review (orchestrated mode)
 llm-conclave review -p ./src/auth "Audit security"
 
@@ -174,6 +177,17 @@ llm-conclave --with security,performance "Review code"
 ```
 
 **Built-in personas:** security, performance, architecture, creative, skeptic, pragmatic, testing, devops, accessibility, documentation
+
+**Persona aliases** (for convenience):
+- `arch` → architecture
+- `sec` → security
+- `perf` → performance
+- `dev`, `ops` → devops
+- `a11y` → accessibility
+- `docs` → documentation
+- `devil`, `devils-advocate` → skeptic
+- `practical`, `engineer` → pragmatic
+- `tester`, `testing`, `quality` → qa
 
 #### Custom Personas
 
@@ -260,7 +274,41 @@ llm-conclave server -p 8080         # Custom port
 --deep                      # Deep mode (more thorough)
 --thorough                  # Maximum thoroughness
 --stream / --no-stream      # Enable/disable streaming
+--dynamic                   # Dynamic speaker selection (discuss mode)
 -h, --help                  # Show help
+```
+
+### Dynamic Speaker Selection
+
+Enable LLM-based speaker selection instead of round-robin with the `--dynamic` flag:
+
+```bash
+llm-conclave discuss --dynamic "Design a complex microservices architecture"
+```
+
+**How it works:**
+- An LLM moderator analyzes the conversation and decides who should speak next
+- Detects explicit handoffs: `@Architect, what do you think?` or `"I'd like to hear from Security Expert"`
+- Prevents ping-pong loops (A→B→A blocked)
+- Falls back to round-robin after 3 consecutive selection failures (circuit breaker)
+
+**Configuration:**
+```bash
+# Custom selector model (default: gpt-4o-mini)
+llm-conclave discuss --dynamic --selector-model claude-haiku "Task"
+```
+
+**Via MCP:**
+```json
+{
+  "tool": "llm_conclave_discuss",
+  "arguments": {
+    "task": "Design authentication system",
+    "personas": "security,architect,pragmatic",
+    "dynamic": true,
+    "selector_model": "gpt-4o-mini"
+  }
+}
 ```
 
 ### Operational Modes
@@ -283,6 +331,7 @@ llm-conclave consult --mode explore "Ideas for improving user engagement"
 - Democratic discussion where all agents contribute equally
 - Judge coordinates and evaluates consensus after each round
 - Best for open-ended problems requiring diverse perspectives
+- **Dynamic Speaker Selection** (optional): Use `--dynamic` to let an LLM choose who speaks next based on conversation context, instead of round-robin. Detects natural handoffs like "@Architect, what do you think?"
 
 **Orchestrated Mode (`review`):**
 - Structured workflow with designated primary agent
@@ -492,6 +541,36 @@ Each session includes:
 - Links to parent sessions (for continuations)
 - Output file paths
 
+### Structured Output
+
+Discussions return structured fields for easier integration:
+
+- **`key_decisions`**: Major decisions made during the discussion
+- **`action_items`**: Specific next steps to take
+- **`dissent`**: Any remaining disagreement or minority opinions
+- **`confidence`**: Confidence level (HIGH/MEDIUM/LOW) in the consensus
+
+**Example output:**
+```
+## Summary
+[Consensus summary here]
+
+## Key Decisions
+- Use OAuth 2.0 with JWT access tokens
+- Implement refresh token rotation
+- Store tokens in httpOnly cookies
+
+## Action Items
+- [ ] Set up OAuth provider configuration
+- [ ] Implement token refresh endpoint
+- [ ] Add CSRF protection
+
+## Dissenting Views
+- Pragmatist: Consider session-based auth for simpler MVP
+
+Confidence: HIGH
+```
+
 ### Session Storage
 
 Sessions are stored in `~/.llm-conclave/sessions/` with this structure:
@@ -570,8 +649,9 @@ Instead of running CLI commands yourself, let your AI assistant invoke consultat
   - Parameters: `question` (required), `context`, `quick`, `format`
 
 - **`llm_conclave_discuss`** - Democratic consensus discussion with custom personas
-  - Parameters: `task` (required), `personas`, `config`, `rounds`, `min_rounds`, `project`
+  - Parameters: `task` (required), `personas`, `config`, `rounds`, `min_rounds`, `project`, `dynamic`, `selector_model`
   - Supports built-in personas (`security`, `architect`, etc.) or custom agents via inline JSON
+  - Use `dynamic: true` for LLM-based speaker selection instead of round-robin
 
 #### Session Management Tools
 

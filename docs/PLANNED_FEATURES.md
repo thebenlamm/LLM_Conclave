@@ -4,7 +4,7 @@ This document outlines potential features and enhancements for future developmen
 
 ## Table of Contents
 
-- [Recently Implemented](#recently-implemented)
+- [Recently Implemented](#recently-implemented) *(Jan 2026 additions)*
 - [High Priority](#high-priority)
 - [User Experience](#user-experience)
 - [Security & Governance](#security--governance)
@@ -94,6 +94,109 @@ llm-conclave --stream --project ./src "Review and explain this codebase"
 - With `--stream`: Agent responses appear word-by-word in real-time as they're generated
 
 **Future Enhancement:** Streaming Event Channel for external UIs & webhooks (not yet implemented)
+
+---
+
+### ✅ Dynamic Speaker Selection
+**Status:** Implemented (commit `9fc0986`)
+**Priority:** Medium
+**Complexity:** High
+
+LLM-based speaker selection instead of round-robin ordering.
+
+**Implementation:** `src/core/SpeakerSelector.ts`
+- LLM moderator analyzes conversation to choose next speaker
+- Explicit handoff detection: `@AgentName` mentions, "I'd like to hear from X"
+- **Robustness protections:**
+  - Ping-pong loop prevention (A→B→A blocked)
+  - Handoff chain depth limiting (max 3 consecutive handoffs)
+  - Negative context filtering ("don't pass to X" ignored)
+  - Circuit breaker: Falls back to round-robin after 3 failures
+
+**Usage:**
+```bash
+llm-conclave discuss --dynamic "Complex architecture debate"
+llm-conclave discuss --dynamic --selector-model gpt-4o-mini "Task"
+```
+
+**MCP:**
+```json
+{
+  "tool": "llm_conclave_discuss",
+  "arguments": {
+    "task": "Design auth system",
+    "dynamic": true,
+    "selector_model": "gpt-4o-mini"
+  }
+}
+```
+
+---
+
+### ✅ Session Continuation
+**Status:** Implemented (commit `f38edb9`)
+**Priority:** High
+**Complexity:** Medium
+
+Continue previous discussions with follow-up questions.
+
+**Implementation:** `src/core/SessionManager.ts`, `src/core/ContinuationHandler.ts`
+- Sessions saved to `~/.llm-conclave/sessions/`
+- New MCP tools: `llm_conclave_continue`, `llm_conclave_sessions`
+- Parent session linking for audit trail
+- `--reset` flag to start fresh with summary only
+
+**CLI Usage:**
+```bash
+llm-conclave sessions                           # List sessions
+llm-conclave continue "Follow-up question"      # Continue most recent
+llm-conclave continue <session-id> "Question"   # Continue specific session
+llm-conclave continue --reset "Start fresh"     # Reset with summary only
+```
+
+---
+
+### ✅ Structured Output & Devil's Advocate Mode
+**Status:** Implemented (commit `b115231`)
+**Priority:** Medium
+**Complexity:** Medium
+
+Structured fields for better integration and genuine consensus detection.
+
+**Implementation:** `src/core/ConversationManager.ts`, `src/mcp/server.ts`
+- Judge prompts request specific sections
+- Output fields: `key_decisions`, `action_items`, `dissent`, `confidence`
+- Devil's advocate mode detects shallow agreement ("I agree", "I concur")
+- Agents pushed to provide edge cases, trade-offs when agreeing
+
+---
+
+### ✅ Persona Aliases
+**Status:** Implemented (commit `b115231`)
+**Priority:** Low
+**Complexity:** Low
+
+Convenient shortcuts for persona names.
+
+**Implementation:** `src/cli/PersonaSystem.ts`
+- 17 aliases: `arch`, `sec`, `perf`, `dev`, `ops`, `a11y`, `docs`, `devil`, etc.
+- `resolveAlias()` method for consistent lookup
+
+---
+
+### ✅ Inline JSON Config
+**Status:** Implemented (commit `95cbe56`)
+**Priority:** Medium
+**Complexity:** Low
+
+Define custom agents directly in config parameter without file.
+
+**Usage:**
+```json
+{
+  "config": "{\"agents\":{\"Expert\":{\"model\":\"claude-sonnet-4-5\",\"prompt\":\"...\"}}}"
+}
+```
 
 ---
 
@@ -450,47 +553,37 @@ interface ValidationResult {
 
 ## Advanced Orchestration
 
-### Dynamic Turn Management
+### ✅ Dynamic Turn Management
 
-**Status:** Not Started
+**Status:** Implemented (as Dynamic Speaker Selection - commit `9fc0986`)
 **Priority:** Medium
 **Complexity:** High
 
 Intelligent turn selection instead of fixed round-robin.
 
-**Modes:**
+**Implemented Features:**
 
-1. **Judge-Directed Turns**
-   - Judge decides who speaks next based on conversation state
-   - "Architect, please respond to Critic's concerns"
-   - Optimizes discussion flow
+1. **LLM-Directed Turns** ✅
+   - LLM moderator decides who speaks next based on conversation
+   - Detects explicit handoffs: `@Architect, what do you think?`
+   - Natural language patterns: "I'd like to hear from Security Expert"
 
-2. **Expertise Routing**
-   - Route questions to specialist agents
-   - Security question → Security agent
-   - Performance question → Performance agent
-   - Agent declares expertise domains
+2. **Expertise Routing** ✅ (via handoff detection)
+   - Route questions to specialist agents via @mentions
+   - Moderator considers agent expertise when selecting
 
-3. **Interrupt/Correction**
-   - Agents can request to speak if they spot errors
-   - "I need to correct a misconception..."
-   - Priority queue for urgent contributions
+3. **Robustness Protections** ✅
+   - Ping-pong loop prevention
+   - Handoff chain depth limiting
+   - Circuit breaker fallback to round-robin
 
-**Implementation:**
-```typescript
-interface TurnManager {
-  selectNextSpeaker(
-    conversation: Message[],
-    availableAgents: Agent[],
-    judgeGuidance?: string
-  ): Agent;
+**Still Not Implemented:**
+- ❌ Interrupt/Correction mode (agents requesting to speak out of turn)
+- ❌ Priority queue for urgent contributions
 
-  allowInterrupt(
-    agent: Agent,
-    reason: string,
-    urgency: 'low' | 'medium' | 'high'
-  ): boolean;
-}
+**Usage:**
+```bash
+llm-conclave discuss --dynamic "Task"
 ```
 
 ---
@@ -937,6 +1030,14 @@ llm-conclave --dry-run "Task"
 - ✅ Streaming output (--stream flag)
 - ✅ Basic resume capability (--start-chunk in iterative mode)
 
+### Phase 1.5 (Completed - Jan 2026) ✅
+- ✅ Dynamic speaker selection (`--dynamic` flag)
+- ✅ Session continuation (MCP & CLI)
+- ✅ Structured output (key_decisions, action_items, dissent, confidence)
+- ✅ Devil's advocate mode (shallow agreement detection)
+- ✅ Persona aliases (17 shortcuts)
+- ✅ Inline JSON config for MCP
+
 ### Phase 2 (Next) - Q1 2026
 **Focus: User experience & reliability**
 - Full checkpoint/resume system with history preservation
@@ -952,7 +1053,7 @@ llm-conclave --dry-run "Task"
 - Embedding-backed memory & RAG for large codebases
 - Interactive clarification & mid-session input
 - Structured artifact outputs
-- Dynamic turn management
+- ~~Dynamic turn management~~ ✅ (Implemented as Dynamic Speaker Selection)
 - Extended git integration
 
 ### Phase 4 (Advanced) - Q3+ 2026
@@ -991,4 +1092,4 @@ Help prioritize! Vote for features you want:
 
 ---
 
-*Last Updated: December 3, 2025*
+*Last Updated: January 21, 2026*
