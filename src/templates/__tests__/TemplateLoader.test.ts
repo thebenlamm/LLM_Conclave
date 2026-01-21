@@ -164,23 +164,33 @@ task: Do something.
        const projectDir = path.join(os.tmpdir(), 'llm-conclave-test-project-templates');
 
       beforeEach(() => {
+           // Clean and create all test directories including preset to isolate from real presets
            if (fs.existsSync(globalDir)) {
               fs.rmSync(globalDir, { recursive: true, force: true });
           }
           fs.mkdirSync(globalDir, { recursive: true });
-          
+
           if (fs.existsSync(projectDir)) {
               fs.rmSync(projectDir, { recursive: true, force: true });
           }
           fs.mkdirSync(projectDir, { recursive: true });
+
+          // Create empty preset dir to prevent loading actual presets
+          if (fs.existsSync(presetDir)) {
+              fs.rmSync(presetDir, { recursive: true, force: true });
+          }
+          fs.mkdirSync(presetDir, { recursive: true });
       });
-      
+
       afterEach(() => {
            if (fs.existsSync(globalDir)) {
               fs.rmSync(globalDir, { recursive: true, force: true });
           }
            if (fs.existsSync(projectDir)) {
               fs.rmSync(projectDir, { recursive: true, force: true });
+          }
+           if (fs.existsSync(presetDir)) {
+              fs.rmSync(presetDir, { recursive: true, force: true });
           }
       });
 
@@ -211,15 +221,20 @@ task: Do something.
   describe('Empty State', () => {
        const globalDir = path.join(os.tmpdir(), 'llm-conclave-test-templates');
        const projectDir = path.join(os.tmpdir(), 'llm-conclave-test-project-templates');
-       
+
        beforeEach(() => {
+           // Remove all test directories to simulate empty state
            if (fs.existsSync(globalDir)) fs.rmSync(globalDir, { recursive: true, force: true });
            if (fs.existsSync(projectDir)) fs.rmSync(projectDir, { recursive: true, force: true });
+           // Create empty preset dir to prevent loading actual presets
+           if (fs.existsSync(presetDir)) fs.rmSync(presetDir, { recursive: true, force: true });
+           fs.mkdirSync(presetDir, { recursive: true });
        });
-       
+
        afterEach(() => {
             if (fs.existsSync(globalDir)) fs.rmSync(globalDir, { recursive: true, force: true });
             if (fs.existsSync(projectDir)) fs.rmSync(projectDir, { recursive: true, force: true });
+            if (fs.existsSync(presetDir)) fs.rmSync(presetDir, { recursive: true, force: true });
        });
 
       it('should return empty list when no templates exist', () => {
