@@ -38,7 +38,7 @@ describe('HedgedRequestManager', () => {
     mockEventBus = { emitEvent: jest.fn() } as any; // Simple mock object
     const healthStatusMap = new Map([
       ['gpt-4o', { status: 'HEALTHY' }],
-      ['claude-sonnet-4.5', { status: 'HEALTHY' }],
+      ['claude-sonnet-4-5', { status: 'HEALTHY' }],
       ['gpt-4', { status: 'HEALTHY' }]
     ]);
     mockHealthMonitor = {
@@ -96,7 +96,7 @@ describe('HedgedRequestManager', () => {
       // For now, let's assume the real logic works if we mock health monitor to return healthy backup.
       // But ProviderTiers logic is real.
       
-      // We need 'claude-sonnet-4.5' (Tier 1) to be healthy
+      // We need 'claude-sonnet-4-5' (Tier 1) to be healthy
       // Mock health monitor to return healthy for backup
       mockHealthMonitor.getHealth.mockReturnValue({ status: 'HEALTHY' } as any);
 

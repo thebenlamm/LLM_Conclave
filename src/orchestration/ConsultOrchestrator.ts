@@ -1331,7 +1331,14 @@ export default class ConsultOrchestrator {
         reasoning: {},
         concerns: crossExamArtifact?.unresolved || [],
         dissent: verdictArtifact?.dissent || [],
-        perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
+        perspectives: successfulArtifacts.map(a => ({
+          agent: a.agentId,
+          model: 'unknown',
+          opinion: a.position,
+          rationale: a.rationale,
+          keyPoints: a.keyPoints,
+          confidence: a.confidence
+        })),
         cost: {
           tokens: actualTokens,
           usd: this.actualCostUsd
@@ -1423,7 +1430,14 @@ export default class ConsultOrchestrator {
         reasoning: {},
         concerns: crossExamArtifact?.unresolved || [],
         dissent,
-        perspectives: successfulArtifacts.map(a => ({ agent: a.agentId, model: 'unknown', opinion: a.position })),
+        perspectives: successfulArtifacts.map(a => ({
+          agent: a.agentId,
+          model: 'unknown',
+          opinion: a.position,
+          rationale: a.rationale,
+          keyPoints: a.keyPoints,
+          confidence: a.confidence
+        })),
         cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: this.actualCostUsd },
         durationMs,
         // Use strategy prompt versions (Epic 4, Story 1)

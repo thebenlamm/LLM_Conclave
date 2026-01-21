@@ -23,9 +23,27 @@ export class MarkdownFormatter implements IOutputFormatter {
     lines.push('## Agent Perspectives');
     if (result.perspectives && result.perspectives.length > 0) {
       result.perspectives.forEach(p => {
-        lines.push(`### ${p.agent} (${p.model})`);
-        lines.push(p.opinion);
+        const confidenceStr = p.confidence !== undefined ? ` - ${Math.round(p.confidence * 100)}% confident` : '';
+        lines.push(`### ${p.agent} (${p.model})${confidenceStr}`);
         lines.push('');
+        lines.push(`**Position:** ${p.opinion}`);
+        lines.push('');
+
+        // Show key points if available
+        if (p.keyPoints && p.keyPoints.length > 0) {
+          lines.push('**Key Points:**');
+          p.keyPoints.forEach(point => {
+            lines.push(`- ${point}`);
+          });
+          lines.push('');
+        }
+
+        // Show full rationale if available
+        if (p.rationale) {
+          lines.push('**Reasoning:**');
+          lines.push(p.rationale);
+          lines.push('');
+        }
       });
     } else {
       lines.push('No detailed agent perspectives available.');

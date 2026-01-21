@@ -19,7 +19,7 @@ describe('ProviderTiers', () => {
   describe('PROVIDER_TIER_MAP', () => {
     it('should map providers to correct tiers', () => {
       expect(PROVIDER_TIER_MAP['gpt-4o']).toBe(ProviderTier.Tier1);
-      expect(PROVIDER_TIER_MAP['claude-sonnet-4.5']).toBe(ProviderTier.Tier1);
+      expect(PROVIDER_TIER_MAP['claude-sonnet-4-5']).toBe(ProviderTier.Tier1);
       expect(PROVIDER_TIER_MAP['gpt-4']).toBe(ProviderTier.Tier2);
       expect(PROVIDER_TIER_MAP['mistral-large']).toBe(ProviderTier.Tier3);
     });
@@ -29,7 +29,7 @@ describe('ProviderTiers', () => {
     it('should return all providers in a given tier', () => {
       const tier1Providers = getProvidersInTier(ProviderTier.Tier1);
       expect(tier1Providers).toContain('gpt-4o');
-      expect(tier1Providers).toContain('claude-sonnet-4.5');
+      expect(tier1Providers).toContain('claude-sonnet-4-5');
       expect(tier1Providers).not.toContain('gpt-4');
     });
   });
@@ -53,7 +53,7 @@ describe('ProviderTiers', () => {
       healthStatus.clear();
       // Setup default healthy state for common providers
       setHealth('gpt-4o', ProviderHealthStatus.Healthy);
-      setHealth('claude-sonnet-4.5', ProviderHealthStatus.Healthy);
+      setHealth('claude-sonnet-4-5', ProviderHealthStatus.Healthy);
       setHealth('gemini-2.5-pro', ProviderHealthStatus.Healthy);
       
       setHealth('gpt-4', ProviderHealthStatus.Healthy);
@@ -73,7 +73,7 @@ describe('ProviderTiers', () => {
 
     it('should fallback to Tier 2 if no healthy Tier 1 backup exists', () => {
       // Make all Tier 1 unhealthy except primary (or even primary is checking backup)
-      setHealth('claude-sonnet-4.5', ProviderHealthStatus.Unhealthy);
+      setHealth('claude-sonnet-4-5', ProviderHealthStatus.Unhealthy);
       setHealth('gemini-2.5-pro', ProviderHealthStatus.Unhealthy);
       // Assume these are the only other Tier 1s for the test
       

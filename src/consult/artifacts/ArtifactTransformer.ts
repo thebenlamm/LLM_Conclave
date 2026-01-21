@@ -355,7 +355,14 @@ export class ArtifactTransformer {
       reasoning: result.reasoning,
       concerns: result.concerns,
       dissent: result.dissent.map(d => this.dissentToJSON(d)),
-      perspectives: result.perspectives,
+      perspectives: result.perspectives.map(p => ({
+        agent: p.agent,
+        model: p.model,
+        opinion: p.opinion,
+        rationale: p.rationale,
+        key_points: p.keyPoints,
+        confidence: p.confidence
+      })),
       debate_value_analysis: result.debateValueAnalysis
         ? {
             agents_changed_position: result.debateValueAnalysis.agentsChangedPosition,

@@ -19,7 +19,6 @@ export enum ProviderTier {
 }
 
 export const PROVIDER_TIER_MAP: Record<string, ProviderTier> = {
-  'claude-sonnet-4.5': ProviderTier.Tier1,
   'claude-sonnet-4-5': ProviderTier.Tier1,
   'gpt-4o': ProviderTier.Tier1,
   'gemini-2.5-pro': ProviderTier.Tier1,
@@ -36,7 +35,6 @@ export const PROVIDER_TIER_MAP: Record<string, ProviderTier> = {
  */
 export const CHEAP_HEALTH_CHECK_MODEL: Record<string, string> = {
   // Claude family -> Use Haiku (cheapest)
-  'claude-sonnet-4.5': 'claude-haiku-4',
   'claude-sonnet-4-5': 'claude-haiku-4',
   'claude-sonnet-3.5': 'claude-haiku-4',
   'claude-opus-4': 'claude-haiku-4',

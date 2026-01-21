@@ -59,7 +59,10 @@ export interface ProviderSubstitution {
 export interface AgentPerspective {
   agent: string;
   model: string;
-  opinion: string;
+  opinion: string;           // Short position (1-2 sentences)
+  rationale?: string;        // Full reasoning (2-3 paragraphs)
+  keyPoints?: string[];      // Structured arguments
+  confidence?: number;       // Agent's confidence score (0-1)
 }
 
 // ============================================================================
