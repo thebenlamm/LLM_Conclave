@@ -20,7 +20,8 @@ export function createDiscussCommand(): Command {
     .argument('<task...>', 'Task to discuss')
     .option('-p, --project <path>', 'Project context (file or directory)')
     .option('-c, --config <path>', 'Custom config file')
-    .option('--with <personas>', 'Comma-separated list of personas (e.g., security,performance)')
+    .option('-w, --with <personas>', 'Comma-separated list of personas (e.g., security,performance)')
+    .option('--personas <personas>', 'Alias for --with')
     .option('-r, --rounds <n>', 'Number of discussion rounds', '3')
     .option('--min-rounds <n>', 'Minimum rounds before consensus can end discussion', '0')
     .option('--stream', 'Stream agent responses', true)
@@ -35,10 +36,11 @@ export function createDiscussCommand(): Command {
       // Resolve configuration
       const config = ConfigCascade.resolve(options);
 
-      // Use personas if specified
-      if (options.with) {
-        console.log(chalk.cyan(`Using personas: ${options.with}\n`));
-        const personas = PersonaSystem.getPersonas(options.with);
+      // Use personas if specified (check both --with and --personas due to reserved word issues)
+      const personaSpec = options.personas || options['with'];
+      if (personaSpec) {
+        console.log(chalk.cyan(`Using personas: ${personaSpec}\n`));
+        const personas = PersonaSystem.getPersonas(personaSpec);
         const personaAgents = PersonaSystem.personasToAgents(personas);
 
         // Convert to config format (model + prompt instead of systemPrompt)
