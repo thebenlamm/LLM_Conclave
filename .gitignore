@@ -27,6 +27,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Test coverage
+coverage/
+
 # Session data
 .codex/
 
