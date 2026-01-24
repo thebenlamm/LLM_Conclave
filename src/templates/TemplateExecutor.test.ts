@@ -9,6 +9,18 @@ jest.mock('../core/ConversationManager');
 jest.mock('../orchestration/ConsultOrchestrator');
 jest.mock('../orchestration/IterativeCollaborativeOrchestrator');
 jest.mock('../orchestration/Orchestrator');
+jest.mock('../providers/ProviderFactory', () => {
+  const mockProvider = {
+    chat: jest.fn().mockResolvedValue({ text: '{}', usage: {} })
+  };
+  return {
+    __esModule: true,
+    default: {
+      createProvider: jest.fn().mockReturnValue(mockProvider)
+    }
+  };
+});
+jest.mock('../tools/ToolRegistry');
 jest.mock('../core/OutputHandler', () => ({
   saveResults: jest.fn().mockResolvedValue({}),
   printSummary: jest.fn()

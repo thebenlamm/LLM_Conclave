@@ -1,4 +1,15 @@
 // Mock dependencies BEFORE imports
+jest.mock('../../providers/ProviderFactory', () => {
+  const mockProvider = {
+    chat: jest.fn().mockResolvedValue({ text: '{}', usage: {} })
+  };
+  return {
+    __esModule: true,
+    default: {
+      createProvider: jest.fn().mockReturnValue(mockProvider)
+    }
+  };
+});
 jest.mock('../../consult/health/ProviderHealthMonitor');
 jest.mock('../../core/EventBus', () => ({
   EventBus: {
@@ -16,6 +27,7 @@ jest.mock('../../consult/health/HedgedRequestManager');
 jest.mock('../../consult/health/InteractivePulse');
 jest.mock('../../consult/persistence/PartialResultManager');
 jest.mock('../../consult/termination/EarlyTerminationManager');
+jest.mock('../../consult/analysis/DebateValueAnalyzer');
 
 import ConsultOrchestrator from '../ConsultOrchestrator';
 import { ConsultOrchestratorOptions } from '../../types/consult';
