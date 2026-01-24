@@ -53,7 +53,20 @@ export default class GeminiProvider extends LLMProvider {
         let fullText = '';
 
         for await (const chunk of streamResp as any) {
-          const textPart = (chunk as any).text();
+          // In @google/genai v1.30+, text is a property, not a method
+          // The chunk may have text directly or nested in candidates
+          let textPart: string | undefined;
+
+          if (typeof chunk.text === 'string') {
+            textPart = chunk.text;
+          } else if (chunk.candidates?.[0]?.content?.parts) {
+            // Fallback: extract text from parts structure
+            textPart = chunk.candidates[0].content.parts
+              .filter((p: any) => p.text)
+              .map((p: any) => p.text)
+              .join('');
+          }
+
           if (textPart) {
             fullText += textPart;
             if (onToken) onToken(textPart);
