@@ -363,6 +363,26 @@ async function handleDiscuss(args: {
   // Run conversation (no streaming for MCP, with optional dynamic speaker selection)
   // Create a scoped EventBus to avoid cross-talk between concurrent MCP requests
   const scopedEventBus = EventBus.createInstance();
+
+  // Send progress updates via MCP logging (fire-and-forget with error handling)
+  scopedEventBus.on('round:start', (event: any) => {
+    const round = event?.payload?.round ?? '?';
+    server.sendLoggingMessage({
+      level: 'info',
+      logger: 'llm-conclave',
+      data: `Round ${round}/${rounds} starting...`
+    }).catch(() => {}); // Non-fatal, don't crash on logging failure
+  });
+
+  scopedEventBus.on('agent:thinking', (event: any) => {
+    const agent = event?.payload?.agent ?? 'Agent';
+    server.sendLoggingMessage({
+      level: 'info',
+      logger: 'llm-conclave',
+      data: `${agent} is responding...`
+    }).catch(() => {}); // Non-fatal, don't crash on logging failure
+  });
+
   const conversationManager = new ConversationManager(
     config,
     null,  // memoryManager
@@ -371,7 +391,14 @@ async function handleDiscuss(args: {
     dynamic,
     selector_model
   );
-  const result = await conversationManager.startConversation(task, judge, projectContext);
+
+  let result;
+  try {
+    result = await conversationManager.startConversation(task, judge, projectContext);
+  } finally {
+    // Clean up event listeners (guaranteed even on exception)
+    scopedEventBus.removeAllListeners();
+  }
 
   // Save full discussion to file (preserves all agent contributions)
   const logFilePath = saveFullDiscussion(result);
@@ -474,6 +501,27 @@ async function handleContinue(args: {
   // Run continuation conversation (no dynamic selection for continuation - preserves original style)
   // Create a scoped EventBus to avoid cross-talk between concurrent MCP requests
   const scopedEventBus = EventBus.createInstance();
+  const maxRounds = config.max_rounds || 4;
+
+  // Send progress updates via MCP logging (fire-and-forget with error handling)
+  scopedEventBus.on('round:start', (event: any) => {
+    const round = event?.payload?.round ?? '?';
+    server.sendLoggingMessage({
+      level: 'info',
+      logger: 'llm-conclave',
+      data: `Round ${round}/${maxRounds} starting...`
+    }).catch(() => {}); // Non-fatal, don't crash on logging failure
+  });
+
+  scopedEventBus.on('agent:thinking', (event: any) => {
+    const agent = event?.payload?.agent ?? 'Agent';
+    server.sendLoggingMessage({
+      level: 'info',
+      logger: 'llm-conclave',
+      data: `${agent} is responding...`
+    }).catch(() => {}); // Non-fatal, don't crash on logging failure
+  });
+
   const conversationManager = new ConversationManager(config, null, false, scopedEventBus, false, DEFAULT_SELECTOR_MODEL);
 
   // Inject previous history before starting
@@ -486,7 +534,13 @@ async function handleContinue(args: {
   }
 
   // Start continuation with the new task
-  const result = await conversationManager.startConversation(prepared.newTask, judge, null);
+  let result;
+  try {
+    result = await conversationManager.startConversation(prepared.newTask, judge, null);
+  } finally {
+    // Clean up event listeners (guaranteed even on exception)
+    scopedEventBus.removeAllListeners();
+  }
 
   // Save as new session with parent reference
   const agents = Object.entries(config.agents).map(([name, agentConfig]: [string, any]) => ({
@@ -577,6 +631,8 @@ async function handleSessions(args: {
 // Helper Functions
 // ============================================================================
 
+// TODO: SECURITY - Add path traversal protection. Currently accepts arbitrary paths.
+// See: https://owasp.org/www-community/attacks/Path_Traversal
 async function loadContextFromPath(contextPath: string): Promise<string> {
   let context = '';
 
