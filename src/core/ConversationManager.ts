@@ -171,6 +171,23 @@ export default class ConversationManager {
 
       const judgeResult = await this.judgeEvaluate(judge);
 
+      // Hard enforcement: Check if all agents have contributed (don't trust LLM judge alone)
+      const contributingAgents = new Set<string>();
+      for (const entry of this.conversationHistory) {
+        if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+          contributingAgents.add(entry.speaker);
+        }
+      }
+      const allAgentsContributed = this.agentOrder.every(agent => contributingAgents.has(agent));
+
+      // Override judge if not all agents have contributed
+      if (judgeResult.consensusReached && !allAgentsContributed) {
+        const missingAgents = this.agentOrder.filter(agent => !contributingAgents.has(agent));
+        console.log(`\n[Consensus blocked: ${missingAgents.join(', ')} haven't contributed yet]\n`);
+        judgeResult.consensusReached = false;
+        judgeResult.guidance = `Cannot declare consensus until all agents have contributed. Missing: ${missingAgents.join(', ')}. Please ensure these agents share their perspective before concluding.`;
+      }
+
       // Only allow consensus if we've completed minimum rounds
       if (judgeResult.consensusReached && this.currentRound >= this.minRounds) {
         consensusReached = true;
@@ -305,14 +322,34 @@ export default class ConversationManager {
 
       // Get agent's response
       const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(agentName));
-      const text = typeof response === 'string' ? response : response.text;
+      let text = typeof response === 'string' ? response : response.text;
+
+      // Strip leading speaker name prefix if LLM echoed it back (prevents compounding prefixes)
+      // Pattern: "AgentName: " or "AgentName:" at start of response
+      // Escape regex special characters to prevent injection (e.g., Agent[1] would break without escaping)
+      const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const prefixPattern = new RegExp(`^\\s*${escapeRegex(agentName)}\\s*:\\s*`, 'i');
+      text = text.replace(prefixPattern, '').trim();
+
+      // Handle empty/whitespace-only responses (prevents API errors like "cannot end with trailing whitespace")
+      if (!text || text.length === 0) {  // Already trimmed above
+        console.log(`[${agentName} returned empty response, skipping]\n`);
+        if (this.eventBus) {
+          this.eventBus.emitEvent('error', {
+            message: `${agentName} returned empty response`,
+            context: 'empty_response'
+          });
+        }
+        // Don't add empty responses to history - they cause downstream issues
+        return;
+      }
 
       if (this.streamOutput) {
         process.stdout.write('\n');
       } else {
         console.log(`${agentName}: ${text}\n`);
       }
-      
+
       if (this.eventBus) {
         this.eventBus.emitEvent('agent:response', { agent: agentName, content: text });
       }
@@ -369,11 +406,12 @@ export default class ConversationManager {
     // Start fresh turn tracking for this round
     this.speakerSelector.startNewRound();
     const failedAgentsThisRound: Set<string> = new Set();
+    const agentsWhoContributedThisRound: Set<string> = new Set();
 
     let lastSpeaker: string | null = null;
     let lastResponse: string | null = null;
     let turnCount = 0;
-    
+
     // Safety limit: allow more turns than agents to enable back-and-forth
     // Default to 20 or 3x agent count, whichever is higher, to prevent infinite loops
     const maxTurnsPerRound = Math.max(20, this.agentOrder.length * 3);
@@ -389,9 +427,46 @@ export default class ConversationManager {
         failedAgentsThisRound
       );
 
-      // Check if round should end
+      // Check if round should end - BUT ensure all agents have contributed at least once
       if (!selection.shouldContinue) {
-        console.log(`[Round ${this.currentRound} complete: ${selection.reason}]`);
+        const agentsWhoHaventSpoken = this.speakerSelector.getAgentsWhoHaventSpoken()
+          .filter(name => !failedAgentsThisRound.has(name));
+
+        if (agentsWhoHaventSpoken.length > 0 && turnCount < this.agentOrder.length) {
+          // Override: force remaining agents to speak before ending round
+          console.log(`[Round ${this.currentRound}: ${agentsWhoHaventSpoken.length} agent(s) haven't spoken yet, continuing...]`);
+          // Pick the first agent who hasn't spoken
+          const forcedSpeaker = agentsWhoHaventSpoken[0];
+          console.log(`[Forcing turn for ${forcedSpeaker}]`);
+
+          const historyLengthBefore = this.conversationHistory.length;
+          await this.agentTurn(forcedSpeaker);
+
+          if (this.conversationHistory.length > historyLengthBefore) {
+            const latestEntry = this.conversationHistory[this.conversationHistory.length - 1];
+            if (latestEntry.error) {
+              failedAgentsThisRound.add(forcedSpeaker);
+            } else {
+              lastResponse = latestEntry.content;
+              lastSpeaker = forcedSpeaker;
+              agentsWhoContributedThisRound.add(forcedSpeaker);
+            }
+          } else {
+            // Empty response from forced speaker - treat as failure
+            failedAgentsThisRound.add(forcedSpeaker);
+          }
+
+          this.speakerSelector.recordTurn(forcedSpeaker);
+          turnCount++;
+          continue;
+        }
+
+        // Check if round ended because all remaining agents failed
+        if (agentsWhoContributedThisRound.size < this.agentOrder.length - failedAgentsThisRound.size) {
+          console.log(`[Round ${this.currentRound} complete: remaining agents unavailable]`);
+        } else {
+          console.log(`[Round ${this.currentRound} complete: ${selection.reason}]`);
+        }
         break;
       }
 
@@ -419,7 +494,7 @@ export default class ConversationManager {
       // Get the response that was just added
       if (this.conversationHistory.length > historyLengthBefore) {
         const latestEntry = this.conversationHistory[this.conversationHistory.length - 1];
-        
+
         // Handle error cases: don't pass error messages as conversation context
         if (latestEntry.error) {
           lastResponse = `[System: The previous agent (${agentName}) failed to respond due to an error. Please select a different agent to continue the discussion.]`;
@@ -429,7 +504,13 @@ export default class ConversationManager {
         } else {
           lastResponse = latestEntry.content;
           lastSpeaker = agentName;
+          agentsWhoContributedThisRound.add(agentName);
         }
+      } else {
+        // Agent returned empty response (agentTurn returned early without adding to history)
+        // Treat this as a failure to prevent re-selection and infinite loops
+        failedAgentsThisRound.add(agentName);
+        lastResponse = `[System: ${agentName} returned an empty response.]`;
       }
 
       // Record turn
@@ -439,6 +520,14 @@ export default class ConversationManager {
 
     if (turnCount >= maxTurnsPerRound) {
       console.log(`[Round ${this.currentRound} ended: safety limit (${maxTurnsPerRound} turns) reached]`);
+    }
+
+    // Log summary of who contributed
+    if (agentsWhoContributedThisRound.size > 0) {
+      console.log(`[Round ${this.currentRound} contributors: ${Array.from(agentsWhoContributedThisRound).join(', ')}]`);
+    }
+    if (failedAgentsThisRound.size > 0) {
+      console.log(`[Round ${this.currentRound} failed agents: ${Array.from(failedAgentsThisRound).join(', ')}]`);
     }
   }
 
@@ -562,8 +651,23 @@ export default class ConversationManager {
       const agreementPatterns = /I agree|I concur|well said|exactly right|nothing to add|fully support/gi;
       const agreementMatches = this.cachedRecentDiscussion.match(agreementPatterns) || [];
       const isShallowAgreement = agreementMatches.length >= 2;
-      const roundContext = this.currentRound > 2 ? `\n\nNote: This is round ${this.currentRound}. ` +
-        (isShallowAgreement ? 'The agents appear to be agreeing superficially. Push them to challenge assumptions, explore edge cases, or identify weaknesses that haven\'t been addressed.' : '') : '';
+
+      // Check which agents have contributed to the discussion
+      const contributingAgents = new Set<string>();
+      for (const entry of this.conversationHistory) {
+        if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+          contributingAgents.add(entry.speaker);
+        }
+      }
+      const allAgentsContributed = this.agentOrder.every(agent => contributingAgents.has(agent));
+      const missingAgents = this.agentOrder.filter(agent => !contributingAgents.has(agent));
+
+      let roundContext = '';
+      if (!allAgentsContributed) {
+        roundContext = `\n\n⚠️ WARNING: Not all agents have contributed yet. Missing: ${missingAgents.join(', ')}. Consensus CANNOT be declared until all agents have had a chance to speak.`;
+      } else if (this.currentRound > 2 && isShallowAgreement) {
+        roundContext = `\n\nNote: This is round ${this.currentRound}. The agents appear to be agreeing superficially. Push them to challenge assumptions, explore edge cases, or identify weaknesses that haven't been addressed.`;
+      }
 
       const judgePrompt = `
 Full discussion (all rounds):
@@ -571,10 +675,11 @@ ${this.cachedRecentDiscussion}
 ${roundContext}
 
 Evaluate whether the agents have reached GENUINE consensus. True consensus requires:
-1. Specific, actionable recommendations (not vague agreement)
-2. Trade-offs acknowledged and resolved
-3. Potential objections addressed (not just glossed over)
-4. Each agent contributing distinct value (not just echoing others)
+1. ALL agents must have contributed at least once (check the discussion - if any agent is missing, consensus is NOT possible)
+2. Specific, actionable recommendations (not vague agreement)
+3. Trade-offs acknowledged and resolved
+4. Potential objections addressed (not just glossed over)
+5. Each agent contributing distinct value (not just echoing others)
 
 WARNING: "I agree with X" statements without new insights do NOT constitute genuine consensus. This is shallow agreement.
 

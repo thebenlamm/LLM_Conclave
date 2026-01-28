@@ -217,6 +217,8 @@ export default class SessionManager {
     const timestamp = new Date().toISOString();
 
     // Convert agents to session format
+    // Note: provider stores the class name (e.g., "ClaudeProvider") for debugging/display.
+    // The model field is used for reconstruction - provider is informational only.
     const sessionAgents = agents.map(agent => ({
       name: agent.name,
       model: agent.model || 'unknown',
@@ -227,7 +229,7 @@ export default class SessionManager {
     // Convert judge if present
     const sessionJudge = judge ? {
       name: 'Judge',
-      model: judge.provider?.constructor?.name || 'unknown',
+      model: judge.model || 'unknown',  // Use explicit model field, not provider class name
       provider: judge.provider?.constructor?.name || 'unknown',
       systemPrompt: judge.systemPrompt || '',
     } : undefined;

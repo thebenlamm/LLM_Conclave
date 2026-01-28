@@ -356,6 +356,7 @@ async function handleDiscuss(args: {
 
   // Create judge
   const judge = {
+    model: config.judge.model,
     provider: ProviderFactory.createProvider(config.judge.model),
     systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.',
   };
@@ -494,6 +495,7 @@ async function handleContinue(args: {
 
   // Create judge
   const judge = {
+    model: config.judge.model,
     provider: ProviderFactory.createProvider(config.judge.model),
     systemPrompt: config.judge.prompt,
   };
