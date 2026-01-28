@@ -523,18 +523,36 @@ export default class ConversationManager {
   }
 
   /**
+   * Calculate which round an entry belongs to based on its position in history
+   */
+  private getRoundForEntry(entry: any): number {
+    const index = this.conversationHistory.indexOf(entry);
+    if (index <= 0) return 1; // Initial task is round 1
+
+    // Count how many complete agent cycles have occurred before this entry
+    // Each round = agentOrder.length agent responses + judge guidance
+    const agentResponsesBefore = this.conversationHistory
+      .slice(1, index) // Skip initial task
+      .filter(e => e.role === 'assistant' && e.speaker !== 'Judge').length;
+
+    return Math.floor(agentResponsesBefore / this.agentOrder.length) + 1;
+  }
+
+  /**
    * Judge evaluates if consensus has been reached
-   * Uses cached recent discussion to avoid rebuilding every time
+   * Uses cached FULL discussion to ensure judge sees complete decision journey
    * @param {Object} judge - Judge instance
    * @returns {Object} - { consensusReached: boolean, solution?: string, guidance?: string }
    */
   async judgeEvaluate(judge: any) {
     try {
-      // Cache formatted recent discussion instead of rebuilding each time
+      // Cache formatted FULL discussion instead of rebuilding each time
+      // CRITICAL: We must pass the full history so the judge sees the complete decision journey,
+      // including proposals that were made AND rejected. Without full context, the judge may
+      // hallucinate decisions that were actually rejected in earlier rounds.
       if (!this.cachedRecentDiscussion || this.lastJudgeCacheRound !== this.currentRound) {
         this.cachedRecentDiscussion = this.conversationHistory
-          .slice(-this.agentOrder.length * 2) // Last 2 rounds
-          .map(entry => `${entry.speaker}: ${entry.content}`)
+          .map(entry => `[Round ${this.getRoundForEntry(entry)}] ${entry.speaker}: ${entry.content}`)
           .join('\n\n');
 
         this.lastJudgeCacheRound = this.currentRound;
@@ -548,7 +566,7 @@ export default class ConversationManager {
         (isShallowAgreement ? 'The agents appear to be agreeing superficially. Push them to challenge assumptions, explore edge cases, or identify weaknesses that haven\'t been addressed.' : '') : '';
 
       const judgePrompt = `
-Recent discussion:
+Full discussion (all rounds):
 ${this.cachedRecentDiscussion}
 ${roundContext}
 
@@ -564,10 +582,17 @@ If YES (genuine consensus reached), respond with EXACTLY this format:
 CONSENSUS_REACHED
 
 SUMMARY:
-[2-3 sentence summary of the agreed solution]
+[2-3 sentence summary of the FINAL agreed solution]
+
+CRITICAL SUMMARY RULES:
+- ONLY summarize what the agents FINALLY agreed upon
+- Do NOT include proposals that were mentioned but later REJECTED or SUPERSEDED
+- Do NOT synthesize a "balanced" view that includes options the agents explicitly moved away from
+- If an option was proposed in Round 1 but rejected in Round 2, it should NOT appear in the summary
+- The summary must reflect the ACTUAL FINAL POSITION, not a compromise of all positions mentioned
 
 KEY_DECISIONS:
-- [Decision 1]
+- [Decision 1 - must reflect final agreed position only]
 - [Decision 2]
 - [etc.]
 
@@ -652,13 +677,24 @@ The agents have discussed the following task but haven't reached full consensus 
 Full discussion:
 ${fullDiscussion}
 
-As the judge, please analyze all perspectives and synthesize the best solution. Respond with EXACTLY this format:
+As the judge, please analyze the discussion trajectory and determine the DIRECTION the agents were heading.
+
+CRITICAL: Your summary must reflect where the discussion CONVERGED, not a "balanced synthesis" of all options mentioned.
+
+Respond with EXACTLY this format:
 
 SUMMARY:
-[2-3 sentence summary of the synthesized solution]
+[2-3 sentence summary of the direction the discussion was heading]
+
+CRITICAL SUMMARY RULES:
+- Identify which position gained the most support by the END of the discussion
+- Do NOT include proposals that were mentioned but later REJECTED or SUPERSEDED
+- Do NOT create a "fair compromise" that includes options agents moved away from
+- If Agent A proposed X in Round 1 but agents converged on Y in later rounds, summarize Y not X
+- The summary must reflect the ACTUAL TRAJECTORY, not an average of all positions
 
 KEY_DECISIONS:
-- [Decision 1]
+- [Decision 1 - based on where discussion was heading]
 - [Decision 2]
 - [etc.]
 
@@ -670,7 +706,7 @@ ACTION_ITEMS:
 DISSENT:
 - [Any minority opinions or unresolved concerns from specific agents]
 
-CONFIDENCE: [HIGH/MEDIUM/LOW based on strength of the synthesized solution]`;
+CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
 
       const messages = [
         {
