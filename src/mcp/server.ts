@@ -474,13 +474,21 @@ async function handleContinue(args: {
     includeFullHistory: !reset,
   });
 
+  // Helper to fix legacy sessions that stored provider class name instead of model
+  const fixLegacyModel = (model: string | undefined, fallback: string): string => {
+    if (!model) return fallback;
+    // Detect corrupted data: class names like "OpenAIProvider", "ClaudeProvider"
+    if (model.endsWith('Provider')) return fallback;
+    return model;
+  };
+
   // Rebuild config from session
   const config: any = {
     max_rounds: session.maxRounds || 4,
     min_rounds: 0,
     agents: {},
     judge: {
-      model: session.judge?.model || 'gpt-4o',
+      model: fixLegacyModel(session.judge?.model, 'gpt-4o'),
       prompt: session.judge?.systemPrompt || 'You are a judge evaluating agent responses.',
     },
   };
@@ -488,7 +496,7 @@ async function handleContinue(args: {
   // Reconstruct agents from session
   for (const agent of session.agents) {
     config.agents[agent.name] = {
-      model: agent.model,
+      model: fixLegacyModel(agent.model, 'gpt-4o'),
       prompt: agent.systemPrompt,
     };
   }
