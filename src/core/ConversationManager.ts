@@ -30,6 +30,10 @@ export default class ConversationManager {
   private cachedRecentDiscussion: string = '';
   private lastJudgeCacheRound: number = 0;
 
+  // Agent failure tracking and fallback
+  private persistentlyFailedAgents: Set<string> = new Set();
+  private agentSubstitutions: Map<string, { original: string; fallback: string; reason: string }> = new Map();
+
   constructor(
     config: any,
     memoryManager: any = null,
@@ -163,6 +167,18 @@ export default class ConversationManager {
         }
       }
 
+      // Check if enough agents remain for meaningful discussion after failures
+      if (this.persistentlyFailedAgents.size > 0) {
+        const aliveAgents = this.agentOrder.filter(a => !this.persistentlyFailedAgents.has(a));
+        if (aliveAgents.length <= 1) {
+          console.log(`\n[Discussion ending early: only ${aliveAgents.length} agent(s) remaining after failures]\n`);
+          if (this.eventBus) {
+            this.eventBus.emitEvent('status', { message: `Discussion ending early: only ${aliveAgents.length} agent(s) remaining` });
+          }
+          break;
+        }
+      }
+
       // Judge evaluates consensus
       console.log(`\n[Judge is evaluating consensus...]\n`);
       if (this.eventBus) {
@@ -264,6 +280,17 @@ export default class ConversationManager {
       .map((msg: any) => msg.speaker);
     const uniqueFailedAgents = [...new Set(failedAgents)];
 
+    // Report agent substitutions so user can debug provider issues
+    if (this.agentSubstitutions.size > 0) {
+      console.log(`\n${'─'.repeat(60)}`);
+      console.log(`⚠️  Agent Model Substitutions (provider issues detected):`);
+      for (const [agent, sub] of this.agentSubstitutions) {
+        console.log(`   ${agent}: ${sub.original} → ${sub.fallback} (reason: ${sub.reason})`);
+      }
+      console.log(`   💡 Action: Check provider credits/quotas for the original models.`);
+      console.log(`${'─'.repeat(60)}\n`);
+    }
+
     const result = {
       task: task,
       rounds: this.currentRound,
@@ -276,6 +303,7 @@ export default class ConversationManager {
       confidence: confidence,
       conversationHistory: this.conversationHistory,
       failedAgents: uniqueFailedAgents,
+      agentSubstitutions: Object.fromEntries(this.agentSubstitutions),
     };
     
     if (this.eventBus) {
@@ -322,7 +350,7 @@ export default class ConversationManager {
 
       // Get agent's response
       const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(agentName));
-      let text = typeof response === 'string' ? response : response.text;
+      let text = typeof response === 'string' ? response : (response.text ?? '');
 
       // Strip leading speaker name prefix if LLM echoed it back (prevents compounding prefixes)
       // Pattern: "AgentName: " or "AgentName:" at start of response
@@ -363,13 +391,65 @@ export default class ConversationManager {
       });
 
     } catch (error: any) {
-      console.error(`Error with agent ${agentName}: ${error.message}`);
+      const errorMsg = error.message || 'Unknown error';
+      console.error(`Error with agent ${agentName}: ${errorMsg}`);
       if (this.eventBus) {
-        this.eventBus.emitEvent('error', { message: `Error with agent ${agentName}: ${error.message}` });
+        this.eventBus.emitEvent('error', { message: `Error with agent ${agentName}: ${errorMsg}` });
+      }
+
+      // Try fallback to a different provider on retryable errors (429, 502, 503)
+      const isRetryable = /429|rate.?limit|502|503|service.?error/i.test(errorMsg);
+      if (isRetryable && !this.agentSubstitutions.has(agentName)) {
+        const fallbackModel = this.getFallbackModel(agent.model);
+        if (fallbackModel) {
+          console.log(`[${agentName}: ${agent.model} failed, falling back to ${fallbackModel}]`);
+          try {
+            const fallbackProvider = ProviderFactory.createProvider(fallbackModel);
+            const messages = this.prepareMessagesForAgent();
+            const fallbackResponse = await fallbackProvider.chat(messages, agent.systemPrompt, this.getChatOptions(agentName));
+            let fallbackText = typeof fallbackResponse === 'string' ? fallbackResponse : (fallbackResponse.text ?? '');
+
+            const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const prefixPattern = new RegExp(`^\\s*${escapeRegex(agentName)}\\s*:\\s*`, 'i');
+            fallbackText = fallbackText.replace(prefixPattern, '').trim();
+
+            if (fallbackText && fallbackText.length > 0) {
+              if (this.streamOutput) {
+                process.stdout.write('\n');
+              } else {
+                console.log(`${agentName}: ${fallbackText}\n`);
+              }
+              if (this.eventBus) {
+                this.eventBus.emitEvent('agent:response', { agent: agentName, content: fallbackText });
+              }
+
+              const originalModel = agent.model;
+              this.agentSubstitutions.set(agentName, {
+                original: originalModel,
+                fallback: fallbackModel,
+                reason: errorMsg
+              });
+              agent.provider = fallbackProvider;
+              agent.model = fallbackModel;
+              console.log(`[${agentName}: Switched from ${originalModel} to ${fallbackModel} for remainder of discussion]`);
+
+              this.conversationHistory.push({
+                role: 'assistant',
+                content: fallbackText,
+                speaker: agentName,
+                model: fallbackModel
+              });
+              return; // Fallback succeeded
+            }
+          } catch (fallbackError: any) {
+            console.error(`[${agentName}: Fallback to ${fallbackModel} also failed: ${fallbackError.message}]`);
+            // Include fallback failure context for debugging
+            (error as any).fallbackError = fallbackError.message;
+          }
+        }
       }
 
       // Extract provider and status from error message for cleaner display
-      const errorMsg = error.message || 'Unknown error';
       const statusMatch = errorMsg.match(/\((\d{3})\)/);
       const status = statusMatch ? statusMatch[1] : '';
       const providerMatch = errorMsg.match(/^(\w+) API error/);
@@ -382,13 +462,16 @@ export default class ConversationManager {
         : errorMsg;
 
       // Add error to history with cleaner message
+      const fallbackNote = (error as any).fallbackError
+        ? ` (fallback also failed: ${(error as any).fallbackError})`
+        : '';
       this.conversationHistory.push({
         role: 'assistant',
-        content: `[⚠️ ${agentName} unavailable: ${friendlyError}]`,
+        content: `[${agentName} unavailable: ${friendlyError}${fallbackNote}]`,
         speaker: agentName,
         model: agent.model,
         error: true,
-        errorDetails: errorMsg
+        errorDetails: errorMsg + fallbackNote
       });
     }
   }
@@ -405,7 +488,7 @@ export default class ConversationManager {
 
     // Start fresh turn tracking for this round
     this.speakerSelector.startNewRound();
-    const failedAgentsThisRound: Set<string> = new Set();
+    const failedAgentsThisRound: Set<string> = new Set(this.persistentlyFailedAgents);
     const agentsWhoContributedThisRound: Set<string> = new Set();
 
     let lastSpeaker: string | null = null;
@@ -513,6 +596,17 @@ export default class ConversationManager {
         lastResponse = `[System: ${agentName} returned an empty response.]`;
       }
 
+      // Check if too many agents have failed to continue meaningfully
+      const aliveCount = this.agentOrder.length - failedAgentsThisRound.size;
+      if (aliveCount === 0) {
+        console.log(`[Round ${this.currentRound} aborted: all agents have failed]`);
+        break;
+      }
+      if (aliveCount === 1 && agentsWhoContributedThisRound.size >= 1) {
+        console.log(`[Round ${this.currentRound} ending early: only 1 agent remaining]`);
+        break;
+      }
+
       // Record turn
       this.speakerSelector.recordTurn(agentName);
       turnCount++;
@@ -528,6 +622,19 @@ export default class ConversationManager {
     }
     if (failedAgentsThisRound.size > 0) {
       console.log(`[Round ${this.currentRound} failed agents: ${Array.from(failedAgentsThisRound).join(', ')}]`);
+    }
+
+    // Persist only rate-limit failures across rounds (429s won't recover mid-discussion).
+    // Transient server errors (502/503) may resolve, so allow retry in next round.
+    for (const agent of failedAgentsThisRound) {
+      if (this.persistentlyFailedAgents.has(agent)) continue; // already tracked
+      const errorEntry = this.conversationHistory
+        .filter((msg: any) => msg.speaker === agent && msg.error)
+        .pop();
+      const isRateLimit = errorEntry?.errorDetails && /429|rate.?limit/i.test(errorEntry.errorDetails);
+      if (isRateLimit) {
+        this.persistentlyFailedAgents.add(agent);
+      }
     }
   }
 
@@ -578,6 +685,28 @@ export default class ConversationManager {
   }
 
   /**
+   * Get a fallback model from a different provider family to avoid hitting the same rate limit.
+   */
+  private getFallbackModel(currentModel: string): string | null {
+    const model = currentModel.toLowerCase();
+    if (model.includes('claude')) {
+      return 'gpt-4o-mini';
+    }
+    if (model.includes('gemini')) {
+      return 'gpt-4o-mini';
+    }
+    // OpenAI reasoning models (o1-*, o3-*) — match at word boundary to avoid date false positives
+    if (/\bo[13]-/.test(model) || /\bo[13]$/.test(model)) {
+      return 'claude-sonnet-4-5';
+    }
+    // For GPT, Grok, Mistral — fall back to Claude
+    if (model.includes('gpt') || model.includes('grok') || model.includes('mistral')) {
+      return 'claude-sonnet-4-5';
+    }
+    return 'gpt-4o-mini';
+  }
+
+  /**
    * Parse structured output from judge responses.
    * Extracts KEY_DECISIONS, ACTION_ITEMS, DISSENT, and CONFIDENCE from text.
    */
@@ -588,6 +717,10 @@ export default class ConversationManager {
     dissent: string[];
     confidence: string;
   } {
+    if (!text) {
+      return { summary: '', keyDecisions: [], actionItems: [], dissent: [], confidence: 'LOW' };
+    }
+
     const extractSection = (sectionName: string): string[] => {
       const regex = new RegExp(`${sectionName}:\\s*\\n((?:- [^\\n]+\\n?)+)`, 'i');
       const match = text.match(regex);
@@ -821,7 +954,7 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
       ];
 
       const finalDecision = await judge.provider.chat(messages, judge.systemPrompt, this.getChatOptions('Judge'));
-      const text = typeof finalDecision === 'string' ? finalDecision : finalDecision.text;
+      const text = typeof finalDecision === 'string' ? finalDecision : (finalDecision.text ?? '');
 
       if (this.streamOutput) {
         process.stdout.write('\n');

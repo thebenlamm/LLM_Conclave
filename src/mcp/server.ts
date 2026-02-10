@@ -6,6 +6,10 @@
  * Exposes llm_conclave's multi-agent consultation capabilities as MCP tools.
  * This allows any MCP-compatible AI assistant (Claude Desktop, Cursor, VS Code, etc.)
  * to invoke consultations as part of their workflow.
+ *
+ * Supports two transport modes:
+ * - stdio (default): One server per process, used when spawned by MCP clients
+ * - SSE (--sse or MCP_SSE_PORT): Single HTTP server shared by multiple clients
  */
 
 // Set MCP mode flag BEFORE any other imports
@@ -14,6 +18,7 @@ process.env.LLM_CONCLAVE_MCP = '1';
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -21,6 +26,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as http from 'http';
+import express from 'express';
 import ConsultOrchestrator from '../orchestration/ConsultOrchestrator.js';
 import ConversationManager from '../core/ConversationManager.js';
 import { EventBus } from '../core/EventBus.js';
@@ -35,18 +42,25 @@ import { FormatterFactory } from '../consult/formatting/FormatterFactory.js';
 import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 
-// Initialize MCP server
-const server = new Server(
-  {
-    name: 'llm-conclave',
-    version: '1.0.0',
-  },
-  {
-    capabilities: {
-      tools: {},
+// ============================================================================
+// Server Factory - creates a configured Server instance per connection
+// ============================================================================
+
+function createServer(): Server {
+  const server = new Server(
+    {
+      name: 'llm-conclave',
+      version: '1.0.0',
     },
-  }
-);
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
+  registerHandlers(server);
+  return server;
+}
 
 // ============================================================================
 // Tool Definitions
@@ -217,44 +231,46 @@ Example inline JSON:
 // Tool Handlers
 // ============================================================================
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: TOOLS,
-  };
-});
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  try {
-    switch (name) {
-      case 'llm_conclave_consult':
-        return await handleConsult(args as any);
-
-      case 'llm_conclave_discuss':
-        return await handleDiscuss(args as any);
-
-      case 'llm_conclave_continue':
-        return await handleContinue(args as any);
-
-      case 'llm_conclave_sessions':
-        return await handleSessions(args as any);
-
-      default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
-  } catch (error: any) {
+function registerHandlers(server: Server) {
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: ${error.message}\n\n${error.stack || ''}`,
-        },
-      ],
-      isError: true,
+      tools: TOOLS,
     };
-  }
-});
+  });
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+
+    try {
+      switch (name) {
+        case 'llm_conclave_consult':
+          return await handleConsult(args as any);
+
+        case 'llm_conclave_discuss':
+          return await handleDiscuss(args as any, server);
+
+        case 'llm_conclave_continue':
+          return await handleContinue(args as any, server);
+
+        case 'llm_conclave_sessions':
+          return await handleSessions(args as any);
+
+        default:
+          throw new Error(`Unknown tool: ${name}`);
+      }
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: ${error.message}\n\n${error.stack || ''}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  });
+}
 
 // ============================================================================
 // Handler Implementations
@@ -309,7 +325,7 @@ async function handleDiscuss(args: {
   min_rounds?: number;
   dynamic?: boolean;
   selector_model?: string;
-}) {
+}, server: Server) {
   const {
     task,
     project: projectPath,
@@ -443,7 +459,7 @@ async function handleContinue(args: {
   session_id?: string;
   task: string;
   reset?: boolean;
-}) {
+}, server: Server) {
   const { session_id, task, reset = false } = args;
   const sessionManager = new SessionManager();
   const continuationHandler = new ContinuationHandler();
@@ -683,7 +699,7 @@ async function loadContextFromPath(contextPath: string): Promise<string> {
  * Save full discussion to log file and return the file path
  */
 function saveFullDiscussion(result: any): string {
-  const { task, conversationHistory, solution, consensusReached, rounds, maxRounds, failedAgents = [] } = result;
+  const { task, conversationHistory, solution, consensusReached, rounds, maxRounds, failedAgents = [], agentSubstitutions = {} } = result;
 
   const logsDir = path.join(process.env.HOME || '', '.llm-conclave', 'discuss-logs');
   if (!fs.existsSync(logsDir)) {
@@ -708,6 +724,17 @@ function saveFullDiscussion(result: any): string {
   // Report failed agents
   if (failedAgents.length > 0) {
     fullLog += `**⚠️ Unavailable Agents:** ${failedAgents.join(', ')}\n\n`;
+  }
+
+  // Report agent substitutions
+  const subEntries = Object.entries(agentSubstitutions);
+  if (subEntries.length > 0) {
+    fullLog += `**🔄 Model Substitutions:**\n`;
+    for (const [agent, sub] of subEntries) {
+      const s = sub as any;
+      fullLog += `- ${agent}: ${s.original} → ${s.fallback} (${s.reason})\n`;
+    }
+    fullLog += `\n`;
   }
 
   fullLog += `---\n\n`;
@@ -754,6 +781,7 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
     rounds,
     maxRounds,
     failedAgents = [],
+    agentSubstitutions = {},
     keyDecisions = [],
     actionItems = [],
     dissent = [],
@@ -784,6 +812,17 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   // Report failed agents prominently
   if (failedAgents.length > 0) {
     output += `**⚠️ Unavailable:** ${failedAgents.join(', ')} (API errors)\n\n`;
+  }
+
+  // Report agent substitutions (model fallbacks)
+  const subEntries = Object.entries(agentSubstitutions);
+  if (subEntries.length > 0) {
+    output += `**🔄 Model Substitutions:**\n`;
+    for (const [agent, sub] of subEntries) {
+      const s = sub as any;
+      output += `- ${agent}: \`${s.original}\` → \`${s.fallback}\` (${s.reason})\n`;
+    }
+    output += `\n💡 **Action:** Check provider credits/quotas for the original models.\n\n`;
   }
 
   // Final solution/recommendation (the key output)
@@ -841,10 +880,111 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
 // Start Server
 // ============================================================================
 
-async function main() {
+function getSSEPort(): number | null {
+  // Check --sse flag with optional port: --sse or --sse 3100
+  const sseIdx = process.argv.indexOf('--sse');
+  if (sseIdx !== -1) {
+    const nextArg = process.argv[sseIdx + 1];
+    if (nextArg && !nextArg.startsWith('-')) {
+      return parseInt(nextArg, 10);
+    }
+    return parseInt(process.env.MCP_SSE_PORT || '3100', 10);
+  }
+  // Check env var
+  if (process.env.MCP_SSE_PORT) {
+    return parseInt(process.env.MCP_SSE_PORT, 10);
+  }
+  return null;
+}
+
+async function startStdio() {
+  const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('LLM Conclave MCP Server running on stdio');
+}
+
+async function startSSE(port: number) {
+  const app = express();
+  app.use(express.json());
+
+  // Track active transports for cleanup
+  const transports: Record<string, SSEServerTransport> = {};
+
+  // Health check
+  app.get('/health', (_req, res) => {
+    res.json({
+      status: 'ok',
+      transport: 'sse',
+      activeSessions: Object.keys(transports).length,
+    });
+  });
+
+  // SSE endpoint - client connects here to establish stream
+  app.get('/sse', async (req, res) => {
+    const transport = new SSEServerTransport('/messages', res);
+    transports[transport.sessionId] = transport;
+    console.error(`SSE client connected: ${transport.sessionId}`);
+
+    res.on('close', async () => {
+      console.error(`SSE client disconnected: ${transport.sessionId}`);
+      try {
+        await transport.close();
+      } catch (e) {
+        console.error(`Error closing transport ${transport.sessionId}:`, e);
+      }
+      delete transports[transport.sessionId];
+    });
+
+    // Each SSE connection gets its own Server instance
+    const server = createServer();
+    await server.connect(transport);
+  });
+
+  // Message endpoint - client POSTs messages here
+  app.post('/messages', async (req, res) => {
+    const sessionId = req.query.sessionId as string;
+    const transport = transports[sessionId];
+    if (!transport) {
+      res.status(400).json({ error: 'Unknown session ID' });
+      return;
+    }
+    await transport.handlePostMessage(req, res, req.body);
+  });
+
+  const httpServer = http.createServer(app);
+  httpServer.listen(port, () => {
+    console.error(`LLM Conclave MCP Server running on http://localhost:${port}/sse`);
+    console.error(`  SSE endpoint:     GET  http://localhost:${port}/sse`);
+    console.error(`  Message endpoint: POST http://localhost:${port}/messages`);
+    console.error(`  Health check:     GET  http://localhost:${port}/health`);
+  });
+
+  // Graceful shutdown
+  const shutdown = async () => {
+    console.error('Shutting down SSE server...');
+    for (const [sessionId, transport] of Object.entries(transports)) {
+      try {
+        await transport.close();
+      } catch (e) {
+        console.error(`Error closing session ${sessionId}:`, e);
+      }
+      delete transports[sessionId];
+    }
+    httpServer.close();
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+async function main() {
+  const ssePort = getSSEPort();
+  if (ssePort) {
+    await startSSE(ssePort);
+  } else {
+    await startStdio();
+  }
 }
 
 main().catch((error) => {

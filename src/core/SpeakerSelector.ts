@@ -276,7 +276,18 @@ export class SpeakerSelector {
         .filter(([name]) => name !== lastSpeaker)
         .sort((a, b) => a[1] - b[1]);
 
-      const nextSpeaker = sortedCandidates.length > 0 ? sortedCandidates[0][0] : allAgents[0];
+      // If the only remaining agent is the lastSpeaker, end the round
+      if (sortedCandidates.length === 0) {
+        return {
+          nextSpeaker: '',
+          reason: 'Circuit breaker: only remaining agent already spoke last; ending round',
+          handoffRequested: false,
+          shouldContinue: false,
+          confidence: 0.5
+        };
+      }
+
+      const nextSpeaker = sortedCandidates[0][0];
 
       return {
         nextSpeaker: nextSpeaker,
@@ -361,6 +372,16 @@ export class SpeakerSelector {
     // Optimization: If only 1 valid candidate remains (binary choice resolved), pick them automatically
     // This saves an LLM call when the choice is deterministic (e.g. 2-person debate)
     if (candidates.length === 1) {
+      // If the only candidate just spoke, end the round to avoid repetitive loop
+      if (candidates[0] === lastSpeaker) {
+        return {
+          nextSpeaker: '',
+          reason: 'Only remaining agent already spoke last; ending round to avoid repetition',
+          handoffRequested: false,
+          shouldContinue: false,
+          confidence: 0.9
+        };
+      }
       return {
         nextSpeaker: candidates[0],
         reason: 'Only valid alternative candidate',
