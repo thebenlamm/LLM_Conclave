@@ -720,7 +720,8 @@ async function loadContextFromPath(contextPath: string): Promise<string> {
     return loaded.formattedContent;
   }
 
-  const absolutePath = path.resolve(process.cwd(), contextPath);
+  const baseDir = process.cwd();
+  const absolutePath = validatePath(contextPath, baseDir);
   const stats = await fsPromises.lstat(absolutePath);
   if (stats.isSymbolicLink()) {
     throw new Error(`Symlinks are not allowed: ${absolutePath}`);
