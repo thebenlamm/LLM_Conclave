@@ -46,11 +46,14 @@ export default class ConfigLoader {
   static validate(config: any): any {
     const errors: string[] = [];
 
-    // Validate turn_management
+    // Validate turn_management (normalize variants like 'round_robin', 'round-robin')
     if (!config.turn_management) {
       config.turn_management = 'roundrobin'; // Default
-    } else if (!['roundrobin'].includes(config.turn_management)) {
-      errors.push(`Invalid turn_management: ${config.turn_management}. Supported: roundrobin`);
+    } else {
+      config.turn_management = String(config.turn_management).toLowerCase().replace(/[-_\s]/g, '');
+      if (!['roundrobin'].includes(config.turn_management)) {
+        errors.push(`Invalid turn_management: ${config.turn_management}. Supported: roundrobin`);
+      }
     }
 
     // Validate judge configuration

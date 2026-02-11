@@ -209,7 +209,7 @@ export class TemplateExecutor {
         prompt: 'You are a judge.'
       },
       max_rounds: 3,
-      turn_management: 'round_robin'
+      turn_management: 'roundrobin'
     };
 
     let projectContext = null;

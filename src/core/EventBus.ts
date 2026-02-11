@@ -51,7 +51,9 @@ export class EventBus extends EventEmitter {
     // EventEmitter throws if 'error' events have no listeners.
     // Components may or may not register their own error handlers,
     // so this default ensures we never crash from unhandled errors.
-    this.on('error', () => {});
+    this.on('error', (err: any) => {
+      console.error('[EventBus] Unhandled error:', err?.message || err);
+    });
   }
 
   /**

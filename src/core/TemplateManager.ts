@@ -108,7 +108,7 @@ export class TemplateManager {
       agents: template.agents,
       judge: template.judge,
       max_rounds: 5, // Default
-      turn_management: 'round_robin', // Default
+      turn_management: 'roundrobin', // Default
       template_mode: template.mode, // Custom field to pass mode to CLI
       template_chunk_size: template.chunkSize
     };

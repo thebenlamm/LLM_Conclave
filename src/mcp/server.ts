@@ -397,7 +397,7 @@ async function handleDiscuss(args: {
       level: 'info',
       logger: 'llm-conclave',
       data: `Round ${round}/${rounds} starting...`
-    }).catch(() => {}); // Non-fatal, don't crash on logging failure
+    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
   const onAgentThinking = (event: any) => {
@@ -406,7 +406,7 @@ async function handleDiscuss(args: {
       level: 'info',
       logger: 'llm-conclave',
       data: `${agent} is responding...`
-    }).catch(() => {}); // Non-fatal, don't crash on logging failure
+    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
   const onError = (event: any) => {
@@ -415,7 +415,7 @@ async function handleDiscuss(args: {
       level: 'warning',
       logger: 'llm-conclave',
       data: `Agent error (continuing): ${message}`
-    }).catch(() => {}); // Non-fatal
+    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
   scopedEventBus.on('round:start', onRoundStart);
@@ -562,7 +562,7 @@ async function handleContinue(args: {
       level: 'info',
       logger: 'llm-conclave',
       data: `Round ${round}/${maxRounds} starting...`
-    }).catch(() => {}); // Non-fatal, don't crash on logging failure
+    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
   const onAgentThinking = (event: any) => {
@@ -571,7 +571,7 @@ async function handleContinue(args: {
       level: 'info',
       logger: 'llm-conclave',
       data: `${agent} is responding...`
-    }).catch(() => {}); // Non-fatal, don't crash on logging failure
+    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
   const onError = (event: any) => {
@@ -580,7 +580,7 @@ async function handleContinue(args: {
       level: 'warning',
       logger: 'llm-conclave',
       data: `Agent error (continuing): ${message}`
-    }).catch(() => {}); // Non-fatal
+    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
   scopedEventBus.on('round:start', onRoundStart);
