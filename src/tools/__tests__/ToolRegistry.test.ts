@@ -418,8 +418,7 @@ describe('ToolRegistry', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toMatch(/blocked/i);
-        expect(result.error).toMatch(/rm -rf/i);
+        expect(result.error).toMatch(/blocked|not in allowed/i);
       });
 
       it('should block sudo', async () => {
@@ -428,7 +427,7 @@ describe('ToolRegistry', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toMatch(/blocked/i);
+        expect(result.error).toMatch(/blocked|not in allowed/i);
       });
 
       it('should block curl', async () => {
@@ -437,7 +436,7 @@ describe('ToolRegistry', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toMatch(/blocked/i);
+        expect(result.error).toMatch(/blocked|not in allowed/i);
       });
 
       it('should block wget', async () => {
@@ -446,7 +445,7 @@ describe('ToolRegistry', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toMatch(/blocked/i);
+        expect(result.error).toMatch(/blocked|not in allowed/i);
       });
 
       it('should block command chaining with &&', async () => {
@@ -509,7 +508,7 @@ describe('ToolRegistry', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toMatch(/blocked/i);
+        expect(result.error).toMatch(/blocked|not in allowed/i);
       });
 
       it('should block ssh', async () => {
@@ -518,7 +517,7 @@ describe('ToolRegistry', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toMatch(/blocked/i);
+        expect(result.error).toMatch(/blocked|not in allowed/i);
       });
 
       it('should block reverse shells', async () => {
@@ -527,7 +526,7 @@ describe('ToolRegistry', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toMatch(/blocked/i);
+        expect(result.error).toMatch(/blocked|not in allowed/i);
       });
 
       it('should reject empty commands', async () => {
@@ -562,6 +561,22 @@ describe('ToolRegistry', () => {
         });
 
         expect(result.success).toBe(true);
+      });
+
+      it('should only allow allowlisted command prefixes', async () => {
+        const result = await enabledRegistry.executeTool('run_command', {
+          command: 'python3 -c "print(1)"'
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/not in allowed/i);
+      });
+
+      it('should allow git status (allowlisted)', async () => {
+        const result = await enabledRegistry.executeTool('run_command', {
+          command: 'git status'
+        });
+        // May fail for other reasons (not a git repo) but NOT because it's not allowed
+        expect(result.error || '').not.toMatch(/not in allowed/i);
       });
     });
   });

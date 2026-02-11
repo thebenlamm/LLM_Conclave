@@ -500,8 +500,19 @@ export default class ToolRegistry {
       };
     }
 
-    // Block dangerous commands
+    // Enforce allowlist — command must start with an allowed prefix
     const lowerCommand = trimmedCommand.toLowerCase();
+    const isAllowed = ToolRegistry.ALLOWED_COMMANDS.some(allowed =>
+      lowerCommand === allowed.toLowerCase() || lowerCommand.startsWith(allowed.toLowerCase() + ' ')
+    );
+    if (!isAllowed) {
+      return {
+        success: false,
+        error: 'Command not in allowed commands list. Only safe read-only commands are permitted.'
+      };
+    }
+
+    // Block dangerous commands (catches injection in allowed commands, e.g. echo $(whoami))
     for (const dangerous of ToolRegistry.DANGEROUS_COMMANDS) {
       if (lowerCommand.includes(dangerous.toLowerCase())) {
         return {
