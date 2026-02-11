@@ -143,6 +143,10 @@ export class TemplateExecutor {
     if (options.project) {
       console.log(chalk.cyan(`Loading project context: ${options.project}...\n`));
       projectContext = new ProjectContext(options.project);
+      const loadResult = await projectContext.load();
+      if (!loadResult.success) {
+        throw new Error(`Failed to load project context: ${loadResult.error}`);
+      }
     }
 
     const judge = {
@@ -208,8 +212,18 @@ export class TemplateExecutor {
       turn_management: 'round_robin'
     };
 
+    let projectContext = null;
+    if (options.project) {
+      console.log(chalk.cyan(`Loading project context: ${options.project}...\n`));
+      projectContext = new ProjectContext(options.project);
+      const loadResult = await projectContext.load();
+      if (!loadResult.success) {
+        throw new Error(`Failed to load project context: ${loadResult.error}`);
+      }
+    }
+
     const orchestrator = new Orchestrator(config, null, options.stream !== false);
-    await orchestrator.executeTask(task, options.project || undefined);
+    await orchestrator.executeTask(task, projectContext);
     
     console.log(chalk.green('\n✓ Review complete!\n'));
   }
@@ -256,7 +270,7 @@ export class TemplateExecutor {
              if (reportText) logInfo(reportText);
         }
 
-        const strategy = StrategyFactory.create(options.quick ? 'explore' : 'converge');
+        const strategy = StrategyFactory.create(options.quick ? 'converge' : 'explore');
 
         const orchestrator = new ConsultOrchestrator({
             maxRounds: options.quick ? 1 : 4,

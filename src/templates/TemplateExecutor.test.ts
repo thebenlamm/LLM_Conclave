@@ -151,7 +151,7 @@ describe('TemplateExecutor', () => {
     await executor.execute(template, 'My Task', {});
 
     expect(Orchestrator).toHaveBeenCalled();
-    expect(mockExecuteTask).toHaveBeenCalledWith('My Task', undefined);
+    expect(mockExecuteTask).toHaveBeenCalledWith('My Task', null);
   });
 
   it('throws error for unknown mode', async () => {
