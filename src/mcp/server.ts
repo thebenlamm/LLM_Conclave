@@ -25,6 +25,7 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import * as http from 'http';
 import express from 'express';
@@ -366,7 +367,12 @@ async function handleDiscuss(args: {
   // Load project context if specified
   let projectContext = null;
   if (projectPath) {
-    projectContext = new ProjectContext(projectPath);
+    const validatedProjectPath = validatePath(projectPath, process.cwd());
+    const stats = await fsPromises.lstat(validatedProjectPath);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Symlinks are not allowed for project path: ${projectPath}`);
+    }
+    projectContext = new ProjectContext(validatedProjectPath);
     await projectContext.load();
   }
 
@@ -692,39 +698,67 @@ async function handleSessions(args: {
 // Helper Functions
 // ============================================================================
 
-// TODO: SECURITY - Add path traversal protection. Currently accepts arbitrary paths.
-// See: https://owasp.org/www-community/attacks/Path_Traversal
+const MAX_CONTEXT_FILE_BYTES = 2 * 1024 * 1024; // 2MB per file
+
+function validatePath(filePath: string, baseDir: string): string {
+  if (filePath.includes('\0')) {
+    throw new Error(`Invalid path (null byte detected): ${filePath}`);
+  }
+  const absolutePath = path.resolve(baseDir, filePath);
+  const normalizedBase = path.resolve(baseDir) + path.sep;
+  if (!absolutePath.startsWith(normalizedBase) && absolutePath !== path.resolve(baseDir)) {
+    throw new Error(`Path escapes allowed directory: ${filePath}`);
+  }
+  return absolutePath;
+}
+
+async function validateFileAccess(absolutePath: string): Promise<void> {
+  const stats = await fsPromises.lstat(absolutePath);
+  if (stats.isSymbolicLink()) {
+    throw new Error(`Symlinks are not allowed: ${absolutePath}`);
+  }
+  if (stats.isFile() && stats.size > MAX_CONTEXT_FILE_BYTES) {
+    throw new Error(`File too large (${Math.round(stats.size / 1024)}KB, max ${MAX_CONTEXT_FILE_BYTES / 1024}KB): ${absolutePath}`);
+  }
+}
+
 async function loadContextFromPath(contextPath: string): Promise<string> {
   let context = '';
+  const baseDir = process.cwd();
 
-  // Check if it's comma-separated files
   if (contextPath.includes(',')) {
     const files = contextPath.split(',').map(f => f.trim());
-
     for (const file of files) {
-      if (!fs.existsSync(file)) {
+      const absolutePath = validatePath(file, baseDir);
+      if (!fs.existsSync(absolutePath)) {
         throw new Error(`Context file not found: ${file}`);
       }
-
-      const content = fs.readFileSync(file, 'utf-8');
-      const fileName = path.basename(file);
+      await validateFileAccess(absolutePath);
+      const content = fs.readFileSync(absolutePath, 'utf-8');
+      const fileName = path.basename(absolutePath);
       context += `\n\n### File: ${fileName}\n\n${content}`;
     }
-  }
-  // Otherwise treat as project directory
-  else if (fs.existsSync(contextPath)) {
-    if (fs.statSync(contextPath).isDirectory()) {
-      const projectContext = new ProjectContext(contextPath);
+  } else {
+    const absolutePath = validatePath(contextPath, baseDir);
+    if (!fs.existsSync(absolutePath)) {
+      throw new Error(`Context path not found: ${contextPath}`);
+    }
+    const stats = await fsPromises.lstat(absolutePath);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Symlinks are not allowed: ${absolutePath}`);
+    }
+    if (stats.isDirectory()) {
+      const projectContext = new ProjectContext(absolutePath);
       await projectContext.load();
       context = projectContext.formatContext();
     } else {
-      // Single file
-      const content = fs.readFileSync(contextPath, 'utf-8');
-      const fileName = path.basename(contextPath);
+      if (stats.size > MAX_CONTEXT_FILE_BYTES) {
+        throw new Error(`File too large (${Math.round(stats.size / 1024)}KB, max ${MAX_CONTEXT_FILE_BYTES / 1024}KB): ${absolutePath}`);
+      }
+      const content = fs.readFileSync(absolutePath, 'utf-8');
+      const fileName = path.basename(absolutePath);
       context = `### File: ${fileName}\n\n${content}`;
     }
-  } else {
-    throw new Error(`Context path not found: ${contextPath}`);
   }
 
   return context;
