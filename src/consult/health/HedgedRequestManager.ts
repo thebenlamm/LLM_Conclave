@@ -3,6 +3,7 @@ import { ProviderHealthMonitor } from './ProviderHealthMonitor';
 import { AgentResponse, TokenUsage } from '../../types/consult';
 import ProviderFactory from '../../providers/ProviderFactory';
 import { getBackupProvider, PROVIDER_TIER_MAP } from './ProviderTiers';
+import { normalizeUsage } from '../../utils/normalizeUsage';
 // import inquirer from 'inquirer'; // Dynamic import used instead
 
 export class HedgedRequestManager {
@@ -261,7 +262,7 @@ export class HedgedRequestManager {
       model: model,
       provider: providerId,
       content: providerResponse.text,
-      tokens: this.normalizeUsage(providerResponse.usage),
+      tokens: normalizeUsage(providerResponse.usage),
       durationMs: Date.now() - startTime,
       timestamp: new Date().toISOString()
     };
@@ -290,15 +291,5 @@ export class HedgedRequestManager {
       };
   }
 
-  private normalizeUsage(
-    usage: any
-  ): { input: number; output: number; total: number } {
-    if (!usage) return { input: 0, output: 0, total: 0 };
-    if ('input' in usage && typeof usage.input === 'number') {
-      return { input: usage.input, output: usage.output || 0, total: usage.total || (usage.input + (usage.output || 0)) };
-    }
-    const input = usage.input_tokens ?? 0;
-    const output = usage.output_tokens ?? 0;
-    return { input, output, total: usage.total_tokens ?? (input + output) };
-  }
+  // normalizeUsage extracted to src/utils/normalizeUsage.ts
 }

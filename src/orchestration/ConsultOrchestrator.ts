@@ -28,6 +28,7 @@ import { ConvergeStrategy } from '../consult/strategies/ConvergeStrategy';
 import { DebateValueAnalyzer } from '../consult/analysis/DebateValueAnalyzer';
 import { BrownfieldAnalysis, BrownfieldDetector } from '../consult/context/BrownfieldDetector';
 import { ContextAugmenter } from '../consult/context/ContextAugmenter';
+import { normalizeUsage } from '../utils/normalizeUsage';
 import * as path from 'path';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
@@ -1188,7 +1189,7 @@ export default class ConsultOrchestrator {
       const duration = response.durationMs || (Date.now() - startTime);
       if (this.verbose) console.log(`✓ ${agent.name} responded in ${(duration / 1000).toFixed(1)}s`);
 
-      const usage = this.normalizeUsage(response.tokens || {});
+      const usage = normalizeUsage(response.tokens || {});
       const inputTokens = usage.input;
       const outputTokens = usage.output;
 
@@ -1563,31 +1564,13 @@ export default class ConsultOrchestrator {
       );
   }
 
-  /**
-   * Track actual cost from agent response
-   * (Epic 2, Story 1: In-flight cost monitoring)
-   */
-  private normalizeUsage(
-    usage: TokenUsage | { input_tokens?: number; output_tokens?: number; total_tokens?: number }
-  ): TokenUsage {
-    if ('input' in usage) {
-      return usage;
-    }
-
-    const input = usage.input_tokens ?? 0;
-    const output = usage.output_tokens ?? 0;
-    return {
-      input,
-      output,
-      total: usage.total_tokens ?? (input + output)
-    };
-  }
+  // normalizeUsage extracted to src/utils/normalizeUsage.ts
 
   private trackActualCost(
     usage: TokenUsage | { input_tokens?: number; output_tokens?: number; total_tokens?: number },
     model: string
   ): void {
-    const normalized = this.normalizeUsage(usage);
+    const normalized = normalizeUsage(usage);
     const pricing = CostEstimator.getPrice(model);
     const inputCost = (normalized.input / 1000) * pricing.input;
     const outputCost = (normalized.output / 1000) * pricing.output;
