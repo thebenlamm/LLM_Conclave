@@ -101,7 +101,7 @@ export default class ClaudeProvider extends LLMProvider {
 
       // Streaming supported only when tools aren't requested to avoid partial tool parsing
       if (stream && !params.tools) {
-        const streamResp: any = await this.client.messages.create({ ...params, stream: true }, { signal: signal as any });
+        const streamResp: any = await this.client.messages.create({ ...params, stream: true }, { signal });
         let fullText = '';
         let streamUsage: { input_tokens: number; output_tokens: number } | undefined;
 
@@ -134,7 +134,7 @@ export default class ClaudeProvider extends LLMProvider {
         return { text: fullText || null, usage: streamUsage };
       }
 
-      const response = await this.client.messages.create(params, { signal: signal as any });
+      const response = await this.client.messages.create(params, { signal });
 
       const usage = {
         input_tokens: response.usage.input_tokens || 0,

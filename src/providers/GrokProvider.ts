@@ -101,7 +101,7 @@ export default class GrokProvider extends LLMProvider {
 
       if (stream && !params.tools) {
         params.stream = true;
-        const streamResp = await this.client.chat.completions.create(params, { signal: signal as any });
+        const streamResp = await this.client.chat.completions.create(params, { signal });
         let fullText = '';
 
         for await (const chunk of streamResp as any) {
@@ -117,7 +117,7 @@ export default class GrokProvider extends LLMProvider {
         return { text: fullText };
       }
 
-      const response = await this.client.chat.completions.create(params, { signal: signal as any });
+      const response = await this.client.chat.completions.create(params, { signal });
 
       // Guard against empty choices array
       if (!response.choices || response.choices.length === 0) {
