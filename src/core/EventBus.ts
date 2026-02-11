@@ -45,6 +45,11 @@ export class EventBus extends EventEmitter {
    */
   constructor() {
     super();
+    // Prevent Node.js ERR_UNHANDLED_ERROR crashes.
+    // EventEmitter throws if 'error' events have no listeners.
+    // Components may or may not register their own error handlers,
+    // so this default ensures we never crash from unhandled errors.
+    this.on('error', () => {});
   }
 
   /**

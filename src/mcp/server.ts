@@ -382,23 +382,38 @@ async function handleDiscuss(args: {
   const scopedEventBus = EventBus.createInstance();
 
   // Send progress updates via MCP logging (fire-and-forget with error handling)
-  scopedEventBus.on('round:start', (event: any) => {
+  // Use named references so we can remove only these handlers in cleanup,
+  // preserving EventBus's default no-op error handler from the constructor.
+  const onRoundStart = (event: any) => {
     const round = event?.payload?.round ?? '?';
     server.sendLoggingMessage({
       level: 'info',
       logger: 'llm-conclave',
       data: `Round ${round}/${rounds} starting...`
     }).catch(() => {}); // Non-fatal, don't crash on logging failure
-  });
+  };
 
-  scopedEventBus.on('agent:thinking', (event: any) => {
+  const onAgentThinking = (event: any) => {
     const agent = event?.payload?.agent ?? 'Agent';
     server.sendLoggingMessage({
       level: 'info',
       logger: 'llm-conclave',
       data: `${agent} is responding...`
     }).catch(() => {}); // Non-fatal, don't crash on logging failure
-  });
+  };
+
+  const onError = (event: any) => {
+    const message = event?.payload?.message ?? 'Unknown error';
+    server.sendLoggingMessage({
+      level: 'warning',
+      logger: 'llm-conclave',
+      data: `Agent error (continuing): ${message}`
+    }).catch(() => {}); // Non-fatal
+  };
+
+  scopedEventBus.on('round:start', onRoundStart);
+  scopedEventBus.on('agent:thinking', onAgentThinking);
+  scopedEventBus.on('error', onError);
 
   const conversationManager = new ConversationManager(
     config,
@@ -413,8 +428,11 @@ async function handleDiscuss(args: {
   try {
     result = await conversationManager.startConversation(task, judge, projectContext);
   } finally {
-    // Clean up event listeners (guaranteed even on exception)
-    scopedEventBus.removeAllListeners();
+    // Remove only the MCP-registered handlers, preserving the EventBus
+    // constructor's default no-op error handler for any late async callbacks.
+    scopedEventBus.off('round:start', onRoundStart);
+    scopedEventBus.off('agent:thinking', onAgentThinking);
+    scopedEventBus.off('error', onError);
   }
 
   // Save full discussion to file (preserves all agent contributions)
@@ -529,24 +547,38 @@ async function handleContinue(args: {
   const scopedEventBus = EventBus.createInstance();
   const maxRounds = config.max_rounds || 4;
 
-  // Send progress updates via MCP logging (fire-and-forget with error handling)
-  scopedEventBus.on('round:start', (event: any) => {
+  // Use named references so we can remove only these handlers in cleanup,
+  // preserving EventBus's default no-op error handler from the constructor.
+  const onRoundStart = (event: any) => {
     const round = event?.payload?.round ?? '?';
     server.sendLoggingMessage({
       level: 'info',
       logger: 'llm-conclave',
       data: `Round ${round}/${maxRounds} starting...`
     }).catch(() => {}); // Non-fatal, don't crash on logging failure
-  });
+  };
 
-  scopedEventBus.on('agent:thinking', (event: any) => {
+  const onAgentThinking = (event: any) => {
     const agent = event?.payload?.agent ?? 'Agent';
     server.sendLoggingMessage({
       level: 'info',
       logger: 'llm-conclave',
       data: `${agent} is responding...`
     }).catch(() => {}); // Non-fatal, don't crash on logging failure
-  });
+  };
+
+  const onError = (event: any) => {
+    const message = event?.payload?.message ?? 'Unknown error';
+    server.sendLoggingMessage({
+      level: 'warning',
+      logger: 'llm-conclave',
+      data: `Agent error (continuing): ${message}`
+    }).catch(() => {}); // Non-fatal
+  };
+
+  scopedEventBus.on('round:start', onRoundStart);
+  scopedEventBus.on('agent:thinking', onAgentThinking);
+  scopedEventBus.on('error', onError);
 
   const conversationManager = new ConversationManager(config, null, false, scopedEventBus, false, DEFAULT_SELECTOR_MODEL);
 
@@ -564,8 +596,11 @@ async function handleContinue(args: {
   try {
     result = await conversationManager.startConversation(prepared.newTask, judge, null);
   } finally {
-    // Clean up event listeners (guaranteed even on exception)
-    scopedEventBus.removeAllListeners();
+    // Remove only the MCP-registered handlers, preserving the EventBus
+    // constructor's default no-op error handler for any late async callbacks.
+    scopedEventBus.off('round:start', onRoundStart);
+    scopedEventBus.off('agent:thinking', onAgentThinking);
+    scopedEventBus.off('error', onError);
   }
 
   // Save as new session with parent reference

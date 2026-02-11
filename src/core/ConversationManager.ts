@@ -348,27 +348,46 @@ export default class ConversationManager {
       // Prepare messages for the agent
       const messages = this.prepareMessagesForAgent();
 
-      // Get agent's response
-      const response = await agent.provider.chat(messages, agent.systemPrompt, this.getChatOptions(agentName));
-      let text = typeof response === 'string' ? response : (response.text ?? '');
-
-      // Strip leading speaker name prefix if LLM echoed it back (prevents compounding prefixes)
-      // Pattern: "AgentName: " or "AgentName:" at start of response
-      // Escape regex special characters to prevent injection (e.g., Agent[1] would break without escaping)
+      // Get agent's response (with one retry on empty response)
       const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const prefixPattern = new RegExp(`^\\s*${escapeRegex(agentName)}\\s*:\\s*`, 'i');
-      text = text.replace(prefixPattern, '').trim();
 
-      // Handle empty/whitespace-only responses (prevents API errors like "cannot end with trailing whitespace")
-      if (!text || text.length === 0) {  // Already trimmed above
-        console.log(`[${agentName} returned empty response, skipping]\n`);
+      let text = '';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        // Clone messages per attempt — prepareMessagesForAgent() returns a cached array
+        // that some providers may mutate in place, corrupting future turns
+        const attemptMessages = messages.map(m => ({ ...m }));
+        const response = await agent.provider.chat(attemptMessages, agent.systemPrompt, this.getChatOptions(agentName));
+        text = typeof response === 'string' ? response : (response.text ?? '');
+
+        // Strip leading speaker name prefix if LLM echoed it back (prevents compounding prefixes)
+        text = text.replace(prefixPattern, '').trim();
+
+        if (text && text.length > 0) break; // Got a valid response
+
+        if (attempt === 0) {
+          console.log(`[${agentName} returned empty response, retrying once...]`);
+        }
+      }
+
+      // Handle empty/whitespace-only responses after retry
+      if (!text || text.length === 0) {
+        console.log(`[${agentName} returned empty response after retry, skipping]\n`);
         if (this.eventBus) {
           this.eventBus.emitEvent('error', {
-            message: `${agentName} returned empty response`,
+            message: `${agentName} returned empty response after retry`,
             context: 'empty_response'
           });
         }
-        // Don't add empty responses to history - they cause downstream issues
+        // Record failure in history so consensus/summary can account for this agent
+        this.conversationHistory.push({
+          role: 'assistant',
+          content: `[${agentName} unavailable: returned empty response after retry]`,
+          speaker: agentName,
+          model: agent.model,
+          error: true,
+          errorDetails: 'empty_response_after_retry'
+        });
         return;
       }
 
@@ -393,11 +412,9 @@ export default class ConversationManager {
     } catch (error: any) {
       const errorMsg = error.message || 'Unknown error';
       console.error(`Error with agent ${agentName}: ${errorMsg}`);
-      if (this.eventBus) {
-        this.eventBus.emitEvent('error', { message: `Error with agent ${agentName}: ${errorMsg}` });
-      }
 
       // Try fallback to a different provider on retryable errors (429, 502, 503)
+      // NOTE: Emit error event AFTER fallback attempt — if fallback succeeds, no error to report
       const isRetryable = /429|rate.?limit|502|503|service.?error/i.test(errorMsg);
       if (isRetryable && !this.agentSubstitutions.has(agentName)) {
         const fallbackModel = this.getFallbackModel(agent.model);
@@ -447,6 +464,11 @@ export default class ConversationManager {
             (error as any).fallbackError = fallbackError.message;
           }
         }
+      }
+
+      // Emit error event only after all recovery attempts have been exhausted
+      if (this.eventBus) {
+        this.eventBus.emitEvent('error', { message: `Error with agent ${agentName}: ${errorMsg}` });
       }
 
       // Extract provider and status from error message for cleaner display
