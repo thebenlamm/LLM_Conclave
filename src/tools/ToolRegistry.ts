@@ -148,24 +148,76 @@ export default class ToolRegistry {
 
   /**
    * Validate and resolve a file path, ensuring it stays within the sandbox.
+   * Resolves symlinks via fs.realpath() to prevent symlink-based sandbox escapes.
+   * For non-existent paths, walks up to the deepest existing ancestor and realpaths that.
    * @throws Error if path escapes sandbox or contains dangerous patterns
    */
-  private validatePath(filePath: string): string {
+  private async validatePath(filePath: string): Promise<string> {
     // Block null bytes
     if (filePath.includes('\0')) {
       throw new Error('Invalid path: null byte detected');
     }
 
-    // Resolve to absolute path
+    // Resolve to absolute path (textual resolution only)
     const absolutePath = path.resolve(this.baseDir, filePath);
-    const normalizedBase = path.resolve(this.baseDir) + path.sep;
+    const resolvedBase = path.resolve(this.baseDir);
+    const normalizedBase = resolvedBase + path.sep;
 
-    // Check if resolved path is within sandbox
-    if (!absolutePath.startsWith(normalizedBase) && absolutePath !== path.resolve(this.baseDir)) {
+    // Quick textual check first (catches obvious ../.. escapes)
+    if (!absolutePath.startsWith(normalizedBase) && absolutePath !== resolvedBase) {
       throw new Error(`Path escapes sandbox: ${filePath}`);
     }
 
-    // Block symlink traversal (checked during actual file operations)
+    // Resolve symlinks: walk up to find the deepest existing ancestor
+    let existingPath = absolutePath;
+    let remainingParts: string[] = [];
+
+    while (existingPath !== path.dirname(existingPath)) {
+      try {
+        await fs.access(existingPath);
+        break; // Found existing path
+      } catch {
+        remainingParts.unshift(path.basename(existingPath));
+        existingPath = path.dirname(existingPath);
+      }
+    }
+
+    // Resolve symlinks in the existing portion
+    let realExistingPath: string;
+    try {
+      realExistingPath = await fs.realpath(existingPath);
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        // If even the root can't be resolved, use the textual path
+        realExistingPath = existingPath;
+      } else {
+        throw err;
+      }
+    }
+
+    // Reconstruct the full real path with non-existent tail
+    const realFullPath = remainingParts.length > 0
+      ? path.join(realExistingPath, ...remainingParts)
+      : realExistingPath;
+
+    // Realpath the base directory too (in case sandbox itself has symlinks)
+    let realBase: string;
+    try {
+      realBase = await fs.realpath(resolvedBase);
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        realBase = resolvedBase;
+      } else {
+        throw err;
+      }
+    }
+    const realBaseNormalized = realBase + path.sep;
+
+    // Check if the real path is within the real sandbox
+    if (!realFullPath.startsWith(realBaseNormalized) && realFullPath !== realBase) {
+      throw new Error(`Path escapes sandbox: ${filePath}`);
+    }
+
     return absolutePath;
   }
 
@@ -244,7 +296,7 @@ export default class ToolRegistry {
    * Read a file (sandboxed to baseDir)
    */
   async _readFile(filePath: string): Promise<ToolExecutionResult> {
-    const validatedPath = this.validatePath(filePath);
+    const validatedPath = await this.validatePath(filePath);
 
     // Check for symlink to prevent traversal
     const stats = await fs.lstat(validatedPath);
@@ -269,7 +321,23 @@ export default class ToolRegistry {
    * Write a file (sandboxed to baseDir)
    */
   async _writeFile(filePath: string, content: string): Promise<ToolExecutionResult> {
-    const validatedPath = this.validatePath(filePath);
+    const validatedPath = await this.validatePath(filePath);
+
+    // Check if target is a symlink (prevent writing through symlinks)
+    try {
+      const stats = await fs.lstat(validatedPath);
+      if (stats.isSymbolicLink()) {
+        return {
+          success: false,
+          error: 'Symlinks are not allowed for security reasons'
+        };
+      }
+    } catch (e: any) {
+      // ENOENT is fine - file doesn't exist yet, which is normal for writes
+      if (e.code !== 'ENOENT') {
+        throw e;
+      }
+    }
 
     // Ensure parent directory exists
     const parentDir = path.dirname(validatedPath);
@@ -289,7 +357,7 @@ export default class ToolRegistry {
    * Edit a file (sandboxed to baseDir)
    */
   async _editFile(filePath: string, oldString: string, newString: string): Promise<ToolExecutionResult> {
-    const validatedPath = this.validatePath(filePath);
+    const validatedPath = await this.validatePath(filePath);
 
     // Check for symlink to prevent traversal
     const stats = await fs.lstat(validatedPath);
@@ -324,7 +392,7 @@ export default class ToolRegistry {
    */
   async _listFiles(pattern: string, directory?: string): Promise<ToolExecutionResult> {
     // Validate directory if provided, otherwise use baseDir
-    const searchDir = directory ? this.validatePath(directory) : this.baseDir;
+    const searchDir = directory ? await this.validatePath(directory) : this.baseDir;
 
     const { glob } = await import('glob');
     const files = await glob(pattern, {

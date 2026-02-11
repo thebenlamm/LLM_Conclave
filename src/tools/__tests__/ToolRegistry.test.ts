@@ -120,6 +120,88 @@ describe('ToolRegistry', () => {
       expect(result.success).toBe(true);
       expect(result.result).toBe('test content');
     });
+
+    it('should reject reads through symlinked parent directories', async () => {
+      // Create a directory outside sandbox with a file
+      const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'outside-sandbox-'));
+      const outsideFile = path.join(outsideDir, 'secret.txt');
+      await fs.writeFile(outsideFile, 'secret data');
+
+      // Create a symlink inside sandbox pointing to the outside directory
+      const symlinkDir = path.join(testDir, 'linked-dir');
+      try { await fs.unlink(symlinkDir); } catch {}
+      await fs.symlink(outsideDir, symlinkDir);
+
+      try {
+        // Try to read through the symlinked parent directory
+        const result = await registry.executeTool('read_file', {
+          file_path: 'linked-dir/secret.txt'
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/escapes sandbox|symlink/i);
+      } finally {
+        // Cleanup
+        try { await fs.unlink(symlinkDir); } catch {}
+        await fs.rm(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should reject writes through symlinked parent directories', async () => {
+      // Create a directory outside sandbox
+      const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'outside-sandbox-'));
+      const targetFile = path.join(outsideDir, 'should-not-exist.txt');
+
+      // Create a symlink inside sandbox pointing to the outside directory
+      const symlinkDir = path.join(testDir, 'write-linked-dir');
+      try { await fs.unlink(symlinkDir); } catch {}
+      await fs.symlink(outsideDir, symlinkDir);
+
+      try {
+        // Try to write through the symlinked parent directory
+        const result = await registry.executeTool('write_file', {
+          file_path: 'write-linked-dir/should-not-exist.txt',
+          content: 'malicious content'
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/escapes sandbox|symlink/i);
+
+        // Verify file was NOT written outside sandbox
+        await expect(fs.access(targetFile)).rejects.toThrow();
+      } finally {
+        // Cleanup
+        try { await fs.unlink(symlinkDir); } catch {}
+        await fs.rm(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should reject writes to existing symlink targets', async () => {
+      // Create a real file inside sandbox
+      const realFile = path.join(testDir, 'real-target.txt');
+      await fs.writeFile(realFile, 'original content');
+
+      // Create a symlink pointing to the real file
+      const symlinkFile = path.join(testDir, 'write-symlink.txt');
+      try { await fs.unlink(symlinkFile); } catch {}
+      await fs.symlink(realFile, symlinkFile);
+
+      try {
+        // Try to write through the symlink
+        const result = await registry.executeTool('write_file', {
+          file_path: 'write-symlink.txt',
+          content: 'overwritten via symlink'
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/symlink/i);
+
+        // Verify original file was NOT modified
+        const content = await fs.readFile(realFile, 'utf8');
+        expect(content).toBe('original content');
+      } finally {
+        // Cleanup
+        try { await fs.unlink(symlinkFile); } catch {}
+        try { await fs.unlink(realFile); } catch {}
+      }
+    });
   });
 
   describe('read_file', () => {
