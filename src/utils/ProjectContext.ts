@@ -104,7 +104,7 @@ export default class ProjectContext {
         return { success: false, error: `Path does not exist: ${this.projectPath}` };
       }
 
-      const stats = await fsPromises.stat(this.projectPath);
+      const stats = await fsPromises.lstat(this.projectPath);
 
       // Handle single file
       if (stats.isFile()) {
@@ -233,6 +233,8 @@ export default class ProjectContext {
         }
       }
 
+      // Sort for deterministic truncation across filesystems
+      fileEntries.sort((a, b) => a.name.localeCompare(b.name));
       // Process files in parallel (limited concurrency)
       const filePromises = fileEntries.slice(0, 10).map(async ({ fullPath }) => {
         // Check limits before processing each file
@@ -254,6 +256,8 @@ export default class ProjectContext {
 
       await Promise.all(filePromises);
 
+      // Sort for deterministic truncation across filesystems
+      directories.sort((a, b) => a.localeCompare(b));
       // Recurse into directories with limited parallelism
       for (const dir of directories.slice(0, 5)) {
         if (this.currentFileCount >= this.maxFileCount) break;
@@ -289,7 +293,8 @@ export default class ProjectContext {
 
     // Check size (requires I/O, do last)
     try {
-      const stats = await fsPromises.stat(fullPath);
+      const stats = await fsPromises.lstat(fullPath);
+      if (stats.isSymbolicLink()) return false;
       return stats.size <= this.maxFileSize;
     } catch (error) {
       return false;
