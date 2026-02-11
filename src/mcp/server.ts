@@ -42,6 +42,7 @@ import { PersonaSystem } from '../cli/PersonaSystem.js';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory.js';
 import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
+import { ContextLoader } from '../consult/context/ContextLoader.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -698,8 +699,6 @@ async function handleSessions(args: {
 // Helper Functions
 // ============================================================================
 
-const MAX_CONTEXT_FILE_BYTES = 2 * 1024 * 1024; // 2MB per file
-
 function validatePath(filePath: string, baseDir: string): string {
   if (filePath.includes('\0')) {
     throw new Error(`Invalid path (null byte detected): ${filePath}`);
@@ -712,56 +711,28 @@ function validatePath(filePath: string, baseDir: string): string {
   return absolutePath;
 }
 
-async function validateFileAccess(absolutePath: string): Promise<void> {
+async function loadContextFromPath(contextPath: string): Promise<string> {
+  const loader = new ContextLoader();
+
+  if (contextPath.includes(',')) {
+    const files = contextPath.split(',').map(f => f.trim());
+    const loaded = await loader.loadFileContext(files);
+    return loaded.formattedContent;
+  }
+
+  const absolutePath = path.resolve(process.cwd(), contextPath);
   const stats = await fsPromises.lstat(absolutePath);
   if (stats.isSymbolicLink()) {
     throw new Error(`Symlinks are not allowed: ${absolutePath}`);
   }
-  if (stats.isFile() && stats.size > MAX_CONTEXT_FILE_BYTES) {
-    throw new Error(`File too large (${Math.round(stats.size / 1024)}KB, max ${MAX_CONTEXT_FILE_BYTES / 1024}KB): ${absolutePath}`);
-  }
-}
 
-async function loadContextFromPath(contextPath: string): Promise<string> {
-  let context = '';
-  const baseDir = process.cwd();
-
-  if (contextPath.includes(',')) {
-    const files = contextPath.split(',').map(f => f.trim());
-    for (const file of files) {
-      const absolutePath = validatePath(file, baseDir);
-      if (!fs.existsSync(absolutePath)) {
-        throw new Error(`Context file not found: ${file}`);
-      }
-      await validateFileAccess(absolutePath);
-      const content = fs.readFileSync(absolutePath, 'utf-8');
-      const fileName = path.basename(absolutePath);
-      context += `\n\n### File: ${fileName}\n\n${content}`;
-    }
-  } else {
-    const absolutePath = validatePath(contextPath, baseDir);
-    if (!fs.existsSync(absolutePath)) {
-      throw new Error(`Context path not found: ${contextPath}`);
-    }
-    const stats = await fsPromises.lstat(absolutePath);
-    if (stats.isSymbolicLink()) {
-      throw new Error(`Symlinks are not allowed: ${absolutePath}`);
-    }
-    if (stats.isDirectory()) {
-      const projectContext = new ProjectContext(absolutePath);
-      await projectContext.load();
-      context = projectContext.formatContext();
-    } else {
-      if (stats.size > MAX_CONTEXT_FILE_BYTES) {
-        throw new Error(`File too large (${Math.round(stats.size / 1024)}KB, max ${MAX_CONTEXT_FILE_BYTES / 1024}KB): ${absolutePath}`);
-      }
-      const content = fs.readFileSync(absolutePath, 'utf-8');
-      const fileName = path.basename(absolutePath);
-      context = `### File: ${fileName}\n\n${content}`;
-    }
+  if (stats.isDirectory()) {
+    const loaded = await loader.loadProjectContext(absolutePath);
+    return loaded.formattedContent;
   }
 
-  return context;
+  const loaded = await loader.loadFileContext([contextPath]);
+  return loaded.formattedContent;
 }
 
 /**
