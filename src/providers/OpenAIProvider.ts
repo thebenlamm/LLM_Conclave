@@ -72,7 +72,7 @@ export default class OpenAIProvider extends LLMProvider {
 
   protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
-      const { tools = null, stream = false, onToken } = options;
+      const { tools = null, stream = false, onToken, signal } = options;
 
       // Convert messages to OpenAI format (handles tool_result → tool)
       const convertedMessages = this.convertMessagesToOpenAIFormat(messages);
@@ -96,7 +96,7 @@ export default class OpenAIProvider extends LLMProvider {
       if (stream && !params.tools) {
         params.stream = true;
         params.stream_options = { include_usage: true };
-        const streamResp = await this.client.chat.completions.create(params);
+        const streamResp = await this.client.chat.completions.create(params, { signal: signal as any });
         let fullText = '';
         let streamUsage: { input_tokens: number; output_tokens: number } | undefined;
 
@@ -120,7 +120,7 @@ export default class OpenAIProvider extends LLMProvider {
         return { text: fullText, usage: streamUsage };
       }
 
-      const response = await this.client.chat.completions.create(params);
+      const response = await this.client.chat.completions.create(params, { signal: signal as any });
 
       // Guard against empty choices array
       if (!response.choices || response.choices.length === 0) {

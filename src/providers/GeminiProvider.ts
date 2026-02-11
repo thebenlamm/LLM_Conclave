@@ -22,7 +22,7 @@ export default class GeminiProvider extends LLMProvider {
 
   protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
-      const { tools = null, stream = false, onToken } = options;
+      const { tools = null, stream = false, onToken, signal } = options;
 
       // Convert our tool definitions to Gemini's function declaration format
       const functionDeclarations = tools ? this.convertToolsToGeminiFormat(tools) : undefined;
@@ -47,9 +47,20 @@ export default class GeminiProvider extends LLMProvider {
         ...config,
       };
 
+      // Helper: reject on abort signal (Gemini SDK doesn't support signal natively)
+      const abortPromise = signal
+        ? new Promise<never>((_, reject) => {
+            if (signal.aborted) reject(new Error('Aborted'));
+            else signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
+          })
+        : null;
+
       // Handle streaming mode (no tools support in streaming)
       if (stream && (!config.tools || config.tools.length === 0)) {
-        const streamResp = await this.client.models.generateContentStream(generateConfig as any);
+        const streamCall = this.client.models.generateContentStream(generateConfig as any);
+        const streamResp = abortPromise
+          ? await Promise.race([streamCall, abortPromise])
+          : await streamCall;
         let fullText = '';
 
         for await (const chunk of streamResp as any) {
@@ -78,7 +89,10 @@ export default class GeminiProvider extends LLMProvider {
       }
 
       // Non-streaming mode with improved token usage tracking
-      const result = await this.client.models.generateContent(generateConfig);
+      const contentCall = this.client.models.generateContent(generateConfig);
+      const result = abortPromise
+        ? await Promise.race([contentCall, abortPromise])
+        : await contentCall;
 
       let usage = { input_tokens: 0, output_tokens: 0 };
       // @ts-ignore

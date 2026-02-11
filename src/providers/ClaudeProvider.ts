@@ -18,7 +18,7 @@ export default class ClaudeProvider extends LLMProvider {
 
   protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
-      const { tools = null, stream = false, onToken } = options;
+      const { tools = null, stream = false, onToken, signal } = options;
 
       // Claude API expects messages without system role in the messages array
       // System prompt is passed separately - collect any system messages to merge
@@ -101,7 +101,7 @@ export default class ClaudeProvider extends LLMProvider {
 
       // Streaming supported only when tools aren't requested to avoid partial tool parsing
       if (stream && !params.tools) {
-        const streamResp: any = await this.client.messages.create({ ...params, stream: true });
+        const streamResp: any = await this.client.messages.create({ ...params, stream: true }, { signal: signal as any });
         let fullText = '';
         let streamUsage: { input_tokens: number; output_tokens: number } | undefined;
 
@@ -134,8 +134,8 @@ export default class ClaudeProvider extends LLMProvider {
         return { text: fullText || null, usage: streamUsage };
       }
 
-      const response = await this.client.messages.create(params);
-      
+      const response = await this.client.messages.create(params, { signal: signal as any });
+
       const usage = {
         input_tokens: response.usage.input_tokens || 0,
         output_tokens: response.usage.output_tokens || 0,

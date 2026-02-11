@@ -80,7 +80,7 @@ export default class MistralProvider extends LLMProvider {
 
   protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
-      const { tools = null, stream = false, onToken } = options;
+      const { tools = null, stream = false, onToken, signal } = options;
 
       // Convert messages to OpenAI format (handles tool_result → tool)
       const messageArray = this.convertMessagesToOpenAIFormat(messages);
@@ -107,7 +107,7 @@ export default class MistralProvider extends LLMProvider {
 
       if (stream && !params.tools) {
         params.stream = true;
-        const streamResp = await this.client.chat.completions.create(params);
+        const streamResp = await this.client.chat.completions.create(params, { signal: signal as any });
         let fullText = '';
 
         for await (const chunk of streamResp as any) {
@@ -123,7 +123,7 @@ export default class MistralProvider extends LLMProvider {
         return { text: fullText };
       }
 
-      const response = await this.client.chat.completions.create(params);
+      const response = await this.client.chat.completions.create(params, { signal: signal as any });
 
       // Guard against empty choices array
       if (!response.choices || response.choices.length === 0) {
