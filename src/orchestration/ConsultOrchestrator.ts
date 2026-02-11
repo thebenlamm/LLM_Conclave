@@ -291,7 +291,7 @@ export default class ConsultOrchestrator {
         // instead of a separate method if that's easier for closure access to 'reject'.
         // Or I can emit an event.
         
-        this.eventBus.emitEvent('consultation:pulse_cancel' as any, {
+        this.eventBus.emitEvent('consultation:pulse_cancel', {
             consultation_id: this.consultationId,
             agent_name: agentName,
             reason: 'User cancelled via interactive pulse'
@@ -351,7 +351,7 @@ export default class ConsultOrchestrator {
       this.stateMachine.transition(ConsultState.Estimating);
       
       // Emit started event
-      this.eventBus.emitEvent('consultation:started' as any, {
+      this.eventBus.emitEvent('consultation:started', {
         consultation_id: this.consultationId,
         question,
         agents: (this.agents || []).map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
@@ -376,7 +376,7 @@ export default class ConsultOrchestrator {
       estimate = this.costEstimator.estimateCost(question, this.agents, this.maxRounds);
       this.estimatedCostUsd = estimate.estimatedCostUsd; // Store for later comparison
 
-      this.eventBus.emitEvent('consultation:cost_estimated' as any, {
+      this.eventBus.emitEvent('consultation:cost_estimated', {
         consultation_id: this.consultationId,
         estimated_cost: estimate.estimatedCostUsd,
         input_tokens: estimate.inputTokens,
@@ -393,7 +393,7 @@ export default class ConsultOrchestrator {
       if (options.allowCostOverruns) {
         // Forced approval via --yes
         console.log(chalk.green(`💰 Estimated cost: $${estimate.estimatedCostUsd.toFixed(4)} (approved via --yes)`));
-        this.eventBus.emitEvent('consultation:user_consent' as any, {
+        this.eventBus.emitEvent('consultation:user_consent', {
           consultation_id: this.consultationId,
           approved: true,
           auto_approved: true
@@ -414,7 +414,7 @@ export default class ConsultOrchestrator {
         }
 
         // Consent given (either 'approved' or 'always' which also approves current consultation)
-        this.eventBus.emitEvent('consultation:user_consent' as any, {
+        this.eventBus.emitEvent('consultation:user_consent', {
           consultation_id: this.consultationId,
           approved: true,
           auto_approved: false
@@ -422,7 +422,7 @@ export default class ConsultOrchestrator {
       } else {
         // Cost under threshold - auto-approve
         this.costGate.displayAutoApproved(estimate.estimatedCostUsd);
-        this.eventBus.emitEvent('consultation:user_consent' as any, {
+        this.eventBus.emitEvent('consultation:user_consent', {
           consultation_id: this.consultationId,
           approved: true,
           auto_approved: true
@@ -458,7 +458,7 @@ export default class ConsultOrchestrator {
         throw new Error('All agents failed. Unable to provide consultation.');
       }
 
-      this.eventBus.emitEvent('round:completed' as any, {
+      this.eventBus.emitEvent('round:completed', {
         consultation_id: this.consultationId,
         round_number: 1,
         artifact_type: 'independent'
@@ -712,7 +712,7 @@ export default class ConsultOrchestrator {
       systemPrompt: this.strategy.getSynthesisPrompt(artifacts)
     };
 
-    this.eventBus.emitEvent('agent:thinking' as any, {
+    this.eventBus.emitEvent('agent:thinking', {
       consultation_id: this.consultationId,
       agent_name: judgeAgent.name,
       round: 2
@@ -740,14 +740,14 @@ export default class ConsultOrchestrator {
 
       const artifact = ArtifactExtractor.extractSynthesisArtifact(response.text || '');
 
-      this.eventBus.emitEvent('consultation:round_artifact' as any, {
+      this.eventBus.emitEvent('consultation:round_artifact', {
         consultation_id: this.consultationId,
         round_number: 2,
         artifact_type: 'synthesis',
         artifact
       });
 
-      this.eventBus.emitEvent('round:completed' as any, {
+      this.eventBus.emitEvent('round:completed', {
         consultation_id: this.consultationId,
         round_number: 2,
         artifact_type: 'synthesis'
@@ -837,7 +837,7 @@ export default class ConsultOrchestrator {
       judgeAgent.systemPrompt = this.contextAugmenter.augmentPrompt(judgeAgent.systemPrompt, greenfieldAnalysis);
     }
 
-    this.eventBus.emitEvent('agent:thinking' as any, {
+    this.eventBus.emitEvent('agent:thinking', {
       consultation_id: this.consultationId,
       agent_name: judgeAgent.name,
       round: 4
@@ -855,14 +855,14 @@ export default class ConsultOrchestrator {
 
       const artifact = ArtifactExtractor.extractVerdictArtifactWithMode(response.text || '', this.strategy.name);
 
-      this.eventBus.emitEvent('consultation:round_artifact' as any, {
+      this.eventBus.emitEvent('consultation:round_artifact', {
         consultation_id: this.consultationId,
         round_number: 4,
         artifact_type: 'verdict',
         artifact
       });
 
-      this.eventBus.emitEvent('round:completed' as any, {
+      this.eventBus.emitEvent('round:completed', {
         consultation_id: this.consultationId,
         round_number: 4,
         artifact_type: 'verdict'
@@ -933,7 +933,7 @@ export default class ConsultOrchestrator {
         systemPrompt = this.contextAugmenter.augmentPrompt(systemPrompt, greenfieldAnalysis);
       }
       
-      this.eventBus.emitEvent('agent:thinking' as any, {
+      this.eventBus.emitEvent('agent:thinking', {
         consultation_id: this.consultationId,
         agent_name: agent.name,
         round: 3
@@ -1000,7 +1000,7 @@ export default class ConsultOrchestrator {
         
         const duration = response.durationMs || (Date.now() - start);
 
-        this.eventBus.emitEvent('agent:completed' as any, {
+        this.eventBus.emitEvent('agent:completed', {
           consultation_id: this.consultationId,
           agent_name: agent.name,
           duration_ms: duration,
@@ -1051,7 +1051,7 @@ export default class ConsultOrchestrator {
       systemPrompt: this.strategy.getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact)
     };
 
-    this.eventBus.emitEvent('agent:thinking' as any, {
+    this.eventBus.emitEvent('agent:thinking', {
         consultation_id: this.consultationId,
         agent_name: judgeAgent.name,
         round: 3
@@ -1069,14 +1069,14 @@ export default class ConsultOrchestrator {
 
       const artifact = ArtifactExtractor.extractCrossExamArtifact(response.text || '');
 
-      this.eventBus.emitEvent('consultation:round_artifact' as any, {
+      this.eventBus.emitEvent('consultation:round_artifact', {
         consultation_id: this.consultationId,
         round_number: 3,
         artifact_type: 'cross_exam',
         artifact
       });
 
-      this.eventBus.emitEvent('round:completed' as any, {
+      this.eventBus.emitEvent('round:completed', {
         consultation_id: this.consultationId,
         round_number: 3,
         artifact_type: 'cross_exam'
@@ -1103,7 +1103,7 @@ export default class ConsultOrchestrator {
     let pulseTriggered = false;
 
     try {
-      this.eventBus.emitEvent('agent:thinking' as any, {
+      this.eventBus.emitEvent('agent:thinking', {
         consultation_id: this.consultationId,
         agent_name: agent.name,
         round: 1
@@ -1200,7 +1200,7 @@ export default class ConsultOrchestrator {
 
       // 'agent:completed' is emitted here, but HedgedManager emits 'substitution'.
       // We still emit 'agent:completed' for consistency in Orchestrator logic.
-      this.eventBus.emitEvent('agent:completed' as any, {
+      this.eventBus.emitEvent('agent:completed', {
         consultation_id: this.consultationId,
         agent_name: agent.name,
         duration_ms: duration,
@@ -1465,7 +1465,7 @@ export default class ConsultOrchestrator {
         earlyTerminationReason
       };
 
-      this.eventBus.emitEvent('consultation:completed' as any, {
+      this.eventBus.emitEvent('consultation:completed', {
         consultation_id: this.consultationId,
         result
       });

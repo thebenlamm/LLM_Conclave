@@ -22,6 +22,8 @@ export type EventType =
   | 'consultation:provider_substituted'
   | 'consultation:completed'
   | 'consultation:state_change'
+  | 'consultation:pulse_cancel'
+  | 'agent:completed'
   | 'health:check_started'
   | 'health:status_updated'
   | 'cost:gate_triggered'

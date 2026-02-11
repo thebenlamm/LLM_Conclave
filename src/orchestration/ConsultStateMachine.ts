@@ -130,7 +130,7 @@ export class ConsultStateMachine {
    * Emit state change event via EventBus
    */
   private emitStateChange(from: ConsultState, to: ConsultState, reason?: string): void {
-    this.eventBus.emitEvent('consultation:state_change' as any, {
+    this.eventBus.emitEvent('consultation:state_change', {
       consultation_id: this.consultationId,
       from_state: from,
       to_state: to,
