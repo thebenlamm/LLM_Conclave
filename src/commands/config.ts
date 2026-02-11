@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { ConfigCascade } from '../cli/ConfigCascade';
 
 /**
@@ -48,7 +48,7 @@ export function createConfigCommand(): Command {
       const editor = process.env.EDITOR || process.env.VISUAL || 'vim';
       console.log(chalk.blue(`\nOpening ${configPath} in ${editor}...\n`));
 
-      exec(`${editor} ${configPath}`, (error) => {
+      execFile(editor, [configPath], (error) => {
         if (error) {
           console.error(chalk.red(`Error opening editor: ${error.message}`));
           process.exit(1);
