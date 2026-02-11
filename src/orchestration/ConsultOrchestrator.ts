@@ -1188,9 +1188,9 @@ export default class ConsultOrchestrator {
       const duration = response.durationMs || (Date.now() - startTime);
       if (this.verbose) console.log(`✓ ${agent.name} responded in ${(duration / 1000).toFixed(1)}s`);
 
-      const usage = response.tokens || { input: 0, output: 0, total: 0 };
-      const inputTokens = usage.input || 0;
-      const outputTokens = usage.output || 0;
+      const usage = this.normalizeUsage(response.tokens || {});
+      const inputTokens = usage.input;
+      const outputTokens = usage.output;
 
       // Extract Artifact
       const artifact = ArtifactExtractor.extractIndependentArtifact(

@@ -259,7 +259,7 @@ export class HedgedRequestManager {
       model: model,
       provider: providerId,
       content: providerResponse.text,
-      tokens: providerResponse.usage || { input: 0, output: 0, total: 0 },
+      tokens: this.normalizeUsage(providerResponse.usage),
       durationMs: Date.now() - startTime,
       timestamp: new Date().toISOString()
     };
@@ -286,5 +286,17 @@ export class HedgedRequestManager {
           timestamp: new Date().toISOString(),
           provider_error: errorMessage
       };
+  }
+
+  private normalizeUsage(
+    usage: any
+  ): { input: number; output: number; total: number } {
+    if (!usage) return { input: 0, output: 0, total: 0 };
+    if ('input' in usage && typeof usage.input === 'number') {
+      return { input: usage.input, output: usage.output || 0, total: usage.total || (usage.input + (usage.output || 0)) };
+    }
+    const input = usage.input_tokens ?? 0;
+    const output = usage.output_tokens ?? 0;
+    return { input, output, total: usage.total_tokens ?? (input + output) };
   }
 }
