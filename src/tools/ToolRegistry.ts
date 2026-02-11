@@ -22,6 +22,7 @@ export default class ToolRegistry {
   private readonly baseDir: string;
   private readonly scrubber: SensitiveDataScrubber;
   private readonly commandTimeoutMs = 30000; // 30 seconds
+  private readonly maxFileReadBytes = 10 * 1024 * 1024; // 10MB
   private readonly enableRunCommand: boolean;
 
   constructor(baseDir?: string, options?: { enableRunCommand?: boolean }) {
@@ -307,6 +308,13 @@ export default class ToolRegistry {
       };
     }
 
+    if (stats.size > this.maxFileReadBytes) {
+      return {
+        success: false,
+        error: `File too large (${(stats.size / 1024 / 1024).toFixed(1)}MB). Maximum: ${this.maxFileReadBytes / 1024 / 1024}MB`
+      };
+    }
+
     const content = await fs.readFile(validatedPath, 'utf8');
     const lines = content.split('\n').length;
 
@@ -365,6 +373,13 @@ export default class ToolRegistry {
       return {
         success: false,
         error: 'Symlinks are not allowed for security reasons'
+      };
+    }
+
+    if (stats.size > this.maxFileReadBytes) {
+      return {
+        success: false,
+        error: `File too large (${(stats.size / 1024 / 1024).toFixed(1)}MB). Maximum: ${this.maxFileReadBytes / 1024 / 1024}MB`
       };
     }
 

@@ -240,6 +240,22 @@ describe('ToolRegistry', () => {
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/symlink/i);
     });
+
+    it('should reject files larger than 10MB', async () => {
+      const largeFile = path.join(testDir, 'large-read-test.bin');
+      await fs.writeFile(largeFile, 'x'.repeat(10 * 1024 * 1024 + 1));
+
+      try {
+        const result = await registry.executeTool('read_file', {
+          file_path: 'large-read-test.bin'
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/too large/i);
+      } finally {
+        await fs.unlink(largeFile);
+      }
+    });
   });
 
   describe('write_file', () => {
@@ -332,6 +348,24 @@ describe('ToolRegistry', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/symlink/i);
+    });
+
+    it('should reject editing files larger than 10MB', async () => {
+      const largeFile = path.join(testDir, 'large-edit-test.bin');
+      await fs.writeFile(largeFile, 'x'.repeat(10 * 1024 * 1024 + 1));
+
+      try {
+        const result = await registry.executeTool('edit_file', {
+          file_path: 'large-edit-test.bin',
+          old_string: 'x',
+          new_string: 'y'
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/too large/i);
+      } finally {
+        await fs.unlink(largeFile);
+      }
     });
   });
 
