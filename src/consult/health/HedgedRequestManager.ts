@@ -161,11 +161,13 @@ export class HedgedRequestManager {
       }
     }
 
-    // Winner succeeded - cancel the loser
+    // Winner succeeded - cancel the loser and consume its promise to prevent unhandled rejections
     if (raceResult.source === 'primary') {
       controllerBackup.abort();
+      backupPromise.catch(() => {});
     } else {
       controllerPrimary.abort();
+      primaryPromise.catch(() => {});
     }
 
     return this.formatResponse(agent, raceResult.response, raceResult.provider, raceResult.model, startTime);
