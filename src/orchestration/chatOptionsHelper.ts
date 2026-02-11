@@ -26,16 +26,15 @@ export function createChatOptions(
   disableStream: boolean = false,
   agentName?: string
 ): ChatOptions {
-  if (disableStream || (!context.streamOutput && !context.eventBus)) {
+  // Only enable streaming if streamOutput is explicitly requested
+  if (disableStream || !context.streamOutput) {
     return {};
   }
 
   return {
     stream: true,
     onToken: (token: string) => {
-      if (context.streamOutput && !disableStream) {
-        process.stdout.write(token);
-      }
+      process.stdout.write(token);
       if (context.eventBus && agentName) {
         context.eventBus.emitEvent('token', { agent: agentName, token });
       }

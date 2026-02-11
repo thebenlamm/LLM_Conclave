@@ -103,6 +103,7 @@ export default class ClaudeProvider extends LLMProvider {
       if (stream && !params.tools) {
         const streamResp: any = await this.client.messages.create({ ...params, stream: true });
         let fullText = '';
+        let streamUsage: { input_tokens: number; output_tokens: number } | undefined;
 
         for await (const event of streamResp) {
           const textDelta = (event as any)?.delta?.text;
@@ -110,9 +111,27 @@ export default class ClaudeProvider extends LLMProvider {
             fullText += textDelta;
             if (onToken) onToken(textDelta);
           }
+          // message_start event contains input token count
+          if ((event as any)?.type === 'message_start' && (event as any)?.message?.usage) {
+            streamUsage = {
+              input_tokens: (event as any).message.usage.input_tokens || 0,
+              output_tokens: 0,
+            };
+          }
+          // message_delta event contains output token count
+          if ((event as any)?.type === 'message_delta' && (event as any)?.usage) {
+            if (streamUsage) {
+              streamUsage.output_tokens = (event as any).usage.output_tokens || 0;
+            } else {
+              streamUsage = {
+                input_tokens: 0,
+                output_tokens: (event as any).usage.output_tokens || 0,
+              };
+            }
+          }
         }
 
-        return { text: fullText || null };
+        return { text: fullText || null, usage: streamUsage };
       }
 
       const response = await this.client.messages.create(params);

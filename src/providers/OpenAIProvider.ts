@@ -95,8 +95,10 @@ export default class OpenAIProvider extends LLMProvider {
       // Streaming only supported when tools aren't requested to avoid complex partial tool parsing
       if (stream && !params.tools) {
         params.stream = true;
+        params.stream_options = { include_usage: true };
         const streamResp = await this.client.chat.completions.create(params);
         let fullText = '';
+        let streamUsage: { input_tokens: number; output_tokens: number } | undefined;
 
         for await (const chunk of streamResp as any) {
           const delta = chunk.choices?.[0]?.delta;
@@ -106,9 +108,16 @@ export default class OpenAIProvider extends LLMProvider {
             fullText += token;
             if (onToken) onToken(token);
           }
+          // Final chunk includes usage when stream_options.include_usage is true
+          if (chunk.usage) {
+            streamUsage = {
+              input_tokens: chunk.usage.prompt_tokens || 0,
+              output_tokens: chunk.usage.completion_tokens || 0,
+            };
+          }
         }
 
-        return { text: fullText };
+        return { text: fullText, usage: streamUsage };
       }
 
       const response = await this.client.chat.completions.create(params);
