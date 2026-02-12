@@ -47,6 +47,7 @@ export default class Orchestrator {
   toolExecutions: ToolExecution[];
   streamOutput: boolean;
   eventBus?: EventBus;
+  private _augmentedAgents: Record<string, Agent> = {};
 
   constructor(config: Config, memoryManager: MemoryManager | null = null, streamOutput: boolean = false, eventBus?: EventBus) {
     this.config = config;
@@ -130,37 +131,50 @@ export default class Orchestrator {
     // Build initial context
     let initialContext = this.buildInitialContext(task, projectContext);
 
+    // Augment agent system prompts with stable context + task (activates provider caching)
+    // Shallow copies — originals in this.agents are preserved
+    this._augmentedAgents = {};
+    for (const [name, agent] of Object.entries(this.agents)) {
+      this._augmentedAgents[name] = {
+        ...agent,
+        systemPrompt: initialContext
+          ? agent.systemPrompt + '\n\n---\n\n' + initialContext + '\n\n---\n\nTask: ' + task
+          : agent.systemPrompt + '\n\n---\n\nTask: ' + task
+      };
+    }
+
     // Step 2: Primary agent responds
     if (onStatus) onStatus(1, 4, `${classification.primaryAgent} analyzing...`);
     if (!quiet) console.log(`\n--- Phase 1: Primary Agent Response ---\n`);
     
     if (this.eventBus) this.eventBus.emitEvent('round:start', { round: 1, name: 'Primary Response' });
 
+    // Context is in augmented system prompts — pass empty to phase methods
     const primaryResponse = await this.getPrimaryResponse(
       classification.primaryAgent,
       task,
-      initialContext,
+      '',
       quiet
     );
 
     // Step 3: Secondary agents critique
     if (onStatus) onStatus(2, 4, 'Collecting critiques...');
     if (!quiet) console.log(`\n--- Phase 2: Secondary Agent Critiques ---\n`);
-    
+
     if (this.eventBus) this.eventBus.emitEvent('round:start', { round: 2, name: 'Critiques' });
 
     const critiques = await this.collectCritiques(
       classification.primaryAgent,
       primaryResponse,
       task,
-      initialContext,
+      '',
       quiet
     );
 
     // Step 4: Primary agent revises
     if (onStatus) onStatus(3, 4, 'Refining response...');
     if (!quiet) console.log(`\n--- Phase 3: Primary Agent Revision ---\n`);
-    
+
     if (this.eventBus) this.eventBus.emitEvent('round:start', { round: 3, name: 'Revision' });
 
     const revisedResponse = await this.getRevision(
@@ -168,7 +182,7 @@ export default class Orchestrator {
       primaryResponse,
       critiques,
       task,
-      initialContext,
+      '',
       quiet
     );
 
@@ -177,13 +191,13 @@ export default class Orchestrator {
     if (requiresValidation(task)) {
       if (onStatus) onStatus(4, 4, 'Running validation...');
       if (!quiet) console.log(`\n--- Phase 4: Validation Gates ---\n`);
-      
+
       if (this.eventBus) this.eventBus.emitEvent('round:start', { round: 4, name: 'Validation' });
 
       const validationResults = await this.runValidation(
         revisedResponse,
         task,
-        initialContext,
+        '',
         quiet
       );
 
@@ -362,7 +376,9 @@ export default class Orchestrator {
    * Get primary agent's initial response
    */
   async getPrimaryResponse(agentName: string, task: string, context: string, quiet: boolean = false): Promise<string> {
-    const agent = this.agents[agentName];
+    // Prefer augmented agent (context+task in system prompt); fall back to original for direct callers
+    const isAugmented = !!this._augmentedAgents[agentName];
+    const agent = isAugmented ? this._augmentedAgents[agentName] : this.agents[agentName];
     if (!agent) {
       throw new Error(`Agent ${agentName} not found in configuration`);
     }
@@ -375,7 +391,9 @@ export default class Orchestrator {
         this.eventBus.emitEvent('agent:thinking', { agent: agentName, model: agent.model });
     }
 
-    const prompt = `${context}Task: ${task}\n\nAs the primary agent for this task, provide your initial response. Be comprehensive but concise.
+    // When augmented, context+task are in the system prompt; otherwise include in user message
+    const contextPrefix = isAugmented ? '' : `${context}Task: ${task}\n\n`;
+    const prompt = `${contextPrefix}As the primary agent for this task, provide your initial response. Be comprehensive but concise.
 
 You have access to tools to read and write files, list files, edit files, and run commands. Use these tools to take concrete actions rather than just discussing what should be done.
 
@@ -384,16 +402,12 @@ Important: Once you've read a file, you have access to its complete contents in 
     const messages = [{ role: 'user' as const, content: prompt }];
 
     // DEBUG: Log token counts
+    const estSystemTokens = Math.ceil(agent.systemPrompt.length / 4);
     console.log('\n🔍 DEBUG TOKEN ANALYSIS:');
-    console.log(`   System prompt length: ${agent.systemPrompt.length} chars (${Math.ceil(agent.systemPrompt.length/4)} tokens est.)`);
-    console.log(`   Context length: ${context.length} chars (${Math.ceil(context.length/4)} tokens est.)`);
-    console.log(`   Task length: ${task.length} chars (${Math.ceil(task.length/4)} tokens est.)`);
-    console.log(`   Full prompt length: ${prompt.length} chars (${Math.ceil(prompt.length/4)} tokens est.)`);
-    console.log(`   TOTAL ESTIMATED: ${Math.ceil((agent.systemPrompt.length + prompt.length)/4)} tokens`);
-    if (context.length > 1000) {
-      console.log(`\n   ⚠️  WARNING: Context is ${context.length} chars! First 500 chars:`);
-      console.log(`   ${context.substring(0, 500)}...`);
-    }
+    console.log(`   System prompt (with context): ${agent.systemPrompt.length} chars (~${estSystemTokens} tokens)`);
+    console.log(`   User message: ${prompt.length} chars (~${Math.ceil(prompt.length / 4)} tokens)`);
+    console.log(`   TOTAL ESTIMATED: ~${estSystemTokens + Math.ceil(prompt.length / 4)} tokens`);
+    console.log(`   💾 Cache eligible (>1024 tokens): ${estSystemTokens > 1024 ? 'YES ✓' : 'NO ✗'}`);
     console.log('');
 
     try {
@@ -433,20 +447,20 @@ Important: Once you've read a file, you have access to its complete contents in 
     const critiques: any[] = [];
 
     for (const agentName of secondaryAgents) {
-      const agent = this.agents[agentName];
+      const isAugmented = !!this._augmentedAgents[agentName];
+      const agent = isAugmented ? this._augmentedAgents[agentName] : this.agents[agentName];
       if (!agent) continue;
 
       if (!quiet) {
         console.log(`[${agentName} (${agent.model}) is critiquing...]\n`);
       }
-      
+
       if (this.eventBus) {
         this.eventBus.emitEvent('agent:thinking', { agent: agentName, model: agent.model });
       }
 
-      const critiquePrompt = `${context}Task: ${task}
-
-Primary Agent (${primaryAgent}) Response:
+      const contextPrefix = isAugmented ? '' : `${context}Task: ${task}\n\n`;
+      const critiquePrompt = `${contextPrefix}Primary Agent (${primaryAgent}) Response:
 ${primaryResponse}
 
 As a secondary agent, provide a structured critique:
@@ -500,12 +514,13 @@ Keep your critique constructive and focused.`;
    * Get revised response from primary agent
    */
   async getRevision(primaryAgent: string, originalResponse: string, critiques: any[], task: string, context: string, quiet: boolean = false): Promise<string> {
-    const agent = this.agents[primaryAgent];
+    const isAugmented = !!this._augmentedAgents[primaryAgent];
+    const agent = isAugmented ? this._augmentedAgents[primaryAgent] : this.agents[primaryAgent];
 
     if (!quiet) {
       console.log(`[${primaryAgent} is revising based on feedback...]\n`);
     }
-    
+
     if (this.eventBus) {
         this.eventBus.emitEvent('agent:thinking', { agent: primaryAgent, model: agent.model });
     }
@@ -514,9 +529,8 @@ Keep your critique constructive and focused.`;
       .map(c => `${c.agent}:\n${c.content}`)
       .join('\n\n---\n\n');
 
-    const revisionPrompt = `${context}Task: ${task}
-
-Your Original Response:
+    const contextPrefix = isAugmented ? '' : `${context}Task: ${task}\n\n`;
+    const revisionPrompt = `${contextPrefix}Your Original Response:
 ${originalResponse}
 
 Critiques from Secondary Agents:
@@ -570,20 +584,20 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
     const validationResults: any[] = [];
 
     for (const validatorName of validators) {
-      const agent = this.agents[validatorName];
+      const isAugmented = !!this._augmentedAgents[validatorName];
+      const agent = isAugmented ? this._augmentedAgents[validatorName] : this.agents[validatorName];
       if (!agent) continue;
 
       if (!quiet) {
         console.log(`[${validatorName} is validating...]\n`);
       }
-      
+
       if (this.eventBus) {
           this.eventBus.emitEvent('agent:thinking', { agent: validatorName, model: agent.model });
       }
 
-      const validationPrompt = `${context}Task: ${task}
-
-Proposed Output:
+      const contextPrefix = isAugmented ? '' : `${context}Task: ${task}\n\n`;
+      const validationPrompt = `${contextPrefix}Proposed Output:
 ${content}
 
 As a validator, review the above output for your domain concerns. Provide:

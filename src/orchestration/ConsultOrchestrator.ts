@@ -105,6 +105,7 @@ export default class ConsultOrchestrator {
   private loadedContext?: LoadedContext;
   private scrubbingReport?: ScrubReport;
   private interactive: boolean;
+  private _stableContext: string = '';
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     // Core configuration
@@ -346,6 +347,9 @@ export default class ConsultOrchestrator {
     if (options.scrubbingReport) {
       this.scrubbingReport = options.scrubbingReport;
     }
+
+    // Store stable context for system prompt augmentation (activates provider caching)
+    this._stableContext = context;
 
     try {
       // Start consultation lifecycle
@@ -653,14 +657,24 @@ export default class ConsultOrchestrator {
    */
   private async executeRound1Independent(
     question: string,
-    context: string
+    _context: string // Context now augmented into system prompts; param kept for signature stability
   ): Promise<Round1ExecutionResult[]> {
-    const basePrompt = this.strategy.getIndependentPrompt(question, context);
-    const independentPrompt = this.brownfieldAnalysis
-      ? this.contextAugmenter.augmentPrompt(basePrompt, this.brownfieldAnalysis)
-      : basePrompt;
+    // Context is now in augmented system prompts — pass empty to strategy
+    const independentPrompt = this.strategy.getIndependentPrompt(question, '');
 
-    const promises = this.agents.map(agent =>
+    // Augment agent system prompts with stable context (activates provider caching)
+    const augmentedAgents = this.agents.map(agent => {
+      let augmentedPrompt = agent.systemPrompt;
+      if (this._stableContext) {
+        augmentedPrompt += '\n\n---\n\n' + this._stableContext;
+      }
+      if (this.brownfieldAnalysis) {
+        augmentedPrompt = this.contextAugmenter.augmentPrompt(augmentedPrompt, this.brownfieldAnalysis);
+      }
+      return { ...agent, systemPrompt: augmentedPrompt };
+    });
+
+    const promises = augmentedAgents.map(agent =>
       this.executeAgentIndependent(agent, independentPrompt)
     );
 
@@ -915,7 +929,12 @@ export default class ConsultOrchestrator {
       }
       
       let systemPrompt = this.strategy.getCrossExamPrompt({ name: agent.name, model: agent.model }, filteredSynthesis);
-      
+
+      // Augment with stable context (activates provider caching)
+      if (this._stableContext) {
+        systemPrompt += '\n\n---\n\n' + this._stableContext;
+      }
+
       // Augment prompt with brownfield context (AC #4)
       if (this.brownfieldAnalysis) {
         systemPrompt = this.contextAugmenter.augmentPrompt(systemPrompt, this.brownfieldAnalysis);

@@ -37,6 +37,8 @@ export default class IterativeCollaborativeOrchestrator {
   consecutiveFailures: Map<string, number>;
   disabledAgents: Set<string>;
   usedFallbacks: Set<string>;
+  private _originalAgents: Agent[] | null = null;
+  private _originalJudge: Agent | null = null;
 
   constructor(
     agents: Agent[],
@@ -130,15 +132,22 @@ export default class IterativeCollaborativeOrchestrator {
 
     // Augment agent + judge system prompts with full project context (activates provider caching)
     // Project context is stable across all chunks; chunk-specific scoped context stays in user messages
+    // Always augment from originals to prevent double-augmentation on repeated run() calls
+    if (!this._originalAgents) this._originalAgents = this.agents;
+    if (!this._originalJudge) this._originalJudge = this.judge;
     if (projectContext) {
-      this.agents = this.agents.map(agent => ({
+      this.agents = this._originalAgents.map(agent => ({
         ...agent,
         systemPrompt: agent.systemPrompt + '\n\n---\n\n' + projectContext + '\n\n---\n\nTask: ' + task
       }));
       this.judge = {
-        ...this.judge,
-        systemPrompt: this.judge.systemPrompt + '\n\n---\n\n' + projectContext + '\n\n---\n\nTask: ' + task
+        ...this._originalJudge,
+        systemPrompt: this._originalJudge.systemPrompt + '\n\n---\n\n' + projectContext + '\n\n---\n\nTask: ' + task
       };
+    } else {
+      // Reset to originals when no project context (prevents stale augmentation from prior run)
+      this.agents = this._originalAgents;
+      this.judge = this._originalJudge;
     }
 
     // Initialize or append to shared output file
