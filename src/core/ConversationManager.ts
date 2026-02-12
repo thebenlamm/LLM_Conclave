@@ -789,8 +789,23 @@ export default class ConversationManager {
     // regardless of error type (context overflow, rate limit, empty response, etc.)
   }
 
-  // Token threshold for triggering history compression
-  private static readonly HISTORY_TOKEN_THRESHOLD = 80000;
+  /**
+   * Model-aware token threshold for triggering history compression.
+   * Claude models use a higher threshold (150K) to stay below the 200K pricing cliff
+   * which doubles ALL token prices (input AND output) for the entire request.
+   * Other models use the original 80K threshold.
+   */
+  private getHistoryTokenThreshold(): number {
+    // Check if any agent or the judge uses a Claude model
+    const hasClaudeModel = Object.values(this.agents).some(
+      (a: any) => a.model?.toLowerCase().includes('claude')
+    ) || this.config?.judge?.model?.toLowerCase().includes('claude');
+
+    if (hasClaudeModel) {
+      return 150_000; // Leave 50K headroom before 200K pricing cliff
+    }
+    return 80_000; // Default for other models
+  }
 
   /**
    * Group conversation history entries by round.
@@ -833,7 +848,8 @@ export default class ConversationManager {
       null
     );
 
-    if (totalTokens < ConversationManager.HISTORY_TOKEN_THRESHOLD) {
+    const threshold = this.getHistoryTokenThreshold();
+    if (totalTokens < threshold) {
       return;
     }
 
@@ -843,7 +859,7 @@ export default class ConversationManager {
       return;
     }
 
-    console.log(`[History compression: ${totalTokens} tokens exceeds ${ConversationManager.HISTORY_TOKEN_THRESHOLD} threshold, compressing ${roundGroups.length - 3} middle rounds]`);
+    console.log(`[History compression: ${totalTokens} tokens exceeds ${threshold} threshold, compressing ${roundGroups.length - 3} middle rounds]`);
 
     const newHistory: any[] = [];
 
@@ -1055,27 +1071,133 @@ export default class ConversationManager {
   }
 
   /**
+   * Build a case-file header for the judge with critical information placed at the
+   * start (high attention zone per LLM U-shaped attention). Extracts:
+   * - The original task/question
+   * - Each agent's current position (from the latest round)
+   * - Points of disagreement between agents
+   *
+   * This is deterministic extraction — no LLM calls.
+   */
+  private buildCaseFile(): string {
+    // Extract the original task from the first user message
+    const firstUserMsg = this.conversationHistory.find(
+      (e: any) => e.role === 'user' && e.speaker === 'System'
+    );
+    const taskText = firstUserMsg
+      ? firstUserMsg.content.replace(/^Task:\s*/i, '').trim()
+      : 'Unknown task';
+
+    // Extract per-agent positions from the latest round
+    const roundGroups = this.groupHistoryByRound();
+    const lastRound = roundGroups.length > 0 ? roundGroups[roundGroups.length - 1] : null;
+
+    const agentPositions: { name: string; position: string }[] = [];
+    if (lastRound) {
+      for (const entry of lastRound.entries) {
+        if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+          // Extract the last paragraph as position summary (most likely contains conclusion)
+          const paragraphs = entry.content.split(/\n\n+/).filter((p: string) => p.trim().length > 0);
+          const lastParagraph = paragraphs.length > 0 ? paragraphs[paragraphs.length - 1].trim() : '';
+          // Fallback: if the last paragraph is very short, take last 2 paragraphs
+          let position: string;
+          if (lastParagraph.length < 50 && paragraphs.length >= 2) {
+            position = paragraphs.slice(-2).join(' ').trim();
+          } else {
+            position = lastParagraph;
+          }
+          // Cap at 300 chars to keep the case file concise
+          if (position.length > 300) {
+            position = position.substring(0, 297) + '...';
+          }
+          agentPositions.push({ name: entry.speaker, position });
+        }
+      }
+    }
+
+    // Identify disagreements: look for contradiction/disagreement markers between agents
+    const disagreements: string[] = [];
+    if (lastRound) {
+      const agentContents = lastRound.entries
+        .filter((e: any) => e.role === 'assistant' && e.speaker !== 'Judge' && !e.error)
+        .map((e: any) => ({ name: e.speaker, content: e.content.toLowerCase() }));
+
+      // Check for explicit disagreement language referencing other agents
+      const disagreementPatterns = /(?:disagree|differ|however|on the other hand|unlike|contrary to|pushback|concern about|risk with|problem with|issue with|but I think|I'd argue|not convinced)/i;
+      for (const agent of agentContents) {
+        if (disagreementPatterns.test(agent.content)) {
+          // Find which other agent they might be disagreeing with
+          for (const other of agentContents) {
+            if (other.name !== agent.name && agent.content.includes(other.name.toLowerCase())) {
+              disagreements.push(`${agent.name} vs ${other.name}`);
+            }
+          }
+          // If no specific agent referenced, note the general disagreement
+          if (!agentContents.some(o => o.name !== agent.name && agent.content.includes(o.name.toLowerCase()))) {
+            disagreements.push(`${agent.name} raised concerns`);
+          }
+        }
+      }
+    }
+
+    // Build the case file
+    let caseFile = '=== CASE FILE ===\n\n';
+    caseFile += `Task: ${taskText}\n\n`;
+
+    if (agentPositions.length > 0) {
+      caseFile += 'Current Agent Positions:\n';
+      for (const ap of agentPositions) {
+        caseFile += `- ${ap.name}: ${ap.position}\n`;
+      }
+      caseFile += '\n';
+    }
+
+    if (disagreements.length > 0) {
+      const uniqueDisagreements = [...new Set(disagreements)];
+      caseFile += 'Disagreements:\n';
+      for (const d of uniqueDisagreements) {
+        caseFile += `- ${d}\n`;
+      }
+      caseFile += '\n';
+    } else {
+      caseFile += 'Disagreements: None detected (agents may be in agreement)\n\n';
+    }
+
+    caseFile += '=== END CASE FILE ===\n';
+
+    return caseFile;
+  }
+
+  /**
    * Prepare discussion text for the judge, compressing middle rounds if the
    * full text would exceed the judge model's context window.
+   * Prepends a case-file header with critical info for U-shaped attention optimization.
    */
   private prepareJudgeContext(judge: any, discussionText: string): string {
     const limits = TokenCounter.getModelLimits(judge.model);
     // Reserve ~6K for the prompt template + system prompt + response
     const budget = limits.maxInput - 6000;
+
+    // Build case file header (placed at START for high attention)
+    const caseFile = this.buildCaseFile();
+    const caseFileTokens = TokenCounter.estimateTokens(caseFile);
+
+    // Budget for the discussion text after accounting for the case file
+    const discussionBudget = budget - caseFileTokens;
     const textTokens = TokenCounter.estimateTokens(discussionText);
 
-    if (textTokens <= budget) {
-      return discussionText;
+    if (textTokens <= discussionBudget) {
+      return caseFile + '\n' + discussionText;
     }
 
     // Compress middle rounds using the shared helper
-    console.log(`[Judge context: ${textTokens} tokens exceeds ${judge.model} budget (${budget}), compressing]`);
+    console.log(`[Judge context: ${textTokens} tokens exceeds ${judge.model} budget (${discussionBudget} after case file), compressing]`);
     const roundGroups = this.groupHistoryByRound();
 
     if (roundGroups.length <= 3) {
       // Not enough rounds to selectively compress — truncate text directly
-      const { text } = TokenCounter.truncateText(discussionText, budget);
-      return text;
+      const { text } = TokenCounter.truncateText(discussionText, discussionBudget);
+      return caseFile + '\n' + text;
     }
 
     // Keep first round + last 2 rounds verbatim, compress middle
@@ -1100,12 +1222,12 @@ export default class ConversationManager {
     console.log(`[Judge context compressed: ${textTokens} → ${compressedTokens} tokens]`);
 
     // If still over budget after compression, truncate as last resort
-    if (compressedTokens > budget) {
-      const { text } = TokenCounter.truncateText(compressed, budget);
-      return text;
+    if (compressedTokens > discussionBudget) {
+      const { text } = TokenCounter.truncateText(compressed, discussionBudget);
+      return caseFile + '\n' + text;
     }
 
-    return compressed;
+    return caseFile + '\n' + compressed;
   }
 
   /**
@@ -1197,15 +1319,15 @@ export default class ConversationManager {
         roundContext = `\n\nNote: This is round ${this.currentRound}. The agents appear to be agreeing superficially. Push them to challenge assumptions, explore edge cases, or identify weaknesses that haven't been addressed.`;
       }
 
-      // Compress discussion text if it would overflow the judge's context window
+      // Compress discussion text if it would overflow the judge's context window.
+      // prepareJudgeContext() prepends a case file header at the START (high attention zone).
       const fittedDiscussion = this.prepareJudgeContext(judge, this.cachedRecentDiscussion);
 
-      const judgePrompt = `
-Full discussion (all rounds):
-${fittedDiscussion}
+      // Structure: Case file (START - high attention) -> Discussion (MIDDLE) -> Judge instruction (END - highest attention)
+      const judgePrompt = `${fittedDiscussion}
 ${roundContext}
 
-Evaluate whether the agents have reached GENUINE consensus. True consensus requires:
+Given the case file and discussion above, evaluate whether the agents have reached GENUINE consensus. True consensus requires:
 1. All active agents must have contributed at least once (agents disabled by errors are excluded)
 2. Specific, actionable recommendations (not vague agreement)
 3. Trade-offs acknowledged and resolved
@@ -1356,13 +1478,10 @@ Your guidance should FORCE new insights, not just encourage more discussion.`;
       // Compress if needed for judge's context window
       const fullDiscussion = this.prepareJudgeContext(judge, rawDiscussion);
 
-      const votePrompt = `
-The agents have discussed the following task but haven't reached full consensus within the allowed rounds:
+      // Structure: Case file (START - high attention) -> Discussion (MIDDLE) -> Judge instruction (END - highest attention)
+      const votePrompt = `${fullDiscussion}
 
-Full discussion:
-${fullDiscussion}
-
-As the judge, please analyze the discussion trajectory and determine the DIRECTION the agents were heading.
+The agents haven't reached full consensus within the allowed rounds. Given the case file and discussion above, analyze the discussion trajectory and determine the DIRECTION the agents were heading.
 
 CRITICAL: Your summary must reflect where the discussion CONVERGED, not a "balanced synthesis" of all options mentioned.
 

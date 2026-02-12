@@ -90,13 +90,26 @@ export default class ClaudeProvider extends LLMProvider {
         ...additionalSystemMessages
       ].filter(Boolean).join('\n\n');
 
+      // Pass system prompt as content block array with cache_control for Anthropic prompt caching.
+      // cache_control: { type: 'ephemeral' } marks a cache breakpoint (5-min TTL, refreshed on hit).
+      // Minimum cacheable prefix is 1,024 tokens; smaller prompts will simply skip caching.
       if (combinedSystemPrompt) {
-        params.system = combinedSystemPrompt;
+        params.system = [{
+          type: 'text',
+          text: combinedSystemPrompt,
+          cache_control: { type: 'ephemeral' },
+        }];
       }
 
-      // Add tools if provided
+      // Add tools if provided, with cache_control on the LAST tool definition.
+      // Anthropic requires the breakpoint on the last item of a cacheable block.
+      // System prompt + tools = 2 breakpoints (max 4 allowed per request).
       if (tools && tools.length > 0) {
-        params.tools = tools;
+        params.tools = tools.map((tool: any, i: number) =>
+          i === tools.length - 1
+            ? { ...tool, cache_control: { type: 'ephemeral' } }
+            : tool
+        );
       }
 
       // Streaming supported only when tools aren't requested to avoid partial tool parsing
@@ -111,12 +124,22 @@ export default class ClaudeProvider extends LLMProvider {
             fullText += textDelta;
             if (onToken) onToken(textDelta);
           }
-          // message_start event contains input token count
+          // message_start event contains input token count and cache info
           if ((event as any)?.type === 'message_start' && (event as any)?.message?.usage) {
+            const msgUsage = (event as any).message.usage;
             streamUsage = {
-              input_tokens: (event as any).message.usage.input_tokens || 0,
+              input_tokens: msgUsage.input_tokens || 0,
               output_tokens: 0,
             };
+            // Log cache performance from streaming response
+            const cacheCreated = msgUsage.cache_creation_input_tokens || 0;
+            const cacheRead = msgUsage.cache_read_input_tokens || 0;
+            if (cacheRead > 0) {
+              console.log(`      💾 Cache hit: ${cacheRead} tokens read from cache (90% cost savings)`);
+            }
+            if (cacheCreated > 0) {
+              console.log(`      💾 Cache miss: ${cacheCreated} tokens written to cache`);
+            }
           }
           // message_delta event contains output token count
           if ((event as any)?.type === 'message_delta' && (event as any)?.usage) {
@@ -140,6 +163,19 @@ export default class ClaudeProvider extends LLMProvider {
         input_tokens: response.usage.input_tokens || 0,
         output_tokens: response.usage.output_tokens || 0,
       };
+
+      // Log prompt caching performance when cache fields are present
+      const responseUsage = response.usage as any;
+      if (responseUsage.cache_creation_input_tokens || responseUsage.cache_read_input_tokens) {
+        const cacheCreated = responseUsage.cache_creation_input_tokens || 0;
+        const cacheRead = responseUsage.cache_read_input_tokens || 0;
+        if (cacheRead > 0) {
+          console.log(`      💾 Cache hit: ${cacheRead} tokens read from cache (90% cost savings)`);
+        }
+        if (cacheCreated > 0) {
+          console.log(`      💾 Cache miss: ${cacheCreated} tokens written to cache (25% write surcharge, subsequent reads at 90% savings)`);
+        }
+      }
 
       // Validate response structure
       if (!response || !response.content) {

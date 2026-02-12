@@ -24,13 +24,17 @@ export default class GeminiProvider extends LLMProvider {
     try {
       const { tools = null, stream = false, onToken, signal } = options;
 
-      // Convert our tool definitions to Gemini's function declaration format
+      // IMPORTANT: Prompt prefix ordering for context caching (Gemini).
+      // systemInstruction and tools are separate top-level config fields (not in contents),
+      // so they naturally form a stable prefix for Gemini's context caching.
+      // Do not add volatile content (timestamps, request IDs) before stable content in contents.
+      // See: docs/plans/2026-02-12-context-tax-optimization.md
       const functionDeclarations = tools ? this.convertToolsToGeminiFormat(tools) : undefined;
 
       // Convert messages to Gemini Content format
       const contents = this.convertMessagesToGeminiFormat(messages);
 
-      // Build config object
+      // Build config object — systemInstruction and tools before conversation contents
       const config: any = {};
 
       if (systemPrompt) {

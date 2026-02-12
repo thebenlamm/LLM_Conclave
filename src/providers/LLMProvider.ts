@@ -86,6 +86,10 @@ export default abstract class LLMProvider {
           model: this.getModelName(),
           inputTokens,
           outputTokens,
+          cachedReadTokens: (response?.usage as any)?.cache_read_input_tokens  // Anthropic
+            || (response?.usage as any)?.prompt_tokens_details?.cached_tokens   // OpenAI/Grok
+            || 0,
+          cachedWriteTokens: (response?.usage as any)?.cache_creation_input_tokens || 0, // Anthropic only
           latency,
           success: false,
         });
@@ -114,6 +118,10 @@ export default abstract class LLMProvider {
             model: this.getModelName(),
             inputTokens,
             outputTokens,
+            cachedReadTokens: (response.usage as any)?.cache_read_input_tokens  // Anthropic
+              || (response.usage as any)?.prompt_tokens_details?.cached_tokens   // OpenAI/Grok
+              || 0,
+            cachedWriteTokens: (response.usage as any)?.cache_creation_input_tokens || 0, // Anthropic only
             latency,
             success: true,
           });

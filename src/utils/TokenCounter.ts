@@ -1,15 +1,55 @@
 /**
  * TokenCounter - Estimates and manages token usage
  * Helps prevent hitting API token limits
+ *
+ * Uses gpt-tokenizer for accurate BPE counting (works well for
+ * OpenAI, Grok, Mistral models). Claude and Gemini use different
+ * tokenizers but BPE is within ~5-10% for natural language, which
+ * is accurate enough for budget and cliff-guard decisions.
  */
+
+import { encode } from 'gpt-tokenizer';
 
 export default class TokenCounter {
   /**
-   * Rough estimation: 1 token ≈ 4 characters
-   * This is a simplification but works for prevention
+   * Estimate token count using gpt-tokenizer (BPE).
+   * Falls back to char/4 heuristic if encoding fails.
    */
   static estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    if (!text) return 0;
+    try {
+      return encode(text).length;
+    } catch {
+      // Fallback to heuristic if encoding fails
+      return Math.ceil(text.length / 4);
+    }
+  }
+
+  /**
+   * Provider-specific exact token counting for cliff-sensitive paths.
+   * Returns null when provider-native counting is not available.
+   * (Anthropic countTokens, Gemini countTokens will be wired up when
+   * those providers are available in the counting context.)
+   */
+  static async exactTokenCount(
+    provider: string,
+    params: { model: string; system?: any; tools?: any[]; messages?: any[] }
+  ): Promise<number | null> {
+    // Not yet implemented — provider-specific counting requires
+    // access to provider instances. The cliff guard uses this for
+    // pre-flight checks; callers should fall back to estimateTokens.
+    return null;
+  }
+
+  /**
+   * Check if an estimated token count is near the Claude 200K pricing cliff.
+   * Above 200K input tokens, Claude doubles ALL token prices (input AND output)
+   * for the entire request. This guard helps avoid accidentally crossing it.
+   */
+  static isNearClaudeCliff(estimatedTokens: number): boolean {
+    const CLAUDE_CLIFF = 200_000;
+    const SAFETY_MARGIN = 20_000; // 10% margin
+    return estimatedTokens > (CLAUDE_CLIFF - SAFETY_MARGIN);
   }
 
   /**
@@ -88,9 +128,30 @@ export default class TokenCounter {
       return { text, truncated: false };
     }
 
-    // Rough character limit
-    const maxChars = maxTokens * 4;
-    const truncatedText = text.substring(0, maxChars) + '\n\n[... truncated for length ...]';
+    // Binary search for the character position that fits within maxTokens.
+    // Start with a conservative char estimate, then adjust.
+    let lo = 0;
+    let hi = text.length;
+    let bestFit = Math.min(text.length, maxTokens * 4); // initial guess
+
+    // Quick check: if initial guess already fits, use it directly
+    try {
+      while (hi - lo > 100) {
+        const mid = Math.floor((lo + hi) / 2);
+        const tokens = encode(text.substring(0, mid)).length;
+        if (tokens <= maxTokens) {
+          bestFit = mid;
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      }
+    } catch {
+      // Fallback to heuristic if encoding fails
+      bestFit = Math.min(text.length, maxTokens * 4);
+    }
+
+    const truncatedText = text.substring(0, bestFit) + '\n\n[... truncated for length ...]';
 
     return {
       text: truncatedText,

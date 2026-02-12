@@ -74,7 +74,10 @@ export default class OpenAIProvider extends LLMProvider {
     try {
       const { tools = null, stream = false, onToken, signal } = options;
 
-      // Convert messages to OpenAI format (handles tool_result → tool)
+      // IMPORTANT: Prompt prefix ordering for automatic caching (OpenAI).
+      // System prompt and tool definitions MUST come before conversation history.
+      // Do not add volatile content (timestamps, request IDs) before stable content.
+      // See: docs/plans/2026-02-12-context-tax-optimization.md
       const convertedMessages = this.convertMessagesToOpenAIFormat(messages);
       const messageArray = systemPrompt
         ? [{ role: 'system', content: systemPrompt }, ...convertedMessages]
@@ -86,7 +89,7 @@ export default class OpenAIProvider extends LLMProvider {
         temperature: 0.7,
       };
 
-      // Add tools if provided (OpenAI format)
+      // Tools are passed as a top-level param (not in messages), preserving prefix stability.
       if (tools && tools.length > 0) {
         params.tools = tools;
         params.tool_choice = 'auto';

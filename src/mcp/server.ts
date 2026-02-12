@@ -71,7 +71,7 @@ function createServer(): Server {
 const TOOLS: Tool[] = [
   {
     name: 'llm_conclave_consult',
-    description: 'Run a structured 4-phase consultation (positions → synthesis → debate → resolution). Uses fixed expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini). Faster but less customizable than discuss. Use llm_conclave_discuss when you need specific personas or deeper analysis.',
+    description: 'Run a structured 4-phase consultation (positions, synthesis, debate, resolution). Uses fixed expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini). Faster but less customizable than discuss.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -81,11 +81,11 @@ const TOOLS: Tool[] = [
         },
         context: {
           type: 'string',
-          description: 'Optional context: file paths (comma-separated) or project directory path',
+          description: 'File paths (comma-separated) or project directory path',
         },
         quick: {
           type: 'boolean',
-          description: 'Use quick mode (single round, faster but less thorough)',
+          description: 'Single round, faster but less thorough',
           default: false,
         },
         format: {
@@ -100,7 +100,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'llm_conclave_discuss',
-    description: 'Run a free-form multi-round discussion where agents debate and build on each other\'s ideas. RECOMMENDED for complex decisions - produces more thorough analysis than structured consult. Best for architecture, build-vs-buy, security review, or any decision needing diverse expert perspectives.',
+    description: 'Run a free-form multi-round discussion where agents debate and build on each other\'s ideas. RECOMMENDED for complex decisions needing diverse expert perspectives.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -163,27 +163,27 @@ Example inline JSON:
         },
         rounds: {
           type: 'number',
-          description: 'Maximum number of discussion rounds. Use 2-3 for quick decisions, 4-5 for complex topics. Default: 4',
+          description: 'Max discussion rounds (default: 4)',
           default: 4,
         },
         min_rounds: {
           type: 'number',
-          description: 'Minimum rounds before consensus can end the discussion early. Consensus detection is disabled until this round completes. Example: min_rounds=4 with rounds=5 means consensus CAN end at round 4, skipping round 5. Set min_rounds equal to rounds for guaranteed full debate with no early exit. Default: 0 (no minimum)',
+          description: 'Minimum rounds before consensus can end early. Set equal to rounds for guaranteed full debate (default: 0)',
           default: 0,
         },
         dynamic: {
           type: 'boolean',
-          description: 'Enable dynamic speaker selection. Instead of round-robin, an LLM moderator chooses who speaks next based on conversation context and agent expertise. Enables more natural discussions where agents can "hand off" to specific experts. Default: false',
+          description: 'Enable dynamic speaker selection via LLM moderator instead of round-robin (default: false)',
           default: false,
         },
         selector_model: {
           type: 'string',
-          description: `Model to use for speaker selection when dynamic=true. A fast, cheap model is recommended since it runs frequently. Default: ${DEFAULT_SELECTOR_MODEL}`,
+          description: `Model for speaker selection when dynamic=true (default: ${DEFAULT_SELECTOR_MODEL})`,
           default: DEFAULT_SELECTOR_MODEL,
         },
         timeout: {
           type: 'number',
-          description: 'Maximum time in seconds for the discussion. When exceeded, returns partial results from completed rounds. Default: 300 (5 minutes). Set to 0 for no timeout.',
+          description: 'Max time in seconds. Returns partial results when exceeded. 0 = no timeout (default: 300)',
           default: 300,
         },
       },
@@ -192,21 +192,21 @@ Example inline JSON:
   },
   {
     name: 'llm_conclave_continue',
-    description: 'Continue a previous discussion session with a follow-up question or task. Use this to build on previous conversations without starting from scratch.',
+    description: 'Continue a previous discussion session with a follow-up question or task.',
     inputSchema: {
       type: 'object',
       properties: {
         session_id: {
           type: 'string',
-          description: 'Session ID to continue. Omit to use most recent session.',
+          description: 'Session ID to continue (default: most recent)',
         },
         task: {
           type: 'string',
-          description: 'Follow-up question or task to continue the discussion with.',
+          description: 'Follow-up question or task',
         },
         reset: {
           type: 'boolean',
-          description: 'If true, start fresh with only a summary of the previous session (for token limits). Default: false',
+          description: 'Start fresh with only a summary of the previous session (default: false)',
           default: false,
         },
       },
@@ -221,13 +221,13 @@ Example inline JSON:
       properties: {
         limit: {
           type: 'number',
-          description: 'Maximum number of sessions to return. Default: 10',
+          description: 'Max sessions to return (default: 10)',
           default: 10,
         },
         mode: {
           type: 'string',
           enum: ['consensus', 'orchestrated', 'iterative'],
-          description: 'Filter by discussion mode.',
+          description: 'Filter by discussion mode',
         },
       },
     },

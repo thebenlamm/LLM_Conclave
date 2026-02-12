@@ -39,13 +39,13 @@ export default class ToolRegistry {
     return {
       read_file: {
         name: 'read_file',
-        description: 'Read contents of a file from the filesystem',
+        description: 'Read file contents.',
         input_schema: {
           type: 'object',
           properties: {
             file_path: {
               type: 'string',
-              description: 'Absolute path to the file to read'
+              description: 'Absolute file path'
             }
           },
           required: ['file_path']
@@ -53,17 +53,17 @@ export default class ToolRegistry {
       },
       write_file: {
         name: 'write_file',
-        description: 'Write content to a file (creates or overwrites)',
+        description: 'Write content to a file, creating or overwriting.',
         input_schema: {
           type: 'object',
           properties: {
             file_path: {
               type: 'string',
-              description: 'Absolute path to the file to write'
+              description: 'Absolute file path'
             },
             content: {
               type: 'string',
-              description: 'Content to write to the file'
+              description: 'File content'
             }
           },
           required: ['file_path', 'content']
@@ -71,21 +71,21 @@ export default class ToolRegistry {
       },
       edit_file: {
         name: 'edit_file',
-        description: 'Replace specific content in a file (exact string match)',
+        description: 'Find and replace an exact string in a file.',
         input_schema: {
           type: 'object',
           properties: {
             file_path: {
               type: 'string',
-              description: 'Absolute path to the file to edit'
+              description: 'Absolute file path'
             },
             old_string: {
               type: 'string',
-              description: 'Exact string to find and replace'
+              description: 'String to find'
             },
             new_string: {
               type: 'string',
-              description: 'String to replace it with'
+              description: 'Replacement string'
             }
           },
           required: ['file_path', 'old_string', 'new_string']
@@ -93,17 +93,17 @@ export default class ToolRegistry {
       },
       list_files: {
         name: 'list_files',
-        description: 'List files matching a glob pattern',
+        description: 'List files matching a glob pattern.',
         input_schema: {
           type: 'object',
           properties: {
             pattern: {
               type: 'string',
-              description: 'Glob pattern to match files (e.g., "src/**/*.js")'
+              description: 'Glob pattern'
             },
             directory: {
               type: 'string',
-              description: 'Directory to search in (defaults to current directory)'
+              description: 'Search directory (default: cwd)'
             }
           },
           required: ['pattern']
@@ -111,13 +111,13 @@ export default class ToolRegistry {
       },
       run_command: {
         name: 'run_command',
-        description: 'Run a shell command (use cautiously)',
+        description: 'Run a shell command (sandboxed, read-only commands only).',
         input_schema: {
           type: 'object',
           properties: {
             command: {
               type: 'string',
-              description: 'Shell command to execute'
+              description: 'Shell command'
             }
           },
           required: ['command']
