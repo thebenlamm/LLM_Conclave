@@ -128,6 +128,19 @@ export default class IterativeCollaborativeOrchestrator {
         this.eventBus.emitEvent('status', { message: `Starting Iterative Mode (Chunk Size: ${this.chunkSize})` });
     }
 
+    // Augment agent + judge system prompts with full project context (activates provider caching)
+    // Project context is stable across all chunks; chunk-specific scoped context stays in user messages
+    if (projectContext) {
+      this.agents = this.agents.map(agent => ({
+        ...agent,
+        systemPrompt: agent.systemPrompt + '\n\n---\n\n' + projectContext + '\n\n---\n\nTask: ' + task
+      }));
+      this.judge = {
+        ...this.judge,
+        systemPrompt: this.judge.systemPrompt + '\n\n---\n\n' + projectContext + '\n\n---\n\nTask: ' + task
+      };
+    }
+
     // Initialize or append to shared output file
     const sharedOutputPath = path.join(this.outputDir, this.sharedOutputFile);
     if (this.startChunk === 1) {
@@ -161,10 +174,14 @@ export default class IterativeCollaborativeOrchestrator {
       }
 
       console.log(`\n📦 Processing Chunk ${chunkNumber}/${chunks.length}: ${chunk.description}`);
-      
+
       if (this.eventBus) {
           this.eventBus.emitEvent('status', { message: `Processing Chunk ${chunkNumber}/${chunks.length}: ${chunk.description}` });
       }
+
+      // Reset per-chunk state: allow fallback retries and give disabled agents a second chance
+      this.usedFallbacks.clear();
+      this.resetCircuitBreakers();
 
       const chunkStart = Date.now();
 
@@ -370,10 +387,18 @@ Return ONLY the JSON array, nothing else.`;
         throw new Error('Expected JSON array of chunks');
       }
 
-      // Post-process: ensure startLine/endLine are integers and extract lineContent
+      // Post-process: validate startLine/endLine — strip invalid values
       for (const chunk of chunks) {
         if (chunk.startLine != null) chunk.startLine = parseInt(chunk.startLine, 10);
         if (chunk.endLine != null) chunk.endLine = parseInt(chunk.endLine, 10);
+
+        // Remove invalid bounds so enrichment falls back to description parsing
+        if (isNaN(chunk.startLine) || isNaN(chunk.endLine) ||
+            chunk.startLine < 1 || chunk.endLine < 1 ||
+            chunk.endLine < chunk.startLine) {
+          delete chunk.startLine;
+          delete chunk.endLine;
+        }
       }
 
       console.log(`  Planned ${chunks.length} chunks\n`);
@@ -660,17 +685,12 @@ Collaborate with other agents to complete this chunk. You can read from and writ
     while (iterations < maxIterations) {
       iterations++;
 
-      const providerName = agent.provider.getProviderName();
-      const useOpenAIFormat = providerName === 'OpenAI' || providerName === 'Grok' || providerName === 'Mistral';
-
-      // Convert tool_calls to OpenAI format if needed
-      const messagesToSend = useOpenAIFormat ? this.convertToolCallsToOpenAIFormat(currentMessages) : currentMessages;
-
-      const chatOpts = { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools, ...this.getChatOptions(true) };
+      // Pass raw Anthropic-format messages — chatWithFallback handles per-provider conversion
+      const chatOpts = { tools: tools, ...this.getChatOptions(true) };
       const response = await this.chatWithFallback(
         agent.provider,
         agent.model,
-        messagesToSend,
+        currentMessages,
         agent.systemPrompt,
         chatOpts,
         agent.name
@@ -936,10 +956,13 @@ Synthesize the best result from this discussion:`;
    */
   private parseLineNumbersFromDescription(description: string): number[] | null {
     // Range: "Lines 5-7", "Lines 5–7", "Lines 5 to 7"
-    const rangeMatch = description.match(/Lines?\s+(\d+)\s*[-–to]+\s*(\d+)/i);
+    const rangeMatch = description.match(/Lines?\s+(\d+)\s*(?:-|–|to)\s*(\d+)/i);
     if (rangeMatch) {
       const start = parseInt(rangeMatch[1], 10);
       const end = parseInt(rangeMatch[2], 10);
+      if (isNaN(start) || isNaN(end) || start < 1 || end < 1 || end < start) {
+        return null;
+      }
       return Array.from({ length: end - start + 1 }, (_, i) => start + i);
     }
 
@@ -966,7 +989,7 @@ Synthesize the best result from this discussion:`;
 
     for (const chunk of chunks) {
       // Prefer startLine/endLine if already set by planChunks post-processing
-      if (chunk.startLine && chunk.endLine) {
+      if (chunk.startLine && chunk.endLine && chunk.startLine > 0 && chunk.endLine >= chunk.startLine) {
         const range = Array.from({ length: chunk.endLine - chunk.startLine + 1 }, (_, i) => chunk.startLine + i);
         chunkLineRanges.push(range);
         allLineNumbers.push(...range);
@@ -1049,19 +1072,71 @@ Synthesize the best result from this discussion:`;
   }
 
   /**
+   * Reset circuit breakers at chunk boundaries.
+   * Gives disabled agents a fresh chance each chunk — a transient outage
+   * in chunk 2 shouldn't permanently remove an agent for chunks 3..N.
+   */
+  private resetCircuitBreakers(): void {
+    if (this.disabledAgents.size > 0) {
+      console.log(`    🔄 Re-enabling agents for new chunk: ${[...this.disabledAgents].join(', ')}`);
+      this.disabledAgents.clear();
+    }
+    this.consecutiveFailures.clear();
+  }
+
+  /**
+   * Check if a provider uses OpenAI-style tool format based on its name.
+   */
+  private isOpenAIFormat(providerName: string): boolean {
+    return providerName === 'OpenAI' || providerName === 'Grok' || providerName === 'Mistral';
+  }
+
+  /**
+   * Build correct tool schemas for a given provider.
+   * Ensures fallback providers receive tools in their expected format.
+   */
+  private getToolsForProvider(provider: any): any[] {
+    const providerName = provider.getProviderName();
+    return this.isOpenAIFormat(providerName)
+      ? this.toolRegistry.getOpenAITools()
+      : this.toolRegistry.getAnthropicTools();
+  }
+
+  /**
+   * Convert messages to the correct format for a given provider.
+   * Raw messages are stored in Anthropic format (tool_result, tool_calls with name/input).
+   * OpenAI-family providers need them converted.
+   */
+  private convertMessagesForProvider(rawMessages: any[], provider: any): any[] {
+    const providerName = provider.getProviderName();
+    if (this.isOpenAIFormat(providerName)) {
+      return this.convertToolCallsToOpenAIFormat(rawMessages);
+    }
+    return rawMessages;
+  }
+
+  /**
    * Execute a provider chat call with fallback on retryable errors.
-   * Used for both agents and judge.
+   * Used for both agents and judge. Transforms both tool schemas AND message
+   * format for the fallback provider to avoid cross-provider format mismatches.
+   *
+   * @param rawMessages - Messages in Anthropic (canonical) format. Converted per-provider before sending.
    */
   private async chatWithFallback(
     provider: any,
     model: string,
-    messages: any[],
+    rawMessages: any[],
     systemPrompt: string,
     chatOptions: any,
     callerName: string
   ): Promise<any> {
     try {
-      return await provider.chat(messages, systemPrompt, chatOptions);
+      const messages = this.convertMessagesForProvider(rawMessages, provider);
+      const opts = { ...chatOptions };
+      if (opts.tools) {
+        opts.tools = this.getToolsForProvider(provider);
+      }
+      return await provider.chat(messages, systemPrompt, opts);
     } catch (error: any) {
       if (this.isRetryableError(error)) {
         const fallbackModel = this.getFallbackModel(model);
@@ -1070,7 +1145,15 @@ Synthesize the best result from this discussion:`;
           this.usedFallbacks.add(fallbackKey);
           console.log(`    ⚠️  ${callerName} (${model}) failed, falling back to ${fallbackModel}`);
           const fallbackProvider = ProviderFactory.createProvider(fallbackModel);
-          return await fallbackProvider.chat(messages, systemPrompt, chatOptions);
+
+          // Convert raw messages + tools for the fallback provider's format
+          const fallbackMessages = this.convertMessagesForProvider(rawMessages, fallbackProvider);
+          const fallbackOptions = { ...chatOptions };
+          if (fallbackOptions.tools) {
+            fallbackOptions.tools = this.getToolsForProvider(fallbackProvider);
+          }
+
+          return await fallbackProvider.chat(fallbackMessages, systemPrompt, fallbackOptions);
         }
       }
       throw error;

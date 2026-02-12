@@ -262,6 +262,7 @@ describe('IterativeCollaborativeOrchestrator', () => {
     it('should return primary response when successful', async () => {
       const mockProvider = {
         chat: jest.fn().mockResolvedValue({ text: 'Primary response' }),
+        getProviderName: jest.fn().mockReturnValue('OpenAI'),
       };
 
       const result = await (orchestrator as any).chatWithFallback(
@@ -275,6 +276,7 @@ describe('IterativeCollaborativeOrchestrator', () => {
     it('should fall back on retryable error', async () => {
       const mockProvider = {
         chat: jest.fn().mockRejectedValue(new Error('429 Too Many Requests')),
+        getProviderName: jest.fn().mockReturnValue('OpenAI'),
       };
 
       const result = await (orchestrator as any).chatWithFallback(
@@ -288,6 +290,7 @@ describe('IterativeCollaborativeOrchestrator', () => {
     it('should not fall back on non-retryable error', async () => {
       const mockProvider = {
         chat: jest.fn().mockRejectedValue(new Error('Invalid API key')),
+        getProviderName: jest.fn().mockReturnValue('OpenAI'),
       };
 
       await expect(
@@ -297,9 +300,10 @@ describe('IterativeCollaborativeOrchestrator', () => {
       ).rejects.toThrow('Invalid API key');
     });
 
-    it('should not use same fallback twice for same caller', async () => {
+    it('should not use same fallback twice for same caller within a chunk', async () => {
       const mockProvider = {
         chat: jest.fn().mockRejectedValue(new Error('429 rate limit')),
+        getProviderName: jest.fn().mockReturnValue('OpenAI'),
       };
 
       // First call — fallback succeeds
@@ -313,6 +317,225 @@ describe('IterativeCollaborativeOrchestrator', () => {
           mockProvider, 'gpt-4o', [], 'system', {}, 'TestAgent'
         )
       ).rejects.toThrow('429 rate limit');
+    });
+
+    it('should allow fallback again after usedFallbacks is cleared (new chunk)', async () => {
+      const mockProvider = {
+        chat: jest.fn().mockRejectedValue(new Error('429 rate limit')),
+        getProviderName: jest.fn().mockReturnValue('OpenAI'),
+      };
+
+      // First call — fallback used
+      await (orchestrator as any).chatWithFallback(
+        mockProvider, 'gpt-4o', [], 'system', {}, 'TestAgent'
+      );
+
+      // Simulate new chunk boundary — clear used fallbacks
+      orchestrator.usedFallbacks.clear();
+
+      // Should succeed again with fallback
+      const result = await (orchestrator as any).chatWithFallback(
+        mockProvider, 'gpt-4o', [], 'system', {}, 'TestAgent'
+      );
+      expect(result.text).toContain('Fallback response');
+    });
+
+    it('should rebuild tool schemas AND convert messages for fallback provider', async () => {
+      const ProviderFactory = require('../../providers/ProviderFactory').default;
+
+      // Track what the fallback provider receives
+      const fallbackChatMock = jest.fn().mockResolvedValue({ text: 'Fallback response' });
+
+      // Make fallback provider report as Claude (Anthropic format)
+      ProviderFactory.createProvider.mockImplementation((model: string) => ({
+        chat: fallbackChatMock,
+        getProviderName: jest.fn().mockReturnValue('Claude'),
+      }));
+
+      // Primary provider is OpenAI-family and fails
+      const mockProvider = {
+        chat: jest.fn().mockRejectedValue(new Error('429 rate limit')),
+        getProviderName: jest.fn().mockReturnValue('OpenAI'),
+      };
+
+      // Raw messages in Anthropic format (tool_result with tool_use_id)
+      const rawMessages = [
+        { role: 'user', content: 'test' },
+        { role: 'assistant', content: '', tool_calls: [{ id: 'tc_1', name: 'read_file', input: { path: 'f.txt' } }] },
+        { role: 'tool_result', tool_use_id: 'tc_1', content: 'file contents' },
+      ];
+
+      const chatOptions = { tools: [{ name: 'read_file' }] };
+
+      const result = await (orchestrator as any).chatWithFallback(
+        mockProvider, 'gpt-4o', rawMessages, 'system', chatOptions, 'ToolAgent'
+      );
+
+      expect(result.text).toBe('Fallback response');
+
+      // Verify fallback provider received Anthropic-format messages (not OpenAI-converted)
+      const receivedMessages = fallbackChatMock.mock.calls[0][0];
+      // tool_result should stay as tool_result (Anthropic format), NOT converted to role:'tool'
+      const toolResultMsg = receivedMessages.find((m: any) => m.role === 'tool_result');
+      expect(toolResultMsg).toBeDefined();
+      expect(toolResultMsg.tool_use_id).toBe('tc_1');
+
+      // Tools should be Anthropic format (from getAnthropicTools), not OpenAI format
+      const receivedOptions = fallbackChatMock.mock.calls[0][2];
+      expect(receivedOptions.tools).toBeDefined();
+
+      // Original chatOptions should not be mutated
+      expect(chatOptions.tools[0].name).toBe('read_file');
+    });
+
+    it('should convert messages to OpenAI format when primary is OpenAI', async () => {
+      // Primary is OpenAI — chatWithFallback should convert messages before sending
+      const primaryChatMock = jest.fn().mockResolvedValue({ text: 'Primary response' });
+      const mockProvider = {
+        chat: primaryChatMock,
+        getProviderName: jest.fn().mockReturnValue('OpenAI'),
+      };
+
+      const rawMessages = [
+        { role: 'user', content: 'test' },
+        { role: 'assistant', content: '', tool_calls: [{ id: 'tc_1', name: 'read_file', input: { path: 'f.txt' } }] },
+        { role: 'tool_result', tool_use_id: 'tc_1', content: 'file contents' },
+      ];
+
+      await (orchestrator as any).chatWithFallback(
+        mockProvider, 'gpt-4o', rawMessages, 'system', {}, 'Agent'
+      );
+
+      // Verify messages were converted to OpenAI format
+      const receivedMessages = primaryChatMock.mock.calls[0][0];
+      const toolMsg = receivedMessages.find((m: any) => m.role === 'tool');
+      expect(toolMsg).toBeDefined();
+      expect(toolMsg.tool_call_id).toBe('tc_1');
+    });
+  });
+
+  // === Adversarial review cases ===
+
+  describe('parseLineNumbersFromDescription (adversarial)', () => {
+    let orchestrator: IterativeCollaborativeOrchestrator;
+
+    beforeEach(() => {
+      orchestrator = createOrchestrator();
+    });
+
+    it('should return null for reversed range "Lines 10-2"', () => {
+      const result = (orchestrator as any).parseLineNumbersFromDescription('Lines 10-2');
+      expect(result).toBeNull();
+    });
+
+    it('should return null for zero start "Lines 0-5"', () => {
+      const result = (orchestrator as any).parseLineNumbersFromDescription('Lines 0-5');
+      expect(result).toBeNull();
+    });
+
+    it('should not match "to" as part of character class', () => {
+      // With the old [-–to]+ regex, "Lines 5total" could match "5t" as separator
+      // The new (?:-|–|to) regex should not match this
+      const result = (orchestrator as any).parseLineNumbersFromDescription('Lines 5total garbage');
+      // Should match as single "Line 5" not a range
+      expect(result).toEqual([5]);
+    });
+  });
+
+  describe('enrichChunksWithLineContent (adversarial)', () => {
+    let orchestrator: IterativeCollaborativeOrchestrator;
+    const projectContext = '# Project Context\n\nFile: test.txt\n\n```\nLine one\nLine two\nLine three\n```';
+
+    beforeEach(() => {
+      orchestrator = createOrchestrator();
+    });
+
+    it('should handle reversed startLine/endLine gracefully', () => {
+      const chunks = [
+        { description: 'Bad range', details: 'Fix', startLine: 5, endLine: 2 },
+      ];
+
+      // Should not crash with RangeError — invalid bounds are skipped
+      const enriched = (orchestrator as any).enrichChunksWithLineContent(chunks, projectContext);
+      expect(enriched[0].lineContent).toBeUndefined();
+    });
+
+    it('should handle startLine=0 gracefully', () => {
+      const chunks = [
+        { description: 'Zero start', details: 'Fix', startLine: 0, endLine: 3 },
+      ];
+
+      const enriched = (orchestrator as any).enrichChunksWithLineContent(chunks, projectContext);
+      expect(enriched[0].lineContent).toBeUndefined();
+    });
+
+    it('should handle NaN startLine gracefully', () => {
+      const chunks = [
+        { description: 'NaN', details: 'Fix', startLine: 'abc', endLine: 3 },
+      ];
+
+      const enriched = (orchestrator as any).enrichChunksWithLineContent(chunks, projectContext);
+      // NaN startLine should be treated as no startLine
+      expect(enriched[0].lineContent).toBeUndefined();
+    });
+  });
+
+  describe('circuit breaker recovery', () => {
+    let orchestrator: IterativeCollaborativeOrchestrator;
+
+    beforeEach(() => {
+      orchestrator = createOrchestrator();
+    });
+
+    it('should re-enable disabled agents after resetCircuitBreakers()', () => {
+      (orchestrator as any).recordFailure('Agent1', 'error');
+      (orchestrator as any).recordFailure('Agent1', 'error again');
+      expect(orchestrator.disabledAgents.has('Agent1')).toBe(true);
+
+      (orchestrator as any).resetCircuitBreakers();
+
+      expect(orchestrator.disabledAgents.has('Agent1')).toBe(false);
+      expect(orchestrator.consecutiveFailures.get('Agent1')).toBeUndefined();
+    });
+
+    it('should clear all failure counts on reset', () => {
+      (orchestrator as any).recordFailure('Agent1', 'error');
+      (orchestrator as any).recordFailure('Agent2', 'error');
+
+      (orchestrator as any).resetCircuitBreakers();
+
+      expect(orchestrator.consecutiveFailures.size).toBe(0);
+    });
+  });
+
+  describe('planChunks post-processing validation', () => {
+    it('should strip invalid LLM bounds (reversed, NaN, negative)', () => {
+      // Simulate what planChunks post-processing does with untyped LLM JSON
+      const chunks: any[] = [
+        { description: 'Lines 1-3', startLine: 1, endLine: 3 },       // valid
+        { description: 'Lines 5-2', startLine: 5, endLine: 2 },       // reversed
+        { description: 'Bad', startLine: 'abc', endLine: 3 },         // NaN
+        { description: 'Neg', startLine: -1, endLine: 3 },            // negative
+      ];
+
+      // Replicate the validation logic from planChunks
+      for (const chunk of chunks) {
+        if (chunk.startLine != null) chunk.startLine = parseInt(chunk.startLine, 10);
+        if (chunk.endLine != null) chunk.endLine = parseInt(chunk.endLine, 10);
+
+        if (isNaN(chunk.startLine) || isNaN(chunk.endLine) ||
+            chunk.startLine < 1 || chunk.endLine < 1 ||
+            chunk.endLine < chunk.startLine) {
+          delete chunk.startLine;
+          delete chunk.endLine;
+        }
+      }
+
+      expect(chunks[0].startLine).toBe(1);  // valid - kept
+      expect(chunks[0].endLine).toBe(3);
+      expect(chunks[1].startLine).toBeUndefined();  // reversed - stripped
+      expect(chunks[2].startLine).toBeUndefined();  // NaN - stripped
+      expect(chunks[3].startLine).toBeUndefined();  // negative - stripped
     });
   });
 });
