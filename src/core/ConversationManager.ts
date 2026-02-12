@@ -1,4 +1,5 @@
 import ProviderFactory from '../providers/ProviderFactory';
+import TokenCounter from '../utils/TokenCounter';
 import { EventBus } from './EventBus';
 import { SpeakerSelector, AgentInfo } from './SpeakerSelector';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
@@ -32,7 +33,11 @@ export default class ConversationManager {
 
   // Agent failure tracking and fallback
   private persistentlyFailedAgents: Set<string> = new Set();
+  private consecutiveAgentFailures: Map<string, number> = new Map();
   private agentSubstitutions: Map<string, { original: string; fallback: string; reason: string }> = new Map();
+
+  // Abort signal for cancellation from MCP timeout
+  abortSignal?: AbortSignal;
 
   constructor(
     config: any,
@@ -151,6 +156,12 @@ export default class ConversationManager {
 
     // Main conversation loop
     while (this.currentRound < this.maxRounds && !consensusReached) {
+      // Check abort signal before starting new round
+      if (this.abortSignal?.aborted) {
+        console.log(`\n[Discussion aborted: ${this.abortSignal.reason || 'timeout'}]\n`);
+        break;
+      }
+
       this.currentRound++;
       console.log(`\n--- Round ${this.currentRound} ---\n`);
 
@@ -187,18 +198,20 @@ export default class ConversationManager {
 
       const judgeResult = await this.judgeEvaluate(judge);
 
-      // Hard enforcement: Check if all agents have contributed (don't trust LLM judge alone)
+      // Hard enforcement: Check if all active agents have contributed (don't trust LLM judge alone)
+      // Exclude agents disabled by circuit breaker — they can't contribute
       const contributingAgents = new Set<string>();
       for (const entry of this.conversationHistory) {
         if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
           contributingAgents.add(entry.speaker);
         }
       }
-      const allAgentsContributed = this.agentOrder.every(agent => contributingAgents.has(agent));
+      const activeAgents = this.agentOrder.filter(a => !this.persistentlyFailedAgents.has(a));
+      const allAgentsContributed = activeAgents.every(agent => contributingAgents.has(agent));
 
-      // Override judge if not all agents have contributed
+      // Override judge if not all active agents have contributed
       if (judgeResult.consensusReached && !allAgentsContributed) {
-        const missingAgents = this.agentOrder.filter(agent => !contributingAgents.has(agent));
+        const missingAgents = activeAgents.filter(agent => !contributingAgents.has(agent));
         console.log(`\n[Consensus blocked: ${missingAgents.join(', ')} haven't contributed yet]\n`);
         judgeResult.consensusReached = false;
         judgeResult.guidance = `Cannot declare consensus until all agents have contributed. Missing: ${missingAgents.join(', ')}. Please ensure these agents share their perspective before concluding.`;
@@ -253,6 +266,43 @@ export default class ConversationManager {
       if (this.eventBus) {
         this.eventBus.emitEvent('round:complete', { round: this.currentRound });
       }
+
+      // Compress history if it's getting too large (prevents context overflow in later rounds)
+      this.compressHistory();
+    }
+
+    // If aborted (e.g. MCP timeout), return partial result immediately — skip final vote
+    if (this.abortSignal?.aborted) {
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`Discussion aborted after ${this.currentRound} rounds.`);
+      console.log(`${'='.repeat(80)}\n`);
+
+      if (this.eventBus) {
+        this.eventBus.emitEvent('status', { message: `Discussion aborted after ${this.currentRound} rounds` });
+      }
+
+      // Build best-effort result from whatever we have
+      const bestEffort = this.bestEffortJudgeResult();
+
+      const failedAgentsList = this.conversationHistory
+        .filter((msg: any) => msg.error === true)
+        .map((msg: any) => msg.speaker);
+
+      return {
+        task: task,
+        rounds: this.currentRound,
+        maxRounds: this.maxRounds,
+        consensusReached: false,
+        solution: bestEffort.solution,
+        keyDecisions: [],
+        actionItems: [],
+        dissent: [`Discussion was interrupted (${this.abortSignal.reason || 'aborted'})`],
+        confidence: 'LOW',
+        conversationHistory: this.conversationHistory,
+        failedAgents: [...new Set(failedAgentsList)],
+        agentSubstitutions: Object.fromEntries(this.agentSubstitutions),
+        timedOut: true,
+      };
     }
 
     // If max rounds reached without consensus, conduct final vote
@@ -261,7 +311,7 @@ export default class ConversationManager {
       console.log(`Maximum rounds (${this.maxRounds}) reached without consensus.`);
       console.log(`Conducting final vote...`);
       console.log(`${'='.repeat(80)}\n`);
-      
+
       if (this.eventBus) {
         this.eventBus.emitEvent('status', { message: 'Max rounds reached. Conducting final vote.' });
       }
@@ -333,6 +383,11 @@ export default class ConversationManager {
    * @param {string} agentName - Name of the agent
    */
   async agentTurn(agentName: string) {
+    // Circuit breaker: skip agents that have failed repeatedly
+    if (this.persistentlyFailedAgents.has(agentName)) {
+      return;
+    }
+
     const agent = this.agents[agentName];
 
     console.log(`[${agentName} (${agent.model}) is thinking...]\n`);
@@ -345,8 +400,28 @@ export default class ConversationManager {
     }
 
     try {
-      // Prepare messages for the agent
-      const messages = this.prepareMessagesForAgent();
+      // Prepare messages with token budget check
+      const messages = this.prepareMessagesWithBudget(agentName);
+      if (!messages) {
+        // Agent's context window can't fit the conversation even after truncation
+        console.log(`[${agentName} skipped: conversation too large for ${agent.model} context window]\n`);
+        if (this.eventBus) {
+          this.eventBus.emitEvent('error', {
+            message: `${agentName} skipped: context exceeds ${agent.model} limits`,
+            context: 'token_budget_exceeded'
+          });
+        }
+        this.conversationHistory.push({
+          role: 'assistant',
+          content: `[${agentName} unavailable: conversation exceeds ${agent.model} context window]`,
+          speaker: agentName,
+          model: agent.model,
+          error: true,
+          errorDetails: 'token_budget_exceeded'
+        });
+        this.recordAgentFailure(agentName, 'context window exceeded');
+        return;
+      }
 
       // Get agent's response (with one retry on empty response)
       const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -388,6 +463,7 @@ export default class ConversationManager {
           error: true,
           errorDetails: 'empty_response_after_retry'
         });
+        this.recordAgentFailure(agentName, 'empty_response');
         return;
       }
 
@@ -409,6 +485,9 @@ export default class ConversationManager {
         model: agent.model
       });
 
+      // Circuit breaker: reset failure count on success
+      this.recordAgentSuccess(agentName);
+
     } catch (error: any) {
       const errorMsg = error.message || 'Unknown error';
       console.error(`Error with agent ${agentName}: ${errorMsg}`);
@@ -422,7 +501,20 @@ export default class ConversationManager {
           console.log(`[${agentName}: ${agent.model} failed, falling back to ${fallbackModel}]`);
           try {
             const fallbackProvider = ProviderFactory.createProvider(fallbackModel);
-            const messages = this.prepareMessagesForAgent();
+            // Use budget-aware message preparation against fallback model's limits
+            const rawMessages = this.prepareMessagesForAgent();
+            const fallbackLimits = TokenCounter.getModelLimits(fallbackModel);
+            const fallbackBudget = fallbackLimits.maxInput - 6000;
+            const fallbackTokens = TokenCounter.estimateMessagesTokens(rawMessages, agent.systemPrompt);
+            let messages = rawMessages;
+            if (fallbackTokens > fallbackBudget * 0.8) {
+              const { messages: truncated } = TokenCounter.truncateMessages(
+                rawMessages.map(m => ({ ...m })),
+                agent.systemPrompt,
+                Math.floor(fallbackBudget * 0.75)
+              );
+              messages = truncated;
+            }
             const fallbackResponse = await fallbackProvider.chat(messages, agent.systemPrompt, this.getChatOptions(agentName));
             let fallbackText = typeof fallbackResponse === 'string' ? fallbackResponse : (fallbackResponse.text ?? '');
 
@@ -456,6 +548,8 @@ export default class ConversationManager {
                 speaker: agentName,
                 model: fallbackModel
               });
+              // Fallback counts as success — reset consecutive failure counter
+              this.recordAgentSuccess(agentName);
               return; // Fallback succeeded
             }
           } catch (fallbackError: any) {
@@ -495,7 +589,41 @@ export default class ConversationManager {
         error: true,
         errorDetails: errorMsg + fallbackNote
       });
+
+      // Circuit breaker: track consecutive failures
+      this.recordAgentFailure(agentName, friendlyError);
     }
+  }
+
+  /**
+   * Track consecutive failures for an agent and trip the circuit breaker after 2.
+   */
+  private recordAgentFailure(agentName: string, reason: string): void {
+    const count = (this.consecutiveAgentFailures.get(agentName) || 0) + 1;
+    this.consecutiveAgentFailures.set(agentName, count);
+
+    if (count >= 2) {
+      this.persistentlyFailedAgents.add(agentName);
+      console.log(`[Circuit breaker: ${agentName} disabled after ${count} consecutive failures (${reason})]`);
+      if (this.eventBus) {
+        this.eventBus.emitEvent('status', {
+          message: `Circuit breaker tripped for ${agentName}: ${reason}`
+        });
+      }
+      // Add system note to history so judge/summary can account for it
+      this.conversationHistory.push({
+        role: 'user',
+        content: `[System: ${agentName} has been removed from the discussion after ${count} consecutive failures (${reason}). Remaining agents should continue without them.]`,
+        speaker: 'System'
+      });
+    }
+  }
+
+  /**
+   * Reset consecutive failure count for an agent on success.
+   */
+  private recordAgentSuccess(agentName: string): void {
+    this.consecutiveAgentFailures.set(agentName, 0);
   }
 
   /**
@@ -510,6 +638,10 @@ export default class ConversationManager {
 
     // Start fresh turn tracking for this round
     this.speakerSelector.startNewRound();
+    // Thread abort signal so selector LLM calls can be cancelled
+    if (this.abortSignal) {
+      this.speakerSelector.abortSignal = this.abortSignal;
+    }
     const failedAgentsThisRound: Set<string> = new Set(this.persistentlyFailedAgents);
     const agentsWhoContributedThisRound: Set<string> = new Set();
 
@@ -522,6 +654,12 @@ export default class ConversationManager {
     const maxTurnsPerRound = Math.max(20, this.agentOrder.length * 3);
 
     while (turnCount < maxTurnsPerRound) {
+      // Check abort signal before each turn in dynamic mode
+      if (this.abortSignal?.aborted) {
+        console.log(`[Round ${this.currentRound} aborted: ${this.abortSignal.reason || 'timeout'}]`);
+        break;
+      }
+
       // Select next speaker
       const selection = await this.speakerSelector.selectNextSpeaker(
         this.conversationHistory,
@@ -646,18 +784,103 @@ export default class ConversationManager {
       console.log(`[Round ${this.currentRound} failed agents: ${Array.from(failedAgentsThisRound).join(', ')}]`);
     }
 
-    // Persist only rate-limit failures across rounds (429s won't recover mid-discussion).
-    // Transient server errors (502/503) may resolve, so allow retry in next round.
-    for (const agent of failedAgentsThisRound) {
-      if (this.persistentlyFailedAgents.has(agent)) continue; // already tracked
-      const errorEntry = this.conversationHistory
-        .filter((msg: any) => msg.speaker === agent && msg.error)
-        .pop();
-      const isRateLimit = errorEntry?.errorDetails && /429|rate.?limit/i.test(errorEntry.errorDetails);
-      if (isRateLimit) {
-        this.persistentlyFailedAgents.add(agent);
+    // Note: persistent failure tracking is now handled by the circuit breaker
+    // in recordAgentFailure() — agents are disabled after 2 consecutive failures
+    // regardless of error type (context overflow, rate limit, empty response, etc.)
+  }
+
+  // Token threshold for triggering history compression
+  private static readonly HISTORY_TOKEN_THRESHOLD = 80000;
+
+  /**
+   * Group conversation history entries by round.
+   * Uses Judge guidance entries as round delimiters.
+   */
+  groupHistoryByRound(): { round: number; entries: any[] }[] {
+    const rounds: { round: number; entries: any[] }[] = [];
+    let currentRound = 1;
+    let currentEntries: any[] = [];
+
+    for (const entry of this.conversationHistory) {
+      currentEntries.push(entry);
+
+      // Round delimiters: Judge guidance OR compressed round summaries
+      const isJudgeGuidance = entry.speaker === 'Judge' && entry.role === 'user';
+      const isCompressedRound = entry.compressed === true;
+      if (isJudgeGuidance || isCompressedRound) {
+        rounds.push({ round: currentRound, entries: currentEntries });
+        currentRound++;
+        currentEntries = [];
       }
     }
+
+    // Don't forget the current in-progress round
+    if (currentEntries.length > 0) {
+      rounds.push({ round: currentRound, entries: currentEntries });
+    }
+
+    return rounds;
+  }
+
+  /**
+   * Compress conversation history if it exceeds the token threshold.
+   * Keeps round 1 (initial positions) and last 2 rounds verbatim.
+   * Compresses middle rounds into summaries.
+   */
+  compressHistory(): void {
+    const totalTokens = TokenCounter.estimateMessagesTokens(
+      this.conversationHistory.map(e => ({ role: e.role, content: e.content })),
+      null
+    );
+
+    if (totalTokens < ConversationManager.HISTORY_TOKEN_THRESHOLD) {
+      return;
+    }
+
+    const roundGroups = this.groupHistoryByRound();
+    if (roundGroups.length <= 3) {
+      // Not enough rounds to compress (need at least 4: keep first + last 2, compress middle)
+      return;
+    }
+
+    console.log(`[History compression: ${totalTokens} tokens exceeds ${ConversationManager.HISTORY_TOKEN_THRESHOLD} threshold, compressing ${roundGroups.length - 3} middle rounds]`);
+
+    const newHistory: any[] = [];
+
+    for (let i = 0; i < roundGroups.length; i++) {
+      const group = roundGroups[i];
+      const isFirst = i === 0;
+      const isLastTwo = i >= roundGroups.length - 2;
+
+      if (isFirst || isLastTwo) {
+        // Keep verbatim
+        newHistory.push(...group.entries);
+      } else {
+        // Compress to summary
+        const summary = TokenCounter.summarizeRoundEntries(group.entries);
+        newHistory.push({
+          role: 'user',
+          content: `[Round ${group.round} summary]\n${summary}`,
+          speaker: 'System',
+          compressed: true
+        });
+      }
+    }
+
+    const beforeCount = this.conversationHistory.length;
+    this.conversationHistory = newHistory;
+
+    // Reset all caches since history structure changed
+    this.messageCache = [];
+    this.lastCacheUpdateIndex = 0;
+    this.cachedRecentDiscussion = '';
+    this.lastJudgeCacheRound = 0;
+
+    const newTokens = TokenCounter.estimateMessagesTokens(
+      newHistory.map(e => ({ role: e.role, content: e.content })),
+      null
+    );
+    console.log(`[History compressed: ${beforeCount} → ${newHistory.length} entries, ${totalTokens} → ${newTokens} tokens]`);
   }
 
   /**
@@ -689,21 +912,70 @@ export default class ConversationManager {
   }
 
   /**
+   * Prepare messages with token budget awareness for a specific agent.
+   * Returns null if messages cannot fit within the agent's model limits even after truncation.
+   */
+  prepareMessagesWithBudget(agentName: string): any[] | null {
+    const agent = this.agents[agentName];
+    const messages = this.prepareMessagesForAgent();
+    const limits = TokenCounter.getModelLimits(agent.model);
+
+    // Reserve space for response (~6K tokens for overhead + response)
+    const inputBudget = limits.maxInput - 6000;
+    const currentTokens = TokenCounter.estimateMessagesTokens(messages, agent.systemPrompt);
+
+    // Under 80% of input budget: safe to proceed as-is
+    const safeBudget = Math.floor(inputBudget * 0.8);
+    if (currentTokens <= safeBudget) {
+      return messages;
+    }
+
+    // Over 80% of budget: truncate a COPY to 75% of budget (don't mutate shared messageCache)
+    const targetTokens = Math.floor(inputBudget * 0.75);
+    const percentUsed = Math.round((currentTokens / limits.maxInput) * 100);
+    console.log(`[${agentName}: ${currentTokens} tokens (~${percentUsed}% of ${agent.model} limit), truncating to fit]`);
+
+    const { messages: truncated, truncated: didTruncate } = TokenCounter.truncateMessages(
+      messages.map(m => ({ ...m })),  // Copy to avoid mutating cache
+      agent.systemPrompt,
+      targetTokens
+    );
+
+    if (didTruncate) {
+      console.log(`[${agentName}: truncated from ${messages.length} to ${truncated.length} messages]`);
+    }
+
+    // Verify we're now under the hard limit
+    const postCheck = TokenCounter.estimateMessagesTokens(truncated, agent.systemPrompt);
+    if (postCheck > inputBudget) {
+      console.log(`[${agentName}: still over limit after truncation (${postCheck} tokens), skipping]`);
+      return null;
+    }
+
+    return truncated;
+  }
+
+  /**
    * Build chat options with streaming callbacks when enabled
    */
   getChatOptions(agentName?: string) {
+    const options: any = {};
+
     if (this.streamOutput || this.eventBus) {
-        return {
-            stream: true,
-            onToken: (token: string) => {
-                if (this.streamOutput) process.stdout.write(token);
-                if (this.eventBus && agentName) {
-                    this.eventBus.emitEvent('token', { agent: agentName, token });
-                }
+        options.stream = true;
+        options.onToken = (token: string) => {
+            if (this.streamOutput) process.stdout.write(token);
+            if (this.eventBus && agentName) {
+                this.eventBus.emitEvent('token', { agent: agentName, token });
             }
         };
     }
-    return {};
+
+    if (this.abortSignal) {
+      options.signal = this.abortSignal;
+    }
+
+    return options;
   }
 
   /**
@@ -783,6 +1055,106 @@ export default class ConversationManager {
   }
 
   /**
+   * Prepare discussion text for the judge, compressing middle rounds if the
+   * full text would exceed the judge model's context window.
+   */
+  private prepareJudgeContext(judge: any, discussionText: string): string {
+    const limits = TokenCounter.getModelLimits(judge.model);
+    // Reserve ~6K for the prompt template + system prompt + response
+    const budget = limits.maxInput - 6000;
+    const textTokens = TokenCounter.estimateTokens(discussionText);
+
+    if (textTokens <= budget) {
+      return discussionText;
+    }
+
+    // Compress middle rounds using the shared helper
+    console.log(`[Judge context: ${textTokens} tokens exceeds ${judge.model} budget (${budget}), compressing]`);
+    const roundGroups = this.groupHistoryByRound();
+
+    if (roundGroups.length <= 3) {
+      // Not enough rounds to selectively compress — truncate text directly
+      const { text } = TokenCounter.truncateText(discussionText, budget);
+      return text;
+    }
+
+    // Keep first round + last 2 rounds verbatim, compress middle
+    const parts: string[] = [];
+    for (let i = 0; i < roundGroups.length; i++) {
+      const group = roundGroups[i];
+      const isFirst = i === 0;
+      const isLastTwo = i >= roundGroups.length - 2;
+
+      if (isFirst || isLastTwo) {
+        for (const entry of group.entries) {
+          parts.push(`[Round ${group.round}] ${entry.speaker}: ${entry.content}`);
+        }
+      } else {
+        const summary = TokenCounter.summarizeRoundEntries(group.entries);
+        parts.push(`[Round ${group.round} - compressed]\n${summary}`);
+      }
+    }
+
+    const compressed = parts.join('\n\n');
+    const compressedTokens = TokenCounter.estimateTokens(compressed);
+    console.log(`[Judge context compressed: ${textTokens} → ${compressedTokens} tokens]`);
+
+    // If still over budget after compression, truncate as last resort
+    if (compressedTokens > budget) {
+      const { text } = TokenCounter.truncateText(compressed, budget);
+      return text;
+    }
+
+    return compressed;
+  }
+
+  /**
+   * Generate a best-effort judge result from raw history without an LLM call.
+   * Used as ultimate fallback when the judge model itself fails.
+   */
+  private bestEffortJudgeResult(): {
+    consensusReached: boolean;
+    solution: string;
+    guidance: string;
+    keyDecisions: string[];
+    actionItems: string[];
+    dissent: string[];
+    confidence: string;
+  } {
+    // Extract unique agent positions from the last round
+    const roundGroups = this.groupHistoryByRound();
+    const lastRound = roundGroups[roundGroups.length - 1];
+    const agentPositions: string[] = [];
+
+    if (lastRound) {
+      for (const entry of lastRound.entries) {
+        if (entry.role === 'assistant' && entry.speaker !== 'Judge' && !entry.error) {
+          // Take first 2 sentences as position summary
+          const sentences = entry.content.match(/[^.!?]*[.!?]/g);
+          const summary = sentences
+            ? sentences.slice(0, 2).join('').trim()
+            : entry.content.substring(0, 200).trim();
+          agentPositions.push(`${entry.speaker}: ${summary}`);
+        }
+      }
+    }
+
+    const solution = agentPositions.length > 0
+      ? `Best-effort summary (judge unavailable):\n${agentPositions.join('\n')}`
+      : 'Discussion occurred but judge was unable to summarize results.';
+
+    return {
+      consensusReached: false,
+      solution,
+      guidance: 'Judge evaluation failed. Summary generated from last round agent positions.',
+      keyDecisions: [],
+      actionItems: [],
+      dissent: ['Judge model exceeded context limits — results are approximate'],
+      confidence: 'LOW'
+    };
+  }
+
+  /**
    * Judge evaluates if consensus has been reached
    * Uses cached FULL discussion to ensure judge sees complete decision journey
    * @param {Object} judge - Judge instance
@@ -824,9 +1196,12 @@ export default class ConversationManager {
         roundContext = `\n\nNote: This is round ${this.currentRound}. The agents appear to be agreeing superficially. Push them to challenge assumptions, explore edge cases, or identify weaknesses that haven't been addressed.`;
       }
 
+      // Compress discussion text if it would overflow the judge's context window
+      const fittedDiscussion = this.prepareJudgeContext(judge, this.cachedRecentDiscussion);
+
       const judgePrompt = `
 Full discussion (all rounds):
-${this.cachedRecentDiscussion}
+${fittedDiscussion}
 ${roundContext}
 
 Evaluate whether the agents have reached GENUINE consensus. True consensus requires:
@@ -906,7 +1281,53 @@ Your guidance should FORCE new insights, not just encourage more discussion.`;
       };
 
     } catch (error: any) {
-      console.error(`Error with judge evaluation: ${error.message}`);
+      const errorMsg = error.message || '';
+      console.error(`Error with judge evaluation: ${errorMsg}`);
+
+      // If context overflow, retry with a larger-context model
+      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large/i.test(errorMsg);
+      if (isContextOverflow && !judge.model.includes('claude')) {
+        console.log(`[Judge ${judge.model} context overflow, retrying with claude-sonnet-4-5 (200K context)]`);
+        try {
+          const fallbackProvider = ProviderFactory.createProvider('claude-sonnet-4-5');
+          const fittedDiscussion = this.prepareJudgeContext(
+            { model: 'claude-sonnet-4-5' },
+            this.cachedRecentDiscussion
+          );
+          const fallbackPrompt = `Full discussion:\n${fittedDiscussion}\n\nProvide brief guidance for the next round of discussion.`;
+          const response = await fallbackProvider.chat(
+            [{ role: 'user', content: fallbackPrompt }],
+            judge.systemPrompt,
+            this.getChatOptions('Judge')
+          );
+          const text = typeof response === 'string' ? response : (response.text ?? '');
+          if (text && text.length > 0) {
+            if (text.includes('CONSENSUS_REACHED')) {
+              const structured = this.parseStructuredOutput(text);
+              return {
+                consensusReached: true,
+                solution: structured.summary,
+                keyDecisions: structured.keyDecisions,
+                actionItems: structured.actionItems,
+                dissent: structured.dissent,
+                confidence: structured.confidence
+              };
+            }
+            return { consensusReached: false, guidance: text };
+          }
+        } catch (fallbackError: any) {
+          console.error(`[Judge fallback also failed: ${fallbackError.message}]`);
+        }
+
+        // Ultimate fallback: heuristic summary without LLM
+        console.log(`[Judge: using best-effort heuristic summary]`);
+        const bestEffort = this.bestEffortJudgeResult();
+        return {
+          consensusReached: false,
+          guidance: bestEffort.guidance
+        };
+      }
+
       return {
         consensusReached: false,
         guidance: 'Please continue the discussion and try to reach agreement.'
@@ -927,9 +1348,12 @@ Your guidance should FORCE new insights, not just encourage more discussion.`;
     confidence: string;
   }> {
     try {
-      const fullDiscussion = this.conversationHistory
+      const rawDiscussion = this.conversationHistory
         .map(entry => `${entry.speaker}: ${entry.content}`)
         .join('\n\n');
+
+      // Compress if needed for judge's context window
+      const fullDiscussion = this.prepareJudgeContext(judge, rawDiscussion);
 
       const votePrompt = `
 The agents have discussed the following task but haven't reached full consensus within the allowed rounds:
@@ -994,7 +1418,23 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
       };
 
     } catch (error: any) {
-      console.error(`Error conducting final vote: ${error.message}`);
+      const errorMsg = error.message || '';
+      console.error(`Error conducting final vote: ${errorMsg}`);
+
+      // If context overflow, try best-effort heuristic summary
+      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large/i.test(errorMsg);
+      if (isContextOverflow) {
+        console.log(`[Final vote: judge context overflow, using best-effort summary]`);
+        const bestEffort = this.bestEffortJudgeResult();
+        return {
+          solution: bestEffort.solution,
+          keyDecisions: bestEffort.keyDecisions,
+          actionItems: bestEffort.actionItems,
+          dissent: bestEffort.dissent,
+          confidence: bestEffort.confidence
+        };
+      }
+
       return {
         solution: 'Unable to reach a final decision due to an error.',
         keyDecisions: [],

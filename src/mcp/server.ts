@@ -181,6 +181,11 @@ Example inline JSON:
           description: `Model to use for speaker selection when dynamic=true. A fast, cheap model is recommended since it runs frequently. Default: ${DEFAULT_SELECTOR_MODEL}`,
           default: DEFAULT_SELECTOR_MODEL,
         },
+        timeout: {
+          type: 'number',
+          description: 'Maximum time in seconds for the discussion. When exceeded, returns partial results from completed rounds. Default: 300 (5 minutes). Set to 0 for no timeout.',
+          default: 300,
+        },
       },
       required: ['task'],
     },
@@ -327,6 +332,7 @@ async function handleDiscuss(args: {
   min_rounds?: number;
   dynamic?: boolean;
   selector_model?: string;
+  timeout?: number;
 }, server: Server) {
   const {
     task,
@@ -336,7 +342,8 @@ async function handleDiscuss(args: {
     rounds = 4,
     min_rounds = 0,
     dynamic = false,
-    selector_model = DEFAULT_SELECTOR_MODEL
+    selector_model = DEFAULT_SELECTOR_MODEL,
+    timeout = 300
   } = args;
 
   // Resolve configuration with optional custom config path
@@ -431,10 +438,27 @@ async function handleDiscuss(args: {
     selector_model
   );
 
-  let result;
+  // Set up timeout with abort signal
+  const abortController = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+
+  if (timeout > 0) {
+    conversationManager.abortSignal = abortController.signal;
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      abortController.abort('timeout');
+      console.log(`[MCP timeout: ${timeout}s exceeded, aborting discussion]`);
+    }, timeout * 1000);
+  }
+
+  let result: any;
   try {
+    // startConversation() returns normally even on timeout — it checks abortSignal
+    // internally and returns a result with timedOut: true if aborted.
     result = await conversationManager.startConversation(task, judge, projectContext);
   } finally {
+    if (timeoutId) clearTimeout(timeoutId);
     // Remove only the MCP-registered handlers, preserving the EventBus
     // constructor's default no-op error handler for any late async callbacks.
     scopedEventBus.off('round:start', onRoundStart);
@@ -465,7 +489,11 @@ async function handleDiscuss(args: {
   const sessionId = await sessionManager.saveSession(session);
 
   // Format brief summary for MCP response (keeps context small)
-  const summary = formatDiscussionResult(result, logFilePath, sessionId);
+  let summary = '';
+  if (result.timedOut) {
+    summary += `**⏱️ Discussion timed out after ${timeout}s** (${result.rounds} rounds completed)\n\n`;
+  }
+  summary += formatDiscussionResult(result, logFilePath, sessionId);
 
   return {
     content: [

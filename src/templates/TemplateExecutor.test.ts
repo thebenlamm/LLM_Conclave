@@ -58,7 +58,7 @@ describe('TemplateExecutor', () => {
     };
 
     const mockStartConversation = jest.fn().mockResolvedValue({});
-    (ConversationManager as jest.Mock).mockImplementation(() => ({
+    (ConversationManager as unknown as jest.Mock).mockImplementation(() => ({
       startConversation: mockStartConversation
     }));
 
@@ -80,7 +80,7 @@ describe('TemplateExecutor', () => {
     };
 
     const mockStartConversation = jest.fn().mockResolvedValue({});
-    (ConversationManager as jest.Mock).mockImplementation((config) => {
+    (ConversationManager as unknown as jest.Mock).mockImplementation((config) => {
         expect(config.agents['Agent1'].provider).toBe('openai');
         return { startConversation: mockStartConversation };
     });

@@ -48,6 +48,9 @@ export class SpeakerSelector {
   private consecutiveFailures: number = 0;
   private circuitBreakerOpen: boolean = false;
 
+  // Abort signal for cancellation (threaded from ConversationManager)
+  abortSignal?: AbortSignal;
+
   /**
    * Creates an instance of SpeakerSelector.
    * @param {AgentInfo[]} agentInfos - List of agents participating in the conversation.
@@ -491,9 +494,13 @@ OR
 
     try {
       const messages = [{ role: 'user', content: prompt }] as any[];
+      const chatOptions: any = {};
+      if (this.abortSignal) {
+        chatOptions.signal = this.abortSignal;
+      }
       const response = await this.provider.chat(messages,
         'Output valid JSON only. No markdown, no explanation, no code blocks. Just the JSON object.',
-        {}
+        chatOptions
       );
 
       let text = (typeof response === 'string' ? response : response.text) || '';
