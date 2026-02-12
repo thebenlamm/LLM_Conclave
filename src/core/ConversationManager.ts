@@ -1186,8 +1186,9 @@ export default class ConversationManager {
           contributingAgents.add(entry.speaker);
         }
       }
-      const allAgentsContributed = this.agentOrder.every(agent => contributingAgents.has(agent));
-      const missingAgents = this.agentOrder.filter(agent => !contributingAgents.has(agent));
+      const activeAgents = this.agentOrder.filter(agent => !this.persistentlyFailedAgents.has(agent));
+      const allAgentsContributed = activeAgents.every(agent => contributingAgents.has(agent));
+      const missingAgents = activeAgents.filter(agent => !contributingAgents.has(agent));
 
       let roundContext = '';
       if (!allAgentsContributed) {
@@ -1205,7 +1206,7 @@ ${fittedDiscussion}
 ${roundContext}
 
 Evaluate whether the agents have reached GENUINE consensus. True consensus requires:
-1. ALL agents must have contributed at least once (check the discussion - if any agent is missing, consensus is NOT possible)
+1. All active agents must have contributed at least once (agents disabled by errors are excluded)
 2. Specific, actionable recommendations (not vague agreement)
 3. Trade-offs acknowledged and resolved
 4. Potential objections addressed (not just glossed over)
