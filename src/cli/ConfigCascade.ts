@@ -116,9 +116,9 @@ export class ConfigCascade {
     } catch (error: any) {
       // If a custom path was explicitly provided but failed, warn the user
       if (customPath) {
-        console.warn(`⚠️  Warning: Failed to load config from "${customPath}": ${error.message}`);
-        console.warn(`   Falling back to default agents. Check your config file format.`);
-        console.warn(`   Required agent fields: "model" and "prompt" (or "systemPrompt")`);
+        console.error(`\n❌ Failed to load config from "${customPath}": ${error.message}`);
+        console.error(`   Falling back to default agents (Primary, Validator, Reviewer).`);
+        console.error(`   Check your config file format. Required agent fields: "model" and "prompt" (or "systemPrompt")\n`);
       }
       // No project config is OK - we have defaults
       return {};

@@ -59,6 +59,7 @@ export function createIterateCommand(): Command {
           undefined
         );
 
+      console.log(chalk.blue(`Agents: ${Object.keys(config.agents).join(', ')}\n`));
       console.log(chalk.cyan(`Chunk size: ${chunkSize}`));
       console.log(chalk.cyan(`Rounds per chunk: ${maxRounds}\n`));
 

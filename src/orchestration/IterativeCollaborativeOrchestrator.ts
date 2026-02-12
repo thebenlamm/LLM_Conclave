@@ -1,5 +1,6 @@
 import { Agent } from '../types';
 import ToolRegistry from '../tools/ToolRegistry';
+import ProviderFactory from '../providers/ProviderFactory';
 import { EventBus } from '../core/EventBus';
 import { createChatOptions } from './chatOptionsHelper';
 import * as fs from 'fs';
@@ -33,6 +34,9 @@ export default class IterativeCollaborativeOrchestrator {
   chunkDurations: number[];
   promptCounter: number;
   eventBus?: EventBus;
+  consecutiveFailures: Map<string, number>;
+  disabledAgents: Set<string>;
+  usedFallbacks: Set<string>;
 
   constructor(
     agents: Agent[],
@@ -64,6 +68,9 @@ export default class IterativeCollaborativeOrchestrator {
     this.chunkDurations = [];
     this.promptCounter = 0;
     this.eventBus = options.eventBus;
+    this.consecutiveFailures = new Map();
+    this.disabledAgents = new Set();
+    this.usedFallbacks = new Set();
 
     // Ensure output directories exist
     if (!fs.existsSync(this.outputDir)) {
@@ -271,22 +278,29 @@ Task: ${task}
 
 ${projectContext ? `The project has ${projectContext.split('\n').length} lines of content available to agents.\n` : ''}
 
-Provide a JSON array of chunks. Each chunk should have:
-- description: Brief description (e.g., "Line 5" or "Lines 10-12")
+Provide a JSON array of chunks. Each chunk MUST have:
+- description: Brief description (e.g., "Lines 1-3" or "Lines 10-12")
 - details: Simple instruction (e.g., "Correct OCR errors" or "Review and validate")
+- startLine: First line number in this chunk (1-indexed)
+- endLine: Last line number in this chunk (1-indexed)
 
-IMPORTANT: Keep details SHORT. Do NOT include actual text content - agents can read files themselves.
+IMPORTANT: Keep details SHORT. Do NOT include actual text content - agents will receive it automatically.
+IMPORTANT: Every chunk MUST specify startLine and endLine as integers.
 
 Example format:
 \`\`\`json
 [
   {
-    "description": "Line 1",
-    "details": "Correct OCR errors"
+    "description": "Lines 1-3",
+    "details": "Correct OCR errors",
+    "startLine": 1,
+    "endLine": 3
   },
   {
-    "description": "Line 2",
-    "details": "Correct OCR errors"
+    "description": "Lines 4-6",
+    "details": "Correct OCR errors",
+    "startLine": 4,
+    "endLine": 6
   }
 ]
 \`\`\`
@@ -294,10 +308,13 @@ Example format:
 Return ONLY the JSON array, nothing else.`;
 
     const messages = [{ role: 'user' as const, content: planningPrompt }];
-    const response = await this.judge.provider.chat(
+    const response = await this.chatWithFallback(
+      this.judge.provider,
+      this.judge.model,
       messages,
       this.judge.systemPrompt,
-      this.getChatOptions()
+      this.getChatOptions(),
+      'Judge'
     );
 
     if (this.streamOutput) {
@@ -351,6 +368,12 @@ Return ONLY the JSON array, nothing else.`;
 
       if (!Array.isArray(chunks)) {
         throw new Error('Expected JSON array of chunks');
+      }
+
+      // Post-process: ensure startLine/endLine are integers and extract lineContent
+      for (const chunk of chunks) {
+        if (chunk.startLine != null) chunk.startLine = parseInt(chunk.startLine, 10);
+        if (chunk.endLine != null) chunk.endLine = parseInt(chunk.endLine, 10);
       }
 
       console.log(`  Planned ${chunks.length} chunks\n`);
@@ -469,13 +492,37 @@ ${windowedContext ? `Surrounding Context (±3 lines for reference only - DO NOT 
 
 Collaborate with other agents to complete this chunk. You can read from and write to your own notes file, but only the judge will write to the shared output.`;
     } else {
-      // Fallback for chunks without line content
+      // Fallback for chunks without line content — try to scope context
+      let scopedContext = '';
+      if (projectContext) {
+        // Try to find relevant section from the chunk description
+        const lineNums = this.parseLineNumbersFromDescription(chunk.description);
+        if (lineNums && lineNums.length > 0) {
+          const lineMap = this.extractLinesFromContext(projectContext, lineNums);
+          const lines: string[] = [];
+          for (const num of lineNums) {
+            const line = lineMap.get(num);
+            if (line !== undefined) lines.push(line);
+          }
+          if (lines.length > 0) {
+            scopedContext = `\nTEXT TO WORK ON:\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${lines.join('\n')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          }
+        }
+
+        // If we still couldn't scope, provide truncated context with a warning
+        if (!scopedContext) {
+          const contextLines = projectContext.split('\n');
+          const truncated = contextLines.length > 50
+            ? contextLines.slice(0, 50).join('\n') + '\n... (truncated)'
+            : projectContext;
+          scopedContext = `\nProject Context (could not scope to specific lines — review the full text and focus on what matches "${chunk.description}"):\n${truncated}\n`;
+        }
+      }
+
       contextMessage = `Working on chunk ${chunkNumber}: ${chunk.description}
 
-${chunk.details}
-
-${projectContext ? `Project Context:\n${projectContext}\n` : ''}
-
+YOUR TASK: ${chunk.details}
+${scopedContext}
 Collaborate with other agents to complete this chunk. You can read from and write to your own notes file, but only the judge will write to the shared output.`;
     }
 
@@ -484,6 +531,11 @@ Collaborate with other agents to complete this chunk. You can read from and writ
 
       // Each agent gets a turn to contribute
       for (const agent of this.agents) {
+        // Skip agents disabled by circuit breaker
+        if (this.disabledAgents.has(agent.name)) {
+          continue;
+        }
+
         console.log(`    💬 ${agent.name}...`);
 
         // Build agent's context: chunk description + conversation history + their state file
@@ -508,23 +560,34 @@ Collaborate with other agents to complete this chunk. You can read from and writ
           });
         }
 
-        // Execute agent with tools
-        const response = await this.executeAgentWithTools(agent, agentMessages, {
-          chunk: chunkNumber,
-          round: round
-        });
-
-        if (response) {
-          // Add agent's response to conversation
-          chunkMessages.push({
-            role: 'assistant',
-            content: `[${agent.name}]: ${response}`
+        // Execute agent with tools + fallback on retryable errors
+        try {
+          const response = await this.executeAgentWithTools(agent, agentMessages, {
+            chunk: chunkNumber,
+            round: round
           });
 
-          // Update agent's state file
-          await this.updateAgentState(agent, `## Chunk ${chunkNumber} - Round ${round}\n\n${response}\n\n`);
+          if (response) {
+            this.recordSuccess(agent.name);
 
-          console.log(`      ✓ Contributed`);
+            // Add agent's response to conversation
+            chunkMessages.push({
+              role: 'assistant',
+              content: `[${agent.name}]: ${response}`
+            });
+
+            // Update agent's state file
+            await this.updateAgentState(agent, `## Chunk ${chunkNumber} - Round ${round}\n\n${response}\n\n`);
+
+            console.log(`      ✓ Contributed`);
+          } else {
+            this.recordFailure(agent.name, 'empty response');
+            console.log(`      ⚠️  Empty response`);
+          }
+        } catch (error: any) {
+          const reason = error?.message || String(error);
+          console.log(`      ❌ ${agent.name} error: ${reason.substring(0, 120)}`);
+          this.recordFailure(agent.name, reason.substring(0, 80));
         }
       }
 
@@ -603,10 +666,14 @@ Collaborate with other agents to complete this chunk. You can read from and writ
       // Convert tool_calls to OpenAI format if needed
       const messagesToSend = useOpenAIFormat ? this.convertToolCallsToOpenAIFormat(currentMessages) : currentMessages;
 
-      const response = await agent.provider.chat(
+      const chatOpts = { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools, ...this.getChatOptions(true) };
+      const response = await this.chatWithFallback(
+        agent.provider,
+        agent.model,
         messagesToSend,
         agent.systemPrompt,
-        { tools: useOpenAIFormat ? this.toolRegistry.getOpenAITools() : tools, ...this.getChatOptions(true) }
+        chatOpts,
+        agent.name
       );
 
       if (response.tool_calls && response.tool_calls.length > 0) {
@@ -683,10 +750,13 @@ If not complete, provide guidance:
 CONTINUE: [Brief guidance on what still needs discussion]`;
 
     const messages = [{ role: 'user' as const, content: evaluationPrompt }];
-    const response = await this.judge.provider.chat(
+    const response = await this.chatWithFallback(
+      this.judge.provider,
+      this.judge.model,
       messages,
       this.judge.systemPrompt,
-      this.getChatOptions()
+      this.getChatOptions(),
+      'Judge'
     );
 
     if (this.streamOutput) {
@@ -738,10 +808,13 @@ ${chunkMessages.map(m => m.content).join('\n\n')}
 Synthesize the best result from this discussion:`;
 
     const messages = [{ role: 'user' as const, content: synthesisPrompt }];
-    const response = await this.judge.provider.chat(
+    const response = await this.chatWithFallback(
+      this.judge.provider,
+      this.judge.model,
       messages,
       this.judge.systemPrompt,
-      this.getChatOptions()
+      this.getChatOptions(),
+      'Judge'
     );
 
     if (this.streamOutput) {
@@ -858,37 +931,150 @@ Synthesize the best result from this discussion:`;
   }
 
   /**
-   * Enrich chunks with actual line content extracted from project context
+   * Parse line numbers from a chunk description.
+   * Handles: "Line 5", "Lines 5-7", "Lines 5–7", "Lines 5 to 7"
+   */
+  private parseLineNumbersFromDescription(description: string): number[] | null {
+    // Range: "Lines 5-7", "Lines 5–7", "Lines 5 to 7"
+    const rangeMatch = description.match(/Lines?\s+(\d+)\s*[-–to]+\s*(\d+)/i);
+    if (rangeMatch) {
+      const start = parseInt(rangeMatch[1], 10);
+      const end = parseInt(rangeMatch[2], 10);
+      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+    }
+
+    // Single: "Line 5"
+    const singleMatch = description.match(/Lines?\s+(\d+)/i);
+    if (singleMatch) {
+      return [parseInt(singleMatch[1], 10)];
+    }
+
+    return null;
+  }
+
+  /**
+   * Enrich chunks with actual line content extracted from project context.
+   * Handles single lines ("Line 5") and ranges ("Lines 5-7").
+   * Also uses startLine/endLine fields if set by planChunks post-processing.
    */
   private enrichChunksWithLineContent(chunks: any[], projectContext: string | undefined): any[] {
-    // Extract all line numbers from chunk descriptions
-    const lineNumbers: number[] = [];
+    if (!projectContext) return chunks;
+
+    // Collect all needed line numbers across all chunks
+    const allLineNumbers: number[] = [];
+    const chunkLineRanges: (number[] | null)[] = [];
+
     for (const chunk of chunks) {
-      const match = chunk.description.match(/Line (\d+)/i);
-      if (match) {
-        lineNumbers.push(parseInt(match[1], 10));
+      // Prefer startLine/endLine if already set by planChunks post-processing
+      if (chunk.startLine && chunk.endLine) {
+        const range = Array.from({ length: chunk.endLine - chunk.startLine + 1 }, (_, i) => chunk.startLine + i);
+        chunkLineRanges.push(range);
+        allLineNumbers.push(...range);
+      } else {
+        const parsed = this.parseLineNumbersFromDescription(chunk.description);
+        chunkLineRanges.push(parsed);
+        if (parsed) allLineNumbers.push(...parsed);
       }
     }
 
     // Get all lines at once
-    const lineMap = this.extractLinesFromContext(projectContext, lineNumbers);
+    const uniqueLines = [...new Set(allLineNumbers)];
+    const lineMap = this.extractLinesFromContext(projectContext, uniqueLines);
 
     // Enrich each chunk with its line content
-    return chunks.map(chunk => {
-      const match = chunk.description.match(/Line (\d+)/i);
-      if (match) {
-        const lineNum = parseInt(match[1], 10);
-        const lineContent = lineMap.get(lineNum);
-        if (lineContent !== undefined) {
-          return {
-            ...chunk,
-            lineNumber: lineNum,
-            lineContent: lineContent
-          };
-        }
+    return chunks.map((chunk, idx) => {
+      // Skip if already has lineContent (e.g. from autoGenerateLineChunks)
+      if (chunk.lineContent !== undefined) return chunk;
+
+      const lineNums = chunkLineRanges[idx];
+      if (!lineNums || lineNums.length === 0) return chunk;
+
+      const lines: string[] = [];
+      for (const num of lineNums) {
+        const line = lineMap.get(num);
+        if (line !== undefined) lines.push(line);
       }
+
+      if (lines.length > 0) {
+        return {
+          ...chunk,
+          lineNumbers: lineNums,
+          lineContent: lines.join('\n')
+        };
+      }
+
       return chunk;
     });
+  }
+
+  /**
+   * Get a cross-provider fallback model for resilience.
+   * Copied from ConversationManager pattern.
+   */
+  private getFallbackModel(currentModel: string): string | null {
+    const model = currentModel.toLowerCase();
+    if (model.includes('claude')) return 'gpt-4o-mini';
+    if (model.includes('gemini')) return 'gpt-4o-mini';
+    if (/\bo[13]-/.test(model) || /\bo[13]$/.test(model)) return 'claude-sonnet-4-5';
+    if (model.includes('gpt') || model.includes('grok') || model.includes('mistral')) return 'claude-sonnet-4-5';
+    return 'gpt-4o-mini';
+  }
+
+  /**
+   * Check if an error is retryable (rate limit, transient server error).
+   */
+  private isRetryableError(error: any): boolean {
+    const msg = String(error?.message || error || '').toLowerCase();
+    return /429|rate.?limit|502|503|504|timeout|overloaded|capacity/i.test(msg);
+  }
+
+  /**
+   * Record an agent failure and trip the circuit breaker after 2 consecutive failures.
+   */
+  private recordFailure(agentName: string, reason: string): void {
+    const count = (this.consecutiveFailures.get(agentName) || 0) + 1;
+    this.consecutiveFailures.set(agentName, count);
+
+    if (count >= 2) {
+      this.disabledAgents.add(agentName);
+      console.log(`    ⚡ Circuit breaker: ${agentName} disabled after ${count} consecutive failures (${reason})`);
+    }
+  }
+
+  /**
+   * Reset consecutive failure count for an agent on success.
+   */
+  private recordSuccess(agentName: string): void {
+    this.consecutiveFailures.set(agentName, 0);
+  }
+
+  /**
+   * Execute a provider chat call with fallback on retryable errors.
+   * Used for both agents and judge.
+   */
+  private async chatWithFallback(
+    provider: any,
+    model: string,
+    messages: any[],
+    systemPrompt: string,
+    chatOptions: any,
+    callerName: string
+  ): Promise<any> {
+    try {
+      return await provider.chat(messages, systemPrompt, chatOptions);
+    } catch (error: any) {
+      if (this.isRetryableError(error)) {
+        const fallbackModel = this.getFallbackModel(model);
+        const fallbackKey = `${callerName}:${fallbackModel}`;
+        if (fallbackModel && !this.usedFallbacks.has(fallbackKey)) {
+          this.usedFallbacks.add(fallbackKey);
+          console.log(`    ⚠️  ${callerName} (${model}) failed, falling back to ${fallbackModel}`);
+          const fallbackProvider = ProviderFactory.createProvider(fallbackModel);
+          return await fallbackProvider.chat(messages, systemPrompt, chatOptions);
+        }
+      }
+      throw error;
+    }
   }
 
   /**
