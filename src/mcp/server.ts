@@ -704,8 +704,16 @@ function validatePath(filePath: string, baseDir: string): string {
     throw new Error(`Invalid path (null byte detected): ${filePath}`);
   }
   const absolutePath = path.resolve(baseDir, filePath);
-  const normalizedBase = path.resolve(baseDir) + path.sep;
-  if (!absolutePath.startsWith(normalizedBase) && absolutePath !== path.resolve(baseDir)) {
+
+  // In SSE mode, process.cwd() is often "/" (set by launchd/systemd),
+  // which makes subdirectory validation meaningless. Use HOME as the
+  // security boundary instead — only allow paths under the user's home dir.
+  const effectiveBase = (baseDir === '/' || baseDir === '')
+    ? (process.env.HOME || '/tmp')
+    : baseDir;
+
+  const normalizedBase = path.resolve(effectiveBase) + path.sep;
+  if (!absolutePath.startsWith(normalizedBase) && absolutePath !== path.resolve(effectiveBase)) {
     throw new Error(`Path escapes allowed directory: ${filePath}`);
   }
   return absolutePath;
