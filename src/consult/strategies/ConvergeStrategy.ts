@@ -286,6 +286,7 @@ ${COMMON_JSON_INSTRUCTION}
 Use the following schema:
 
 {
+  "_analysis": "Step-by-step reasoning about the evidence before committing to verdict. Weigh each agent's arguments, note which survived cross-examination, and explain your reasoning process.",
   "recommendation": "The final authoritative answer (single, definitive recommendation)",
   "confidence": 0.0-1.0,
   "evidence": ["Key supporting point 1", "Key supporting point 2 (survived challenge)"],
@@ -296,7 +297,9 @@ Use the following schema:
       "severity": "high/medium/low"
     }
   ]
-}`;
+}
+
+Fill the "_analysis" field FIRST with your detailed reasoning. Then provide your recommendation based on that analysis.`;
   }
 
   /**

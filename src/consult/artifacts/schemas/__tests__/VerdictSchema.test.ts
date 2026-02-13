@@ -190,6 +190,67 @@ describe('VerdictSchema', () => {
     });
   });
 
+  describe('Two-Step Output Pattern (_analysis field)', () => {
+    const validArtifact = {
+      artifactType: 'verdict',
+      schemaVersion: '1.0',
+      roundNumber: 4,
+      recommendation: 'Use PostgreSQL',
+      confidence: 0.85,
+      evidence: ['ACID compliance'],
+      dissent: [],
+      createdAt: new Date().toISOString()
+    };
+
+    it('should accept artifact with _analysis field', () => {
+      const withAnalysis = { ...validArtifact, _analysis: 'After weighing all evidence...' };
+      expect(() => VerdictSchema.validate(withAnalysis)).not.toThrow();
+    });
+
+    it('should accept artifact without _analysis field', () => {
+      expect(() => VerdictSchema.validate(validArtifact)).not.toThrow();
+    });
+
+    it('should reject non-string _analysis', () => {
+      const withBadAnalysis = { ...validArtifact, _analysis: 123 };
+      expect(() => VerdictSchema.validate(withBadAnalysis)).toThrow('_analysis must be a string if provided');
+    });
+
+    it('should accept _analysis in explore mode', () => {
+      const exploreWithAnalysis = {
+        artifactType: 'verdict',
+        schemaVersion: '1.0',
+        roundNumber: 4,
+        recommendations: [{ option: 'A', description: 'Desc A' }],
+        confidence: 0.8,
+        createdAt: new Date().toISOString(),
+        _analysis: 'Exploring multiple options...'
+      };
+      expect(() => VerdictSchema.validate(exploreWithAnalysis, 'explore')).not.toThrow();
+    });
+
+    it('should pass _analysis through create() when provided', () => {
+      const artifact = VerdictSchema.create({
+        recommendation: 'Use PostgreSQL',
+        confidence: 0.85,
+        evidence: ['ACID compliance'],
+        dissent: [],
+        _analysis: 'My reasoning...'
+      });
+      expect(artifact._analysis).toBe('My reasoning...');
+    });
+
+    it('should not include _analysis in create() when omitted', () => {
+      const artifact = VerdictSchema.create({
+        recommendation: 'Use PostgreSQL',
+        confidence: 0.85,
+        evidence: ['ACID compliance'],
+        dissent: []
+      });
+      expect(artifact._analysis).toBeUndefined();
+    });
+  });
+
   describe('Common Validation', () => {
     it('should validate confidence is between 0 and 1', () => {
       const artifactWithInvalidConfidence = {

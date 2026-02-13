@@ -223,6 +223,7 @@ export class ArtifactTransformer {
    * Convert Verdict artifact to JSON (snake_case)
    */
   public static verdictToJSON(artifact: VerdictArtifact): any {
+    // Exclude _analysis scratchpad field from JSON output (Two-Step Output Pattern)
     return {
       artifact_type: artifact.artifactType,
       schema_version: artifact.schemaVersion,

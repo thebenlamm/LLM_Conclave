@@ -7,6 +7,7 @@ import { execSync } from 'child_process';
 import * as path from 'path';
 import { ToolDefinition, ToolExecutionResult, OpenAITool } from '../types';
 import { SensitiveDataScrubber } from '../consult/security/SensitiveDataScrubber';
+import { ArtifactStore } from '../core/ArtifactStore';
 
 /**
  * ToolRegistry - Defines and executes tools for agent use
@@ -24,11 +25,13 @@ export default class ToolRegistry {
   private readonly commandTimeoutMs = 30000; // 30 seconds
   private readonly maxFileReadBytes = 10 * 1024 * 1024; // 10MB
   private readonly enableRunCommand: boolean;
+  private artifactStore?: ArtifactStore;
 
-  constructor(baseDir?: string, options?: { enableRunCommand?: boolean }) {
+  constructor(baseDir?: string, options?: { enableRunCommand?: boolean; artifactStore?: ArtifactStore }) {
     this.baseDir = path.resolve(baseDir ?? process.cwd());
     this.scrubber = new SensitiveDataScrubber();
     this.enableRunCommand = options?.enableRunCommand ?? false; // Disabled by default
+    this.artifactStore = options?.artifactStore;
     this.tools = this.defineTools();
   }
 
@@ -121,6 +124,20 @@ export default class ToolRegistry {
             }
           },
           required: ['command']
+        }
+      },
+      expand_artifact: {
+        name: 'expand_artifact',
+        description: 'Retrieve full content of a stored artifact by ID. Use when you need to see the complete contents of a previously offloaded tool result.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            artifact_id: {
+              type: 'string',
+              description: 'Artifact ID (e.g., "tool-3")'
+            }
+          },
+          required: ['artifact_id']
         }
       }
     };
@@ -276,6 +293,10 @@ export default class ToolRegistry {
           result = await this._runCommand(input.command);
           break;
 
+        case 'expand_artifact':
+          result = await this._expandArtifact(input.artifact_id);
+          break;
+
         default:
           return {
             success: false,
@@ -284,13 +305,41 @@ export default class ToolRegistry {
       }
 
       // Apply sensitive data scrubbing to all successful results
-      return this.scrubResult(result);
+      const scrubbed = this.scrubResult(result);
+
+      // Offload large results to disk if artifact store is available
+      if (scrubbed.success && scrubbed.result && toolName !== 'expand_artifact' && this.artifactStore?.shouldOffload(scrubbed.result)) {
+        const artifact = await this.artifactStore.store(toolName, input, scrubbed.result);
+        return { ...scrubbed, result: artifact.stub };
+      }
+
+      return scrubbed;
     } catch (error: any) {
       return {
         success: false,
         error: error.message
       };
     }
+  }
+
+  /**
+   * Expand a stored artifact by ID
+   */
+  async _expandArtifact(artifactId: string): Promise<ToolExecutionResult> {
+    if (!this.artifactStore) {
+      return { success: false, error: 'Artifact store not available' };
+    }
+
+    const content = await this.artifactStore.get(artifactId);
+    if (content === null) {
+      return { success: false, error: `Artifact not found: ${artifactId}` };
+    }
+
+    return {
+      success: true,
+      result: content,
+      summary: `Expanded artifact ${artifactId}`
+    };
   }
 
   /**

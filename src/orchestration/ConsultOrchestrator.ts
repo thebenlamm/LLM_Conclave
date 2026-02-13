@@ -874,7 +874,10 @@ export default class ConsultOrchestrator {
         this.trackActualCost(response.usage, judgeAgent.model);
       }
 
-      const artifact = ArtifactExtractor.extractVerdictArtifactWithMode(response.text || '', this.strategy.name);
+      const rawArtifact = ArtifactExtractor.extractVerdictArtifactWithMode(response.text || '', this.strategy.name);
+
+      // Strip _analysis scratchpad field before returning (Two-Step Output Pattern)
+      const { _analysis: _, ...artifact } = rawArtifact;
 
       this.eventBus.emitEvent('consultation:round_artifact', {
         consultation_id: this.consultationId,

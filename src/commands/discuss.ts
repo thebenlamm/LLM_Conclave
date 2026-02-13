@@ -28,6 +28,7 @@ export function createDiscussCommand(): Command {
     .option('--no-stream', 'Disable streaming')
     .option('--dynamic', 'Use dynamic speaker selection (LLM picks who speaks next)')
     .option('--selector-model <model>', 'Model for speaker selection', DEFAULT_SELECTOR_MODEL)
+    .option('--no-routing', 'Disable cheap model routing for subtasks (summarization)')
     .action(async (taskArgs: string[], options: any) => {
       const task = taskArgs.join(' ');
 
@@ -86,7 +87,8 @@ export function createDiscussCommand(): Command {
         options.stream,
         undefined,  // eventBus
         options.dynamic || false,
-        options.selectorModel || DEFAULT_SELECTOR_MODEL
+        options.selectorModel || DEFAULT_SELECTOR_MODEL,
+        { disableRouting: options.routing === false }
       );
       const result = await conversationManager.startConversation(task, judge, projectContext);
 

@@ -2,6 +2,8 @@ import ProviderFactory from '../providers/ProviderFactory';
 import TokenCounter from '../utils/TokenCounter';
 import { EventBus } from './EventBus';
 import { SpeakerSelector, AgentInfo } from './SpeakerSelector';
+import { DiscussionStateExtractor } from './DiscussionStateExtractor';
+import { TaskRouter } from './TaskRouter';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
 
 /**
@@ -39,13 +41,17 @@ export default class ConversationManager {
   // Abort signal for cancellation from MCP timeout
   abortSignal?: AbortSignal;
 
+  // Model routing for subtasks (summarization)
+  private taskRouter: TaskRouter | null;
+
   constructor(
     config: any,
     memoryManager: any = null,
     streamOutput: boolean = false,
     eventBus?: EventBus,
     dynamicSelection: boolean = false,
-    selectorModel: string = DEFAULT_SELECTOR_MODEL
+    selectorModel: string = DEFAULT_SELECTOR_MODEL,
+    options?: { disableRouting?: boolean }
   ) {
     this.config = config;
     this.agents = {};
@@ -59,6 +65,13 @@ export default class ConversationManager {
     this.eventBus = eventBus;
     this.dynamicSelection = dynamicSelection;
     this.selectorModel = selectorModel;
+
+    // Initialize task router for cheap subtask routing (summarization)
+    // Disabled via options, CONCLAVE_DISABLE_ROUTING env var, or --no-routing CLI flag
+    const routingDisabled = options?.disableRouting
+      || process.env.CONCLAVE_DISABLE_ROUTING === '1'
+      || process.env.CONCLAVE_DISABLE_ROUTING === 'true';
+    this.taskRouter = routingDisabled ? null : new TaskRouter();
 
     this.initializeAgents();
   }
@@ -268,7 +281,7 @@ export default class ConversationManager {
       }
 
       // Compress history if it's getting too large (prevents context overflow in later rounds)
-      this.compressHistory();
+      await this.compressHistory();
     }
 
     // If aborted (e.g. MCP timeout), return partial result immediately — skip final vote
@@ -841,8 +854,9 @@ export default class ConversationManager {
    * Compress conversation history if it exceeds the token threshold.
    * Keeps round 1 (initial positions) and last 2 rounds verbatim.
    * Compresses middle rounds into summaries.
+   * Uses TaskRouter for LLM-powered summarization when available.
    */
-  compressHistory(): void {
+  async compressHistory(): Promise<void> {
     const totalTokens = TokenCounter.estimateMessagesTokens(
       this.conversationHistory.map(e => ({ role: e.role, content: e.content })),
       null
@@ -872,8 +886,8 @@ export default class ConversationManager {
         // Keep verbatim
         newHistory.push(...group.entries);
       } else {
-        // Compress to summary
-        const summary = TokenCounter.summarizeRoundEntries(group.entries);
+        // Compress to summary — use LLM router if available, else heuristic
+        const summary = await TokenCounter.summarizeWithLLM(group.entries, group.round, this.taskRouter);
         newHistory.push({
           role: 'user',
           content: `[Round ${group.round} summary]\n${summary}`,
@@ -1182,22 +1196,28 @@ export default class ConversationManager {
     const caseFile = this.buildCaseFile();
     const caseFileTokens = TokenCounter.estimateTokens(caseFile);
 
-    // Budget for the discussion text after accounting for the case file
-    const discussionBudget = budget - caseFileTokens;
+    // Extract discussion state for richer judge signal (Phase 2 Context Tax)
+    const roundGroups = this.groupHistoryByRound();
+    const currentRound = roundGroups.length > 0 ? roundGroups[roundGroups.length - 1].round : 1;
+    const discussionState = DiscussionStateExtractor.extract(roundGroups, currentRound);
+    const stateText = discussionState ? DiscussionStateExtractor.format(discussionState) : '';
+    const stateTokens = stateText ? TokenCounter.estimateTokens(stateText) : 0;
+
+    // Budget for the discussion text after accounting for the case file and state
+    const discussionBudget = Math.max(0, budget - caseFileTokens - stateTokens);
     const textTokens = TokenCounter.estimateTokens(discussionText);
 
     if (textTokens <= discussionBudget) {
-      return caseFile + '\n' + discussionText;
+      return caseFile + '\n' + stateText + '\n' + discussionText;
     }
 
     // Compress middle rounds using the shared helper
     console.log(`[Judge context: ${textTokens} tokens exceeds ${judge.model} budget (${discussionBudget} after case file), compressing]`);
-    const roundGroups = this.groupHistoryByRound();
 
     if (roundGroups.length <= 3) {
       // Not enough rounds to selectively compress — truncate text directly
       const { text } = TokenCounter.truncateText(discussionText, discussionBudget);
-      return caseFile + '\n' + text;
+      return caseFile + '\n' + stateText + '\n' + text;
     }
 
     // Keep first round + last 2 rounds verbatim, compress middle
@@ -1224,10 +1244,10 @@ export default class ConversationManager {
     // If still over budget after compression, truncate as last resort
     if (compressedTokens > discussionBudget) {
       const { text } = TokenCounter.truncateText(compressed, discussionBudget);
-      return caseFile + '\n' + text;
+      return caseFile + '\n' + stateText + '\n' + text;
     }
 
-    return caseFile + '\n' + compressed;
+    return caseFile + '\n' + stateText + '\n' + compressed;
   }
 
   /**

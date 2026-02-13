@@ -245,21 +245,28 @@ async function runIterativeMode(task: string, options: any) {
     systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge coordinating the agents.'
   };
 
-  // Initialize tool registry
+  // Initialize tool registry with artifact offloading
   const ToolRegistry = (await import('./src/tools/ToolRegistry')).default;
-  const toolRegistry = new ToolRegistry();
+  const { ArtifactStore } = await import('./src/core/ArtifactStore');
+  const artifactStore = new ArtifactStore(`iterate-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+  await artifactStore.init();
+  const toolRegistry = new ToolRegistry(undefined, { artifactStore });
 
-  // Initialize and run orchestrator
-  const orchestrator = new IterativeCollaborativeOrchestrator(
-    agents,
-    judge,
-    toolRegistry,
-    { chunkSize, maxRoundsPerChunk: maxRounds, startChunk: options.startChunk || 1 }
-  );
+  try {
+    // Initialize and run orchestrator
+    const orchestrator = new IterativeCollaborativeOrchestrator(
+      agents,
+      judge,
+      toolRegistry,
+      { chunkSize, maxRoundsPerChunk: maxRounds, startChunk: options.startChunk || 1 }
+    );
 
-  await orchestrator.run(task, options.project || null);
+    await orchestrator.run(task, options.project || null);
 
-  console.log(chalk.green('\n✓ Iterative collaboration complete!\n'));
+    console.log(chalk.green('\n✓ Iterative collaboration complete!\n'));
+  } finally {
+    await artifactStore.cleanup();
+  }
 }
 
 // Add subcommands

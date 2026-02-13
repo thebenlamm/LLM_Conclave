@@ -205,6 +205,13 @@ describe('ExploreStrategy', () => {
       expect(prompt).toContain('JSON');
       expect(prompt).toContain('confidence');
     });
+
+    it('should include _analysis scratchpad field in verdict prompt', () => {
+      const prompt = strategy.getVerdictPrompt(mockCollection);
+
+      expect(prompt).toContain('_analysis');
+      expect(prompt).toContain('Fill the "_analysis" field FIRST');
+    });
   });
 
   describe('shouldTerminateEarly', () => {

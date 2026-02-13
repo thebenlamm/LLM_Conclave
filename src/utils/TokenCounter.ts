@@ -9,6 +9,7 @@
  */
 
 import { encode } from 'gpt-tokenizer';
+import { TaskRouter } from '../core/TaskRouter';
 
 export default class TokenCounter {
   /**
@@ -224,6 +225,35 @@ export default class TokenCounter {
       lines.push(`- ${entry.speaker}: ${summary}`);
     }
     return lines.length > 0 ? lines.join('\n') : '[No agent responses in this round]';
+  }
+
+  /**
+   * Summarize round entries using an LLM router if available,
+   * falling back to the heuristic summarizeRoundEntries().
+   */
+  static async summarizeWithLLM(
+    entries: { speaker: string; content: string; role: string }[],
+    round: number,
+    router: TaskRouter | null
+  ): Promise<string> {
+    if (!router || !router.isActive()) {
+      return this.summarizeRoundEntries(entries);
+    }
+
+    // Build the prompt with the round's conversation
+    const conversation = entries
+      .filter(e => e.role === 'assistant' && e.content)
+      .map(e => `${e.speaker}: ${e.content}`)
+      .join('\n\n');
+
+    if (!conversation) {
+      return this.summarizeRoundEntries(entries);
+    }
+
+    const prompt = `Summarize this discussion round into 2-4 bullet points. Capture key positions, disagreements, and conclusions. Be concise.\n\nRound ${round}:\n${conversation}`;
+
+    const result = await router.route('summarize', prompt);
+    return result || this.summarizeRoundEntries(entries);
   }
 
   /**

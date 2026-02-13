@@ -186,7 +186,8 @@ export class ArtifactExtractor {
       createdAt: new Date().toISOString(),
       recommendations: recommendations.length > 0 ? recommendations : undefined,
       synergies: this.ensureStringArray(json.synergies ?? [], 'synergies'),
-      summary: typeof json.summary === 'string' ? json.summary : undefined
+      summary: typeof json.summary === 'string' ? json.summary : undefined,
+      _analysis: typeof json._analysis === 'string' ? json._analysis : undefined
     };
 
     VerdictSchema.validate(artifact, mode);

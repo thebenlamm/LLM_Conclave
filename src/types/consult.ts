@@ -166,6 +166,7 @@ export interface VerdictArtifact {
   recommendations?: ExploreRecommendation[];
   synergies?: string[];
   summary?: string;
+  _analysis?: string;
 }
 
 // ============================================================================

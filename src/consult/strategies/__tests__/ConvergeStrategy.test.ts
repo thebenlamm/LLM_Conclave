@@ -207,6 +207,13 @@ describe('ConvergeStrategy', () => {
       expect(prompt).toContain('evidence');
       expect(prompt).toContain('dissent');
     });
+
+    it('should include _analysis scratchpad field in verdict prompt', () => {
+      const prompt = strategy.getVerdictPrompt(mockCollection);
+
+      expect(prompt).toContain('_analysis');
+      expect(prompt).toContain('Fill the "_analysis" field FIRST');
+    });
   });
 
   describe('shouldTerminateEarly', () => {

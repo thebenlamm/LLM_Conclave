@@ -107,6 +107,13 @@ export class VerdictSchema {
       });
     }
 
+    // Validate optional _analysis field (Two-Step Output Pattern)
+    if ('_analysis' in artifact && artifact._analysis !== undefined) {
+      if (typeof artifact._analysis !== 'string') {
+        throw new Error('_analysis must be a string if provided');
+      }
+    }
+
     if (typeof artifact.createdAt !== 'string') {
       throw new Error('createdAt must be an ISO 8601 timestamp string');
     }
@@ -167,6 +174,7 @@ export class VerdictSchema {
     confidence: number;
     evidence: string[];
     dissent: Dissent[];
+    _analysis?: string;
   }): VerdictArtifact {
     const artifact: VerdictArtifact = {
       artifactType: 'verdict',
@@ -176,7 +184,8 @@ export class VerdictSchema {
       confidence: params.confidence,
       evidence: params.evidence,
       dissent: params.dissent,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      ...(params._analysis !== undefined && { _analysis: params._analysis })
     };
 
     // Validate before returning

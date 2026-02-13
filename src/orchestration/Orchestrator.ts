@@ -26,6 +26,7 @@ import {
   OrchestratorOptions,
   OrchestrationResult
 } from '../types';
+import { ArtifactStore } from '../core/ArtifactStore';
 
 /**
  * Orchestrator - Manages structured multi-agent coordination
@@ -48,13 +49,15 @@ export default class Orchestrator {
   streamOutput: boolean;
   eventBus?: EventBus;
   private _augmentedAgents: Record<string, Agent> = {};
+  private artifactStore: ArtifactStore;
 
   constructor(config: Config, memoryManager: MemoryManager | null = null, streamOutput: boolean = false, eventBus?: EventBus) {
     this.config = config;
     this.memoryManager = memoryManager;
     this.agents = {};
     this.conversationHistory = [];
-    this.toolRegistry = new ToolRegistry();
+    this.artifactStore = new ArtifactStore(`orchestrated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    this.toolRegistry = new ToolRegistry(undefined, { artifactStore: this.artifactStore });
     this.toolExecutions = []; // Track tool executions for output
     this.streamOutput = streamOutput;
     this.eventBus = eventBus;
@@ -102,6 +105,8 @@ export default class Orchestrator {
   async executeTask(task: string, projectContext: any = null, options: OrchestratorOptions = {}): Promise<OrchestrationResult> {
     const { quiet = false, onStatus = undefined } = options;
 
+    await this.artifactStore.init();
+    try {
     if (!quiet) {
       console.log(`\n${'='.repeat(80)}`);
       console.log(`ORCHESTRATED TASK: ${task}`);
@@ -238,6 +243,9 @@ export default class Orchestrator {
     }
 
     return result;
+    } finally {
+      await this.artifactStore.cleanup();
+    }
   }
 
   /**

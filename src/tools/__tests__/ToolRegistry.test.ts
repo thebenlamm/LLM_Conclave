@@ -52,7 +52,7 @@ describe('ToolRegistry', () => {
     it('should return array of tool definitions', () => {
       const tools = registry.getAnthropicTools();
       expect(Array.isArray(tools)).toBe(true);
-      expect(tools.length).toBe(5);
+      expect(tools.length).toBe(6);
     });
 
     it('should include required fields', () => {
@@ -69,7 +69,7 @@ describe('ToolRegistry', () => {
     it('should return array in OpenAI format', () => {
       const tools = registry.getOpenAITools();
       expect(Array.isArray(tools)).toBe(true);
-      expect(tools.length).toBe(5);
+      expect(tools.length).toBe(6);
     });
 
     it('should have correct OpenAI structure', () => {
@@ -602,6 +602,130 @@ describe('ToolRegistry', () => {
       expect(result.result).not.toContain('sk-1234567890abcdef1234567890abcdef');
       // The scrubber uses [REDACTED_API_KEY] format
       expect(result.result).toMatch(/\[REDACTED/);
+    });
+  });
+
+  describe('expand_artifact tool', () => {
+    it('should define expand_artifact tool', () => {
+      expect(registry.tools.expand_artifact).toBeDefined();
+      expect(registry.tools.expand_artifact.name).toBe('expand_artifact');
+    });
+
+    it('should return error when artifact store is not configured', async () => {
+      const result = await registry.executeTool('expand_artifact', {
+        artifact_id: 'tool-1'
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not available/i);
+    });
+  });
+
+  describe('Artifact offloading', () => {
+    let registryWithStore: ToolRegistry;
+    let { ArtifactStore } = require('../../core/ArtifactStore');
+    let artifactStore: InstanceType<typeof ArtifactStore>;
+    const sessionId = `test-offload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    beforeAll(async () => {
+      artifactStore = new ArtifactStore(sessionId, { thresholdBytes: 50 }); // Low threshold for testing
+      await artifactStore.init();
+      registryWithStore = new ToolRegistry(testDir, { artifactStore });
+    });
+
+    afterAll(async () => {
+      await artifactStore.cleanup();
+    });
+
+    it('should offload large file reads to artifact store', async () => {
+      // Create a file larger than the 50-byte threshold
+      const largeContent = 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10';
+      const filePath = path.join(testDir, 'large-offload-test.txt');
+      await fs.writeFile(filePath, largeContent);
+
+      const result = await registryWithStore.executeTool('read_file', {
+        file_path: 'large-offload-test.txt'
+      });
+
+      expect(result.success).toBe(true);
+      // Result should be a stub, not the full content
+      expect(result.result).toContain('Artifact tool-');
+      expect(result.result).toContain('expand_artifact');
+    });
+
+    it('should NOT offload small file reads', async () => {
+      const smallContent = 'hi';
+      const filePath = path.join(testDir, 'small-offload-test.txt');
+      await fs.writeFile(filePath, smallContent);
+
+      const result = await registryWithStore.executeTool('read_file', {
+        file_path: 'small-offload-test.txt'
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.result).toBe('hi');
+      expect(result.result).not.toContain('Artifact');
+    });
+
+    it('should retrieve offloaded content via expand_artifact', async () => {
+      const content = 'A'.repeat(100); // Over 50-byte threshold
+      const filePath = path.join(testDir, 'expand-test.txt');
+      await fs.writeFile(filePath, content);
+
+      // First call should offload
+      const storeResult = await registryWithStore.executeTool('read_file', {
+        file_path: 'expand-test.txt'
+      });
+      expect(storeResult.result).toContain('Artifact');
+
+      // Extract artifact ID from stub
+      const idMatch = storeResult.result?.match(/id="(tool-\d+)"/);
+      expect(idMatch).not.toBeNull();
+      const artifactId = idMatch![1];
+
+      // Expand should return full content
+      const expandResult = await registryWithStore.executeTool('expand_artifact', {
+        artifact_id: artifactId
+      });
+      expect(expandResult.success).toBe(true);
+      expect(expandResult.result).toBe(content);
+    });
+
+    it('should not offload expand_artifact results (no infinite loop)', async () => {
+      // Store something first
+      const content = 'B'.repeat(100);
+      const filePath = path.join(testDir, 'no-loop-test.txt');
+      await fs.writeFile(filePath, content);
+
+      const storeResult = await registryWithStore.executeTool('read_file', {
+        file_path: 'no-loop-test.txt'
+      });
+      const idMatch = storeResult.result?.match(/id="(tool-\d+)"/);
+      const artifactId = idMatch![1];
+
+      // Expand - result should be full content, not re-offloaded
+      const expandResult = await registryWithStore.executeTool('expand_artifact', {
+        artifact_id: artifactId
+      });
+      expect(expandResult.success).toBe(true);
+      expect(expandResult.result).toBe(content);
+      expect(expandResult.result).not.toContain('Artifact');
+    });
+  });
+
+  describe('Backward compatibility without artifact store', () => {
+    it('should work normally without artifact store', async () => {
+      // registry (no artifact store) should not offload anything
+      const content = 'x'.repeat(5000); // Large content
+      const filePath = path.join(testDir, 'no-store-test.txt');
+      await fs.writeFile(filePath, content);
+
+      const result = await registry.executeTool('read_file', {
+        file_path: 'no-store-test.txt'
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.result).toBe(content);
+      expect(result.result).not.toContain('Artifact');
     });
   });
 });

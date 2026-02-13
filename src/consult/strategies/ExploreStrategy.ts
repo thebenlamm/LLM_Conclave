@@ -253,6 +253,7 @@ ${COMMON_JSON_INSTRUCTION}
 Use the following schema:
 
 {
+  "_analysis": "Step-by-step reasoning about the exploration results. Review each perspective, identify which options emerged strongest, and explain how you arrived at the final menu of recommendations.",
   "recommendations": [
     {
       "option": "Option name or description",
@@ -265,7 +266,9 @@ Use the following schema:
   "synergies": ["Ways options can be combined"],
   "confidence": 0.0-1.0 (confidence in the quality of this menu),
   "summary": "Brief summary of the exploration results"
-}`;
+}
+
+Fill the "_analysis" field FIRST with your detailed reasoning. Then provide your recommendations based on that analysis.`;
   }
 
   /**

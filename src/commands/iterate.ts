@@ -7,6 +7,7 @@ import IterativeCollaborativeOrchestrator from '../orchestration/IterativeCollab
 import ToolRegistry from '../tools/ToolRegistry';
 import ProviderFactory from '../providers/ProviderFactory';
 import { Agent } from '../types';
+import { ArtifactStore } from '../core/ArtifactStore';
 
 /**
  * Iterate command - Iterative collaborative mode
@@ -82,24 +83,30 @@ export function createIterateCommand(): Command {
         systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge coordinating the agents.'
       };
 
-      // Initialize tool registry
-      const toolRegistry = new ToolRegistry();
+      // Initialize tool registry with artifact offloading
+      const artifactStore = new ArtifactStore(`iterate-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+      await artifactStore.init();
+      const toolRegistry = new ToolRegistry(undefined, { artifactStore });
 
-      // Initialize and run orchestrator
-      const orchestrator = new IterativeCollaborativeOrchestrator(
-        agents,
-        judge,
-        toolRegistry,
-        {
-          chunkSize,
-          maxRoundsPerChunk: maxRounds,
-          startChunk: parseInt(options.startChunk)
-        }
-      );
+      try {
+        // Initialize and run orchestrator
+        const orchestrator = new IterativeCollaborativeOrchestrator(
+          agents,
+          judge,
+          toolRegistry,
+          {
+            chunkSize,
+            maxRoundsPerChunk: maxRounds,
+            startChunk: parseInt(options.startChunk)
+          }
+        );
 
-      await orchestrator.run(task, options.project || null);
+        await orchestrator.run(task, options.project || null);
 
-      console.log(chalk.green('\n✓ Iterative collaboration complete!\n'));
+        console.log(chalk.green('\n✓ Iterative collaboration complete!\n'));
+      } finally {
+        await artifactStore.cleanup();
+      }
     });
 
   return cmd;
