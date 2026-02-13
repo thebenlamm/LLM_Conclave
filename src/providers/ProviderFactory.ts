@@ -13,7 +13,7 @@ export default class ProviderFactory {
    * @param {string} modelIdentifier - Model identifier (e.g., "gpt-4o", "claude-3-5-sonnet-20241022", "grok-beta")
    * @returns {any} - Instance of the appropriate provider
    */
-  static createProvider(modelIdentifier: string): any {
+  static createProvider(modelIdentifier: string, options?: { contextEditing?: boolean }): any {
     const modelLower = modelIdentifier.toLowerCase();
 
     // OpenAI models
@@ -33,7 +33,7 @@ export default class ProviderFactory {
       } else if (modelLower === 'haiku' || modelLower === 'haiku-4.5') {
         fullModelName = 'claude-haiku-4-5';
       }
-      return new ClaudeProvider(fullModelName);
+      return new ClaudeProvider(fullModelName, undefined, options);
     }
 
     // Grok models

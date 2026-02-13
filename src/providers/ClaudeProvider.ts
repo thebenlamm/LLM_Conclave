@@ -8,12 +8,14 @@ import { Message, ProviderResponse, ChatOptions } from '../types';
  */
 export default class ClaudeProvider extends LLMProvider {
   client: Anthropic;
+  private contextEditingEnabled: boolean;
 
-  constructor(modelName: string, apiKey?: string) {
+  constructor(modelName: string, apiKey?: string, options?: { contextEditing?: boolean }) {
     super(modelName);
     this.client = new Anthropic({
       apiKey: apiKey || process.env.ANTHROPIC_API_KEY
     });
+    this.contextEditingEnabled = options?.contextEditing ?? (process.env.CONCLAVE_ANTHROPIC_CONTEXT_EDITING === '1');
   }
 
   protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
@@ -112,9 +114,26 @@ export default class ClaudeProvider extends LLMProvider {
         );
       }
 
+      // Add context editing config when enabled (beta feature).
+      // Clears stale tool results when input exceeds 50K tokens, keeping 3 most recent.
+      // Safe for cache: tool results are in `messages` AFTER cached system/tools prefix.
+      const apiOptions: any = {};
+      if (signal) apiOptions.signal = signal;
+      if (this.contextEditingEnabled) {
+        apiOptions.betas = ['context-management-2025-06-27'];
+        params.context_management = {
+          edits: [{
+            type: 'clear_tool_uses_20250919',
+            trigger: { type: 'input_tokens', value: 50000 },
+            keep: { type: 'tool_uses', value: 3 },
+            clear_at_least: { type: 'input_tokens', value: 10000 },
+          }],
+        };
+      }
+
       // Streaming supported only when tools aren't requested to avoid partial tool parsing
       if (stream && !params.tools) {
-        const streamResp: any = await this.client.messages.create({ ...params, stream: true }, { signal });
+        const streamResp: any = await this.client.messages.create({ ...params, stream: true }, apiOptions);
         let fullText = '';
         let streamUsage: { input_tokens: number; output_tokens: number } | undefined;
 
@@ -157,7 +176,7 @@ export default class ClaudeProvider extends LLMProvider {
         return { text: fullText || null, usage: streamUsage };
       }
 
-      const response = await this.client.messages.create(params, { signal });
+      const response = await this.client.messages.create(params, apiOptions);
 
       const usage = {
         input_tokens: response.usage.input_tokens || 0,

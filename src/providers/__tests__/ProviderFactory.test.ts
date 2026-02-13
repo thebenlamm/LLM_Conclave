@@ -75,50 +75,55 @@ describe('ProviderFactory', () => {
   describe('Claude model detection', () => {
     it('should create ClaudeProvider for full model name', () => {
       const provider = ProviderFactory.createProvider('claude-3-5-sonnet-20241022');
-      expect(ClaudeProvider).toHaveBeenCalledWith('claude-3-5-sonnet-20241022');
+      expect(ClaudeProvider).toHaveBeenCalledWith('claude-3-5-sonnet-20241022', undefined, undefined);
       expect(provider.type).toBe('claude');
     });
 
     it('should expand "sonnet" shorthand to full model name', () => {
       const provider = ProviderFactory.createProvider('sonnet');
-      expect(ClaudeProvider).toHaveBeenCalledWith('claude-sonnet-4-5');
+      expect(ClaudeProvider).toHaveBeenCalledWith('claude-sonnet-4-5', undefined, undefined);
       expect(provider.type).toBe('claude');
     });
 
     it('should expand "sonnet-4.5" shorthand to full model name', () => {
       const provider = ProviderFactory.createProvider('sonnet-4.5');
-      expect(ClaudeProvider).toHaveBeenCalledWith('claude-sonnet-4-5');
+      expect(ClaudeProvider).toHaveBeenCalledWith('claude-sonnet-4-5', undefined, undefined);
       expect(provider.type).toBe('claude');
     });
 
     it('should expand "opus" shorthand to full model name', () => {
       const provider = ProviderFactory.createProvider('opus');
-      expect(ClaudeProvider).toHaveBeenCalledWith('claude-opus-4-5');
+      expect(ClaudeProvider).toHaveBeenCalledWith('claude-opus-4-5', undefined, undefined);
       expect(provider.type).toBe('claude');
     });
 
     it('should expand "opus-4.5" shorthand to full model name', () => {
       const provider = ProviderFactory.createProvider('opus-4.5');
-      expect(ClaudeProvider).toHaveBeenCalledWith('claude-opus-4-5');
+      expect(ClaudeProvider).toHaveBeenCalledWith('claude-opus-4-5', undefined, undefined);
       expect(provider.type).toBe('claude');
     });
 
     it('should expand "haiku" shorthand to full model name', () => {
       const provider = ProviderFactory.createProvider('haiku');
-      expect(ClaudeProvider).toHaveBeenCalledWith('claude-haiku-4-5');
+      expect(ClaudeProvider).toHaveBeenCalledWith('claude-haiku-4-5', undefined, undefined);
       expect(provider.type).toBe('claude');
     });
 
     it('should expand "haiku-4.5" shorthand to full model name', () => {
       const provider = ProviderFactory.createProvider('haiku-4.5');
-      expect(ClaudeProvider).toHaveBeenCalledWith('claude-haiku-4-5');
+      expect(ClaudeProvider).toHaveBeenCalledWith('claude-haiku-4-5', undefined, undefined);
       expect(provider.type).toBe('claude');
     });
 
     it('should be case insensitive for Claude models', () => {
       const provider = ProviderFactory.createProvider('SONNET');
-      expect(ClaudeProvider).toHaveBeenCalledWith('claude-sonnet-4-5');
+      expect(ClaudeProvider).toHaveBeenCalledWith('claude-sonnet-4-5', undefined, undefined);
       expect(provider.type).toBe('claude');
+    });
+
+    it('should pass contextEditing option to ClaudeProvider', () => {
+      ProviderFactory.createProvider('claude-sonnet-4-5', { contextEditing: true });
+      expect(ClaudeProvider).toHaveBeenCalledWith('claude-sonnet-4-5', undefined, { contextEditing: true });
     });
   });
 
