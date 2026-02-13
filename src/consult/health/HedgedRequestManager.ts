@@ -20,7 +20,7 @@ export class HedgedRequestManager {
    * and user substitution prompt on failure.
    */
   async executeAgentWithHedging(
-    agent: { name: string; model: string; provider: string; id?: string },
+    agent: { name: string; model: string; provider: string; id?: string; providerInstance?: any },
     messages: any[],
     healthMonitor: ProviderHealthMonitor,
     systemPrompt?: string
@@ -49,7 +49,7 @@ export class HedgedRequestManager {
   }
 
   private async attemptWithHedging(
-    agent: { name: string; model: string; provider: string },
+    agent: { name: string; model: string; provider: string; providerInstance?: any },
     messages: any[],
     primaryProviderId: string,
     healthMonitor: ProviderHealthMonitor,
@@ -57,7 +57,8 @@ export class HedgedRequestManager {
     systemPrompt?: string
   ): Promise<AgentResponse> {
     const controllerPrimary = new AbortController();
-    const primaryProvider = ProviderFactory.createProvider(primaryProviderId);
+    // Use the agent's existing provider instance if available (preserves cache manager etc.)
+    const primaryProvider = agent.providerInstance || ProviderFactory.createProvider(primaryProviderId);
 
     // Start Primary Request - pass systemPrompt as second arg, options as third
     const primaryPromise = primaryProvider.chat(messages, systemPrompt || null, { signal: controllerPrimary.signal })

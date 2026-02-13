@@ -39,6 +39,8 @@ import {
 } from '../types';
 import { EarlyTerminationManager } from '../consult/termination/EarlyTerminationManager';
 import { CostTracker } from '../core/CostTracker';
+import { GeminiCacheManager } from '../providers/GeminiCacheManager';
+import GeminiProvider from '../providers/GeminiProvider';
 import {
   ConsultationResult,
   PartialConsultationResult,
@@ -106,6 +108,7 @@ export default class ConsultOrchestrator {
   private scrubbingReport?: ScrubReport;
   private interactive: boolean;
   private _stableContext: string = '';
+  private geminiCacheManager: GeminiCacheManager | null = null;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     // Core configuration
@@ -134,6 +137,17 @@ export default class ConsultOrchestrator {
 
     // Initialize agents
     this.agents = this.initializeAgents();
+
+    // Attach Gemini cache manager to the Pragmatist agent when enabled
+    if (options.geminiCaching) {
+      const pragmatist = this.agents.find(a => a.name === 'Pragmatist');
+      if (pragmatist && pragmatist.provider instanceof GeminiProvider) {
+        this.geminiCacheManager = new GeminiCacheManager(pragmatist.provider.client);
+        pragmatist.provider.setCacheManager(this.geminiCacheManager);
+      } else {
+        console.warn('Warning: --gemini-cache requested but Pragmatist is not using a Gemini provider. Caching disabled.');
+      }
+    }
 
     // Setup runtime event handlers and cleanup (skipped in test environment)
     this.setupRuntimeHandlers();
@@ -226,6 +240,7 @@ export default class ConsultOrchestrator {
     const cleanupHandler = () => {
       this.interactivePulse.cleanup();
       this.healthMonitor.stopMonitoring();
+      this.geminiCacheManager?.cleanup().catch(() => {});
     };
     process.once('SIGINT', cleanupHandler);
     process.once('SIGTERM', cleanupHandler);
@@ -351,6 +366,7 @@ export default class ConsultOrchestrator {
     // Store stable context for system prompt augmentation (activates provider caching)
     this._stableContext = context;
 
+    try { // Outer try/finally for Gemini cache cleanup
     try {
       // Start consultation lifecycle
       this.stateMachine.transition(ConsultState.Estimating);
@@ -654,6 +670,12 @@ export default class ConsultOrchestrator {
         // AC #4: Log earlyTermination: false when user declined
         earlyTermination: earlyTerminationDeclined ? false : undefined
     });
+    } finally {
+      // Cleanup Gemini caches on session end (success or failure)
+      if (this.geminiCacheManager) {
+        await this.geminiCacheManager.cleanup().catch(() => {});
+      }
+    }
   }
 
   /**
@@ -971,10 +993,12 @@ export default class ConsultOrchestrator {
       try {
         const start = Date.now();
         // Use HedgedRequestManager for reliability (Story 2.3)
+        // Pass providerInstance to preserve cache manager and other decorations
         const agentConfig = {
           name: agent.name,
           model: agent.model,
-          provider: agent.model // Map model to provider ID
+          provider: agent.model, // Map model to provider ID
+          providerInstance: agent.provider
         };
 
         const messages: Message[] = [
@@ -1153,10 +1177,12 @@ export default class ConsultOrchestrator {
       ];
 
       // Use HedgedRequestManager for reliability (Story 2.3)
+      // Pass providerInstance to preserve cache manager and other decorations
       const agentConfig = {
         name: agent.name,
         model: agent.model,
-        provider: agent.model // Map model to provider ID
+        provider: agent.model, // Map model to provider ID
+        providerInstance: agent.provider
       };
 
       // --- Pulse Logic Wrapper ---

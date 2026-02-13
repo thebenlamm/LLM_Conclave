@@ -32,6 +32,7 @@ export function createConsultCommand(): Command {
     .option('-q, --quick', 'Single round consultation (faster)', false)
     .option('-v, --verbose', 'Show full agent conversation', false)
     .option('--greenfield', 'Ignore brownfield detection and use greenfield mode', false)
+    .option('--gemini-cache', 'Enable Gemini explicit caching for large contexts (50K+ tokens)', false)
     .option('--no-scrub', 'Disable sensitive data scrubbing (use with caution)')
     .action(async (questionArgs: string[], options: any) => {
       const question = questionArgs.join(' ');
@@ -174,7 +175,8 @@ export function createConsultCommand(): Command {
           projectPath: options.project,
           greenfield: options.greenfield,
           loadedContext: loadedContext ?? undefined,
-          interactive: isInteractive
+          interactive: isInteractive,
+          geminiCaching: options.geminiCache
         });
 
         // Execute consultation

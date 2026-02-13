@@ -584,4 +584,5 @@ export interface ConsultOrchestratorOptions {
   loadedContext?: LoadedContext;
   scrubbingReport?: ScrubReport;
   interactive?: boolean;
+  geminiCaching?: boolean;
 }

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import LLMProvider from './LLMProvider';
 import { Message, ProviderResponse, ChatOptions, ToolDefinition } from '../types';
+import { GeminiCacheManager } from './GeminiCacheManager';
 
 /**
  * Google Gemini provider implementation using new @google/genai package
@@ -8,6 +9,7 @@ import { Message, ProviderResponse, ChatOptions, ToolDefinition } from '../types
  */
 export default class GeminiProvider extends LLMProvider {
   client: GoogleGenAI;
+  private cacheManager: GeminiCacheManager | null = null;
 
   constructor(modelName: string, apiKey?: string) {
     super(modelName);
@@ -18,6 +20,14 @@ export default class GeminiProvider extends LLMProvider {
     }
 
     this.client = new GoogleGenAI({ apiKey: key });
+  }
+
+  /**
+   * Set a cache manager for explicit context caching.
+   * When set, large system prompts will be cached and reused across calls.
+   */
+  setCacheManager(manager: GeminiCacheManager): void {
+    this.cacheManager = manager;
   }
 
   protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
@@ -34,29 +44,44 @@ export default class GeminiProvider extends LLMProvider {
       // Convert messages to Gemini Content format
       const contents = this.convertMessagesToGeminiFormat(messages);
 
-      // Build config object — systemInstruction and tools before conversation contents
-      const config: any = {};
+      // Build config object — must be nested under 'config' key per @google/genai SDK.
+      // The SDK's generateContentParametersToMldev reads from params.config, not top-level.
+      const configObj: any = {};
 
-      if (systemPrompt) {
-        config.systemInstruction = systemPrompt;
+      // Try explicit caching when a cache manager is available
+      let cacheName: string | null = null;
+      if (this.cacheManager && systemPrompt) {
+        const toolsForCache = (functionDeclarations && functionDeclarations.length > 0)
+          ? [{ functionDeclarations }]
+          : undefined;
+        cacheName = await this.cacheManager.getOrCreateCache(this.modelName, systemPrompt, toolsForCache);
       }
 
-      if (functionDeclarations && functionDeclarations.length > 0) {
-        config.tools = [{ functionDeclarations }];
+      if (cacheName) {
+        // Cache hit — serve system instruction + tools from cache
+        configObj.cachedContent = cacheName;
+      } else {
+        // No cache — pass inline as usual
+        if (systemPrompt) {
+          configObj.systemInstruction = systemPrompt;
+        }
+        if (functionDeclarations && functionDeclarations.length > 0) {
+          configObj.tools = [{ functionDeclarations }];
+        }
       }
 
       if (signal) {
-        config.abortSignal = signal;
+        configObj.abortSignal = signal;
       }
 
       const generateConfig = {
         model: this.modelName,
         contents,
-        ...config,
+        config: configObj,
       };
 
       // Handle streaming mode (no tools support in streaming)
-      if (stream && (!config.tools || config.tools.length === 0)) {
+      if (stream && (!configObj.tools || configObj.tools.length === 0)) {
         const streamResp = await this.client.models.generateContentStream(generateConfig as any);
         let fullText = '';
 
@@ -100,9 +125,10 @@ export default class GeminiProvider extends LLMProvider {
       } else {
         // Fallback to manual counting, but run in parallel
         if (result.candidates && result.candidates.length > 0) {
+          const countTokensBase = { model: this.modelName };
           const [inputTokenResponse, outputTokenResponse] = await Promise.all([
-            this.client.models.countTokens({ ...generateConfig, contents }),
-            this.client.models.countTokens({ ...generateConfig, contents: result.candidates[0].content })
+            this.client.models.countTokens({ ...countTokensBase, contents }),
+            this.client.models.countTokens({ ...countTokensBase, contents: result.candidates[0].content! })
           ]);
           usage = {
             input_tokens: inputTokenResponse.totalTokens ?? 0,
