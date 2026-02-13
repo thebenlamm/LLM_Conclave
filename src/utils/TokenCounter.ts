@@ -168,17 +168,19 @@ export default class TokenCounter {
 
     // GPT-5 family
     if (lowerModel.includes('gpt-5')) {
-      return { maxInput: 1000000, maxOutput: 32768 }; // 1M context (assumed)
+      return { maxInput: 400000, maxOutput: 32768 }; // 400K context per OpenAI docs
     }
 
-    // GPT-4 family (order matters: check specific models before generic 'gpt-4')
-    if (lowerModel.includes('gpt-4.1')) {
+    // GPT-4 family (order matters: use startsWith/exact patterns to avoid cross-matching)
+    // gpt-4.1 family: match 'gpt-4.1' but NOT 'gpt-4.10' etc — anchor with word boundary
+    if (/gpt-4\.1(?:-|$)/.test(lowerModel) || lowerModel === 'gpt-4.1') {
       return { maxInput: 1000000, maxOutput: 32768 }; // 1M context
     }
     if (lowerModel.includes('gpt-4o')) {
       return { maxInput: 128000, maxOutput: 16000 }; // 128k context
     }
-    if (lowerModel.includes('gpt-4-turbo')) {
+    // gpt-4-turbo and dated preview models (gpt-4-1106-preview, gpt-4-0125-preview)
+    if (lowerModel.includes('gpt-4-turbo') || /gpt-4-\d{4}/.test(lowerModel)) {
       return { maxInput: 128000, maxOutput: 4096 };
     }
     if (lowerModel.includes('gpt-4')) {

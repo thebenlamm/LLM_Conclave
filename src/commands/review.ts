@@ -26,8 +26,14 @@ export function createReviewCommand(): Command {
 
       console.log(chalk.blue('\n📝 Starting structured review...\n'));
 
-      // Resolve configuration
-      const config = ConfigCascade.resolve(options);
+      // Resolve configuration (throws if explicit -c config fails to load)
+      let config;
+      try {
+        config = ConfigCascade.resolve(options);
+      } catch (error: any) {
+        console.error(chalk.red(`\n❌ ${error.message}\n`));
+        process.exit(1);
+      }
 
       // Use personas if specified
       if (options.with) {

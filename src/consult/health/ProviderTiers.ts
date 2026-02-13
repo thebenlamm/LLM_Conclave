@@ -63,11 +63,23 @@ export const CHEAP_HEALTH_CHECK_MODEL: Record<string, string> = {
 };
 
 /**
- * Get the cheapest model variant for health checks
- * Reduces health check costs by 10-20x while maintaining reliability
+ * Get the cheapest model variant for health checks.
+ * Reduces health check costs by 10-20x while maintaining reliability.
+ * Returns an ordered list: preferred cheap model first, then the original
+ * model as fallback (in case the cheap model is unavailable for the account/region).
  */
 export function getCheapHealthCheckModel(providerId: string): string {
   return CHEAP_HEALTH_CHECK_MODEL[providerId] || providerId;
+}
+
+/**
+ * Get health check model candidates in preference order.
+ * First element is cheapest, last is the original model as fallback.
+ */
+export function getHealthCheckModelCandidates(providerId: string): string[] {
+  const cheap = CHEAP_HEALTH_CHECK_MODEL[providerId];
+  if (!cheap || cheap === providerId) return [providerId];
+  return [cheap, providerId];
 }
 
 export interface ProviderHealth {

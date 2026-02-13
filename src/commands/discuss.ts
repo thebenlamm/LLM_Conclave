@@ -34,8 +34,14 @@ export function createDiscussCommand(): Command {
 
       console.log(chalk.blue('\n🗣️  Starting democratic discussion...\n'));
 
-      // Resolve configuration
-      const config = ConfigCascade.resolve(options);
+      // Resolve configuration (throws if explicit -c config fails to load)
+      let config;
+      try {
+        config = ConfigCascade.resolve(options);
+      } catch (error: any) {
+        console.error(chalk.red(`\n❌ ${error.message}\n`));
+        process.exit(1);
+      }
 
       // Use personas if specified (check both --with and --personas due to reserved word issues)
       const personaSpec = options.personas || options['with'];

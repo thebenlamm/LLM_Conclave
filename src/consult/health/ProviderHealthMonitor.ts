@@ -4,7 +4,8 @@ import {
   ProviderHealth,
   ProviderHealthStatus,
   HEALTH_CHECK_CONFIG,
-  getCheapHealthCheckModel
+  getCheapHealthCheckModel,
+  getHealthCheckModelCandidates
 } from './ProviderTiers';
 
 export class ProviderHealthMonitor {
@@ -168,27 +169,38 @@ export class ProviderHealthMonitor {
     let timeoutId: NodeJS.Timeout | null = null;
 
     try {
-      // HIGH #1: Use cheapest model variant for cost minimization
-      // Reduces health check costs by 10-20x (e.g., haiku vs sonnet)
-      const cheapModel = getCheapHealthCheckModel(providerId);
-      const provider = ProviderFactory.createProvider(cheapModel);
+      // Use cheapest model variant for cost minimization, with fallback to
+      // the original model if the cheap variant is unavailable for the account/region
+      const candidates = getHealthCheckModelCandidates(providerId);
+      let lastError: Error | null = null;
 
-      // Enforce 10s timeout (AC #2 requirement)
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error('Health check timed out')), HEALTH_CHECK_CONFIG.TIMEOUT_MS);
-      });
+      for (const candidateModel of candidates) {
+        try {
+          const provider = ProviderFactory.createProvider(candidateModel);
 
-      // Use the provider's health check method
-      // This allows specific providers to optimize checks (e.g. specialized endpoints)
-      // while falling back to "ping" chat for others via base class
-      const checkPromise = (typeof provider.healthCheck === 'function')
-         ? provider.healthCheck()
-         : provider.chat([{ role: 'user', content: 'ping' }], 'Reply with "pong" only.');
+          // Enforce 10s timeout (AC #2 requirement)
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Health check timed out')), HEALTH_CHECK_CONFIG.TIMEOUT_MS);
+          });
 
-      await Promise.race([checkPromise, timeoutPromise]);
+          const checkPromise = (typeof provider.healthCheck === 'function')
+            ? provider.healthCheck()
+            : provider.chat([{ role: 'user', content: 'ping' }], 'Reply with "pong" only.');
 
-      latency = Date.now() - startTime;
-      success = true;
+          await Promise.race([checkPromise, timeoutPromise]);
+
+          latency = Date.now() - startTime;
+          success = true;
+          lastError = null;
+          break; // Success — stop trying candidates
+        } catch (err: any) {
+          lastError = err;
+          if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+          // Try next candidate
+        }
+      }
+
+      if (lastError) throw lastError;
 
     } catch (error: any) {
       latency = Date.now() - startTime;

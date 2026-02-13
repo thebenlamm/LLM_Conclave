@@ -284,5 +284,8 @@ program.addCommand(createContinueCommand());
 program.addCommand(createServerCommand());
 program.addCommand(createConfigCommand());
 
-// Parse arguments
-program.parse(process.argv);
+// Parse arguments — catch unhandled errors from async command actions
+program.parseAsync(process.argv).catch((error: Error) => {
+  console.error(`\n❌ ${error.message}\n`);
+  process.exit(1);
+});

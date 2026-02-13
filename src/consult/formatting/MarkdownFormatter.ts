@@ -50,18 +50,30 @@ export class MarkdownFormatter implements IOutputFormatter {
       lines.push('');
     }
 
-    // Include full raw response from the highest-confidence agent
+    // Include the full raw agent response that best matches the recommendation.
     // This preserves any structured output tags (e.g., <corrected>) that get
-    // summarized away in the Judge's recommendation
+    // summarized away in the Judge's recommendation.
     if (result.agentResponses && result.agentResponses.length > 0) {
-      // Find the best agent response: prefer the one whose position matches
-      // the recommendation, or fall back to longest non-error response
       const validResponses = result.agentResponses.filter(r => r.content && !r.error);
       if (validResponses.length > 0) {
-        // Pick the longest response (most likely to contain full output)
-        const bestResponse = validResponses.reduce((best, curr) =>
-          curr.content.length > best.content.length ? curr : best
-        );
+        // Pick the response most relevant to the recommendation:
+        // 1. If recommendation text overlaps significantly with a response, prefer it
+        // 2. Otherwise fall back to longest response (most likely to contain full output)
+        const recommendation = result.recommendation || '';
+        let bestResponse = validResponses[0];
+        let bestScore = 0;
+        for (const resp of validResponses) {
+          // Simple overlap: count shared words (>= 5 chars to skip stopwords)
+          const respWords = new Set(resp.content.toLowerCase().split(/\s+/).filter(w => w.length >= 5));
+          const recWords = recommendation.toLowerCase().split(/\s+/).filter(w => w.length >= 5);
+          const overlap = recWords.filter(w => respWords.has(w)).length;
+          // Score = overlap count, tie-break by length
+          const score = overlap * 1000 + resp.content.length;
+          if (score > bestScore) {
+            bestScore = score;
+            bestResponse = resp;
+          }
+        }
         lines.push('## Best Agent Output');
         lines.push(`*From ${bestResponse.agentName} (${bestResponse.model})*`);
         lines.push('');
