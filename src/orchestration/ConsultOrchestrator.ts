@@ -487,8 +487,14 @@ export default class ConsultOrchestrator {
           const synthesisConfidence = this.earlyTerminationManager.calculateSynthesisConfidence(synthesisArtifact);
 
           if (this.earlyTerminationManager.meetsEarlyTerminationCriteria(synthesisConfidence, this.confidenceThreshold)) {
-              // Prompt user
-              const userAccepts = await this.earlyTerminationManager.promptUserForEarlyTermination(synthesisConfidence);
+              // Pause health monitor output to keep interactive prompt clean
+              this.healthMonitor.pause();
+              let userAccepts: boolean;
+              try {
+                userAccepts = await this.earlyTerminationManager.promptUserForEarlyTermination(synthesisConfidence);
+              } finally {
+                this.healthMonitor.resume();
+              }
 
               if (userAccepts) {
                   // Early termination accepted
@@ -987,12 +993,17 @@ export default class ConsultOrchestrator {
                       this.pulseTimestamp = new Date().toISOString();
                   }
                   const runningAgents = this.interactivePulse.getRunningAgents();
-                  const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
+                  this.healthMonitor.pause();
+                  try {
+                    const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
 
-                  if (!shouldContinue) {
-                      cancelPulse(new Error('User cancelled via interactive pulse'));
-                  } else {
-                      startRecursivePulse();
+                    if (!shouldContinue) {
+                        cancelPulse(new Error('User cancelled via interactive pulse'));
+                    } else {
+                        startRecursivePulse();
+                    }
+                  } finally {
+                    this.healthMonitor.resume();
                   }
               });
           };
@@ -1169,13 +1180,18 @@ export default class ConsultOrchestrator {
                       this.pulseTimestamp = new Date().toISOString();
                   }
                   const runningAgents = this.interactivePulse.getRunningAgents();
-                  const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
+                  this.healthMonitor.pause();
+                  try {
+                    const shouldContinue = await this.interactivePulse.promptUserToContinue(runningAgents);
 
-                  if (!shouldContinue) {
-                      cancelPulse(new Error('User cancelled via interactive pulse'));
-                  } else {
-                      // Restart timer
-                      startRecursivePulse();
+                    if (!shouldContinue) {
+                        cancelPulse(new Error('User cancelled via interactive pulse'));
+                    } else {
+                        // Restart timer
+                        startRecursivePulse();
+                    }
+                  } finally {
+                    this.healthMonitor.resume();
                   }
               });
           };
@@ -1195,7 +1211,7 @@ export default class ConsultOrchestrator {
                   ),
                   cancellationPromise
               ]);
-              
+
               return response;
           } finally {
               // Cleanup timer on completion or error

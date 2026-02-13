@@ -37,6 +37,7 @@ export default class IterativeCollaborativeOrchestrator {
   consecutiveFailures: Map<string, number>;
   disabledAgents: Set<string>;
   usedFallbacks: Set<string>;
+  private activeProviders: Map<string, { provider: any; model: string }> = new Map();
   private _originalAgents: Agent[] | null = null;
   private _originalJudge: Agent | null = null;
 
@@ -190,6 +191,7 @@ export default class IterativeCollaborativeOrchestrator {
 
       // Reset per-chunk state: allow fallback retries and give disabled agents a second chance
       this.usedFallbacks.clear();
+      this.activeProviders.clear();
       this.resetCircuitBreakers();
 
       const chunkStart = Date.now();
@@ -690,6 +692,7 @@ Collaborate with other agents to complete this chunk. You can read from and writ
     let finalText: string | null = null;
     const maxIterations = 25;
     let iterations = 0;
+    const toolUsageSummary: string[] = [];
 
     while (iterations < maxIterations) {
       iterations++;
@@ -723,6 +726,11 @@ Collaborate with other agents to complete this chunk. You can read from and writ
             summary: result.summary || result.error || 'Tool executed'
           });
 
+          // Track tool usage for summary (sanitized to avoid corrupting message history)
+          const rawInput = toolCall.input?.path || toolCall.input?.file_path || JSON.stringify(toolCall.input);
+          const inputSummary = rawInput.replace(/[\n\r]/g, ' ').substring(0, 80);
+          toolUsageSummary.push(`${toolCall.name}(${inputSummary})`);
+
           currentMessages.push({
             role: 'tool_result',
             tool_use_id: toolCall.id,
@@ -739,6 +747,11 @@ Collaborate with other agents to complete this chunk. You can read from and writ
 
     if (iterations >= maxIterations) {
       console.warn(`      ⚠️  Tool calling loop exceeded maximum iterations for ${agent.name}`);
+    }
+
+    // Prepend tool usage summary so other agents and the judge know what was consulted
+    if (toolUsageSummary.length > 0 && finalText) {
+      finalText = `[Used tools: ${toolUsageSummary.join(', ')}]\n${finalText}`;
     }
 
     // Log the full interaction (initial messages + all tool calls + final response)
@@ -1139,21 +1152,34 @@ Synthesize the best result from this discussion:`;
     chatOptions: any,
     callerName: string
   ): Promise<any> {
+    // Check if we already have a persisted fallback provider for this caller
+    const activeOverride = this.activeProviders.get(callerName);
+    const effectiveProvider = activeOverride ? activeOverride.provider : provider;
+    const effectiveModel = activeOverride ? activeOverride.model : model;
+
     try {
-      const messages = this.convertMessagesForProvider(rawMessages, provider);
+      const messages = this.convertMessagesForProvider(rawMessages, effectiveProvider);
       const opts = { ...chatOptions };
       if (opts.tools) {
-        opts.tools = this.getToolsForProvider(provider);
+        opts.tools = this.getToolsForProvider(effectiveProvider);
       }
-      return await provider.chat(messages, systemPrompt, opts);
+      return await effectiveProvider.chat(messages, systemPrompt, opts);
     } catch (error: any) {
+      // If a persisted fallback fails with a non-retryable error, clear it so
+      // the next call retries the original provider (which may have recovered)
+      if (activeOverride && !this.isRetryableError(error)) {
+        this.activeProviders.delete(callerName);
+      }
       if (this.isRetryableError(error)) {
-        const fallbackModel = this.getFallbackModel(model);
+        const fallbackModel = this.getFallbackModel(effectiveModel);
         const fallbackKey = `${callerName}:${fallbackModel}`;
         if (fallbackModel && !this.usedFallbacks.has(fallbackKey)) {
           this.usedFallbacks.add(fallbackKey);
-          console.log(`    ⚠️  ${callerName} (${model}) failed, falling back to ${fallbackModel}`);
+          console.log(`    ⚠️  ${callerName} (${effectiveModel}) failed, falling back to ${fallbackModel}`);
           const fallbackProvider = ProviderFactory.createProvider(fallbackModel);
+
+          // Persist the fallback so subsequent calls for this agent use it
+          this.activeProviders.set(callerName, { provider: fallbackProvider, model: fallbackModel });
 
           // Convert raw messages + tools for the fallback provider's format
           const fallbackMessages = this.convertMessagesForProvider(rawMessages, fallbackProvider);

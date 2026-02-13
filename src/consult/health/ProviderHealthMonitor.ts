@@ -15,6 +15,7 @@ export class ProviderHealthMonitor {
   private recentResults: Map<string, boolean[]> = new Map(); // Rolling window for error rate (HIGH #3 fix)
   private isRunningChecks = false;
   private inFlightChecks: Set<string> = new Set();
+  private _paused = false;
 
   constructor() {
     this.eventBus = EventBus.getInstance();
@@ -56,6 +57,20 @@ export class ProviderHealthMonitor {
     );
     // MEDIUM #8: Removed unref() - health monitoring should keep process alive if running
     // Previous code had .unref() which could cause premature exit
+  }
+
+  /**
+   * Pause health check output (suppresses console.error during interactive prompts)
+   */
+  public pause(): void {
+    this._paused = true;
+  }
+
+  /**
+   * Resume health check output
+   */
+  public resume(): void {
+    this._paused = false;
   }
 
   /**
@@ -178,8 +193,10 @@ export class ProviderHealthMonitor {
     } catch (error: any) {
       latency = Date.now() - startTime;
       success = false;
-      // MEDIUM #4: Add error logging for debuggability
-      console.error(`[ProviderHealthMonitor] Health check failed for ${providerId}:`, error.message);
+      // MEDIUM #4: Add error logging for debuggability (suppressed when paused for interactive prompts)
+      if (!this._paused) {
+        console.error(`[ProviderHealthMonitor] Health check failed for ${providerId}:`, error.message);
+      }
     } finally {
       if (timeoutId) {
         clearTimeout(timeoutId);

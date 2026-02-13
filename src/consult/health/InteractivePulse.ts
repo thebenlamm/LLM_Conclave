@@ -100,15 +100,11 @@ export class InteractivePulse {
   async promptUserToContinue(agents: AgentStatus[]): Promise<boolean> {
     if (agents.length === 0) return true;
 
-    // Auto-continue in MCP mode (no stdin available for prompts)
+    // Auto-continue in MCP mode (no stdin available for prompts) — silent to avoid spam
     if (process.env.LLM_CONCLAVE_MCP === '1') {
-      const agentList = agents.map(a => `${a.name}(${a.elapsedSeconds}s)`).join(', ');
-      console.error(`[MCP] Still waiting on: ${agentList} - auto-continuing`);
       return true;
     }
     if (!process.stdin.isTTY || !process.stdin.readable) {
-      const agentList = agents.map(a => `${a.name}(${a.elapsedSeconds}s)`).join(', ');
-      console.error(`[InteractivePulse] No interactive stdin available. Continuing without prompt for: ${agentList}`);
       return true;
     }
 

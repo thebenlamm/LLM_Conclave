@@ -300,23 +300,26 @@ describe('IterativeCollaborativeOrchestrator', () => {
       ).rejects.toThrow('Invalid API key');
     });
 
-    it('should not use same fallback twice for same caller within a chunk', async () => {
+    it('should persist fallback provider for subsequent calls within a chunk', async () => {
       const mockProvider = {
         chat: jest.fn().mockRejectedValue(new Error('429 rate limit')),
         getProviderName: jest.fn().mockReturnValue('OpenAI'),
       };
 
-      // First call — fallback succeeds
-      await (orchestrator as any).chatWithFallback(
+      // First call — fallback succeeds and gets persisted
+      const result1 = await (orchestrator as any).chatWithFallback(
         mockProvider, 'gpt-4o', [], 'system', {}, 'TestAgent'
       );
+      expect(result1.text).toContain('Fallback response');
 
-      // Second call — same fallback already used, should throw
-      await expect(
-        (orchestrator as any).chatWithFallback(
-          mockProvider, 'gpt-4o', [], 'system', {}, 'TestAgent'
-        )
-      ).rejects.toThrow('429 rate limit');
+      // Second call — uses persisted fallback directly (never hits original provider)
+      const result2 = await (orchestrator as any).chatWithFallback(
+        mockProvider, 'gpt-4o', [], 'system', {}, 'TestAgent'
+      );
+      expect(result2.text).toContain('Fallback response');
+
+      // Original provider should only have been called once (the first attempt)
+      expect(mockProvider.chat).toHaveBeenCalledTimes(1);
     });
 
     it('should allow fallback again after usedFallbacks is cleared (new chunk)', async () => {
@@ -330,8 +333,9 @@ describe('IterativeCollaborativeOrchestrator', () => {
         mockProvider, 'gpt-4o', [], 'system', {}, 'TestAgent'
       );
 
-      // Simulate new chunk boundary — clear used fallbacks
+      // Simulate new chunk boundary — clear used fallbacks and persisted providers
       orchestrator.usedFallbacks.clear();
+      (orchestrator as any).activeProviders.clear();
 
       // Should succeed again with fallback
       const result = await (orchestrator as any).chatWithFallback(
