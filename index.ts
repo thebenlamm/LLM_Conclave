@@ -38,7 +38,9 @@ console.log(chalk.cyan(`
 program
   .name('llm-conclave')
   .description('Multi-agent LLM collaboration tool')
-  .version('2.0.0');
+  .version('2.0.0')
+  .enablePositionalOptions()
+  .passThroughOptions();
 
 // Default action (smart mode when no subcommand specified)
 program

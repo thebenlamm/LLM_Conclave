@@ -183,8 +183,12 @@ export class ProviderHealthMonitor {
             timeoutId = setTimeout(() => reject(new Error('Health check timed out')), HEALTH_CHECK_CONFIG.TIMEOUT_MS);
           });
 
+          // healthCheck() returns boolean (false = failure) instead of throwing,
+          // so we must check the return value explicitly
           const checkPromise = (typeof provider.healthCheck === 'function')
-            ? provider.healthCheck()
+            ? provider.healthCheck().then((ok: boolean) => {
+                if (!ok) throw new Error(`Health check returned false for ${candidateModel}`);
+              })
             : provider.chat([{ role: 'user', content: 'ping' }], 'Reply with "pong" only.');
 
           await Promise.race([checkPromise, timeoutPromise]);
