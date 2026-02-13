@@ -50,6 +50,26 @@ export class MarkdownFormatter implements IOutputFormatter {
       lines.push('');
     }
 
+    // Include full raw response from the highest-confidence agent
+    // This preserves any structured output tags (e.g., <corrected>) that get
+    // summarized away in the Judge's recommendation
+    if (result.agentResponses && result.agentResponses.length > 0) {
+      // Find the best agent response: prefer the one whose position matches
+      // the recommendation, or fall back to longest non-error response
+      const validResponses = result.agentResponses.filter(r => r.content && !r.error);
+      if (validResponses.length > 0) {
+        // Pick the longest response (most likely to contain full output)
+        const bestResponse = validResponses.reduce((best, curr) =>
+          curr.content.length > best.content.length ? curr : best
+        );
+        lines.push('## Best Agent Output');
+        lines.push(`*From ${bestResponse.agentName} (${bestResponse.model})*`);
+        lines.push('');
+        lines.push(bestResponse.content);
+        lines.push('');
+      }
+    }
+
     lines.push('## Concerns Raised');
     if (result.concerns && result.concerns.length > 0) {
       result.concerns.forEach(c => {

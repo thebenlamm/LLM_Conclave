@@ -147,9 +147,16 @@ export default class IterativeCollaborativeOrchestrator {
         systemPrompt: this._originalJudge.systemPrompt + '\n\n---\n\n' + projectContext + '\n\n---\n\nTask: ' + task
       };
     } else {
-      // Reset to originals when no project context (prevents stale augmentation from prior run)
-      this.agents = this._originalAgents;
-      this.judge = this._originalJudge;
+      // Even without project context, augment system prompts with the task text
+      // so agents in all chunks know the full task (not just chunk.details)
+      this.agents = this._originalAgents.map(agent => ({
+        ...agent,
+        systemPrompt: agent.systemPrompt + '\n\n---\n\nTask: ' + task
+      }));
+      this.judge = {
+        ...this._originalJudge,
+        systemPrompt: this._originalJudge.systemPrompt + '\n\n---\n\nTask: ' + task
+      };
     }
 
     // Initialize or append to shared output file
@@ -172,6 +179,12 @@ export default class IterativeCollaborativeOrchestrator {
 
     // Enrich chunks with actual line content from project context
     chunks = this.enrichChunksWithLineContent(chunks, projectContext);
+
+    // When task contains inline data (no --project), propagate the full task text
+    // to every chunk so agents in chunks 2+ can still see it
+    if (!projectContext) {
+      chunks = chunks.map(chunk => ({ ...chunk, fullTaskText: task }));
+    }
 
     // Process each chunk with multi-turn discussion
     for (let i = 0; i < chunks.length; i++) {
@@ -556,10 +569,15 @@ Collaborate with other agents to complete this chunk. You can read from and writ
         }
       }
 
+      // Include full chunk.fullTaskText if available (propagated from planChunks)
+      const taskText = chunk.fullTaskText
+        ? `\n\nFULL TASK CONTEXT:\n${chunk.fullTaskText}\n`
+        : '';
+
       contextMessage = `Working on chunk ${chunkNumber}: ${chunk.description}
 
 YOUR TASK: ${chunk.details}
-${scopedContext}
+${scopedContext}${taskText}
 Collaborate with other agents to complete this chunk. You can read from and write to your own notes file, but only the judge will write to the shared output.`;
     }
 

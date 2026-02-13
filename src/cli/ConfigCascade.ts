@@ -114,11 +114,10 @@ export class ConfigCascade {
     try {
       return ConfigLoader.load(customPath);
     } catch (error: any) {
-      // If a custom path was explicitly provided but failed, warn the user
+      // If a custom path was explicitly provided but failed, throw instead of silently
+      // falling back to defaults — silent fallback is a dangerous failure mode
       if (customPath) {
-        console.error(`\n❌ Failed to load config from "${customPath}": ${error.message}`);
-        console.error(`   Falling back to default agents (Primary, Validator, Reviewer).`);
-        console.error(`   Check your config file format. Required agent fields: "model" and "prompt" (or "systemPrompt")\n`);
+        throw new Error(`Failed to load config from "${customPath}": ${error.message}\n   Check that the file exists and has valid JSON with agent fields: "model" and "prompt" (or "systemPrompt")`);
       }
       // No project config is OK - we have defaults
       return {};

@@ -166,7 +166,15 @@ export default class TokenCounter {
   static getModelLimits(modelName: string): { maxInput: number; maxOutput: number } {
     const lowerModel = modelName.toLowerCase();
 
-    // GPT-4 family
+    // GPT-5 family
+    if (lowerModel.includes('gpt-5')) {
+      return { maxInput: 1000000, maxOutput: 32768 }; // 1M context (assumed)
+    }
+
+    // GPT-4 family (order matters: check specific models before generic 'gpt-4')
+    if (lowerModel.includes('gpt-4.1')) {
+      return { maxInput: 1000000, maxOutput: 32768 }; // 1M context
+    }
     if (lowerModel.includes('gpt-4o')) {
       return { maxInput: 128000, maxOutput: 16000 }; // 128k context
     }

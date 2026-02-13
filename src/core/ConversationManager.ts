@@ -225,7 +225,8 @@ export default class ConversationManager {
       // Override judge if not all active agents have contributed
       if (judgeResult.consensusReached && !allAgentsContributed) {
         const missingAgents = activeAgents.filter(agent => !contributingAgents.has(agent));
-        console.log(`\n[Consensus blocked: ${missingAgents.join(', ')} haven't contributed yet]\n`);
+        const verb = missingAgents.length === 1 ? "hasn't" : "haven't";
+        console.log(`\n[Consensus deferred to next round: ${missingAgents.join(', ')} ${verb} contributed yet (skipped due to context overflow or error)]\n`);
         judgeResult.consensusReached = false;
         judgeResult.guidance = `Cannot declare consensus until all agents have contributed. Missing: ${missingAgents.join(', ')}. Please ensure these agents share their perspective before concluding.`;
       }
@@ -963,7 +964,7 @@ export default class ConversationManager {
     // Over 80% of budget: truncate a COPY to 75% of budget (don't mutate shared messageCache)
     const targetTokens = Math.floor(inputBudget * 0.75);
     const percentUsed = Math.round((currentTokens / limits.maxInput) * 100);
-    console.log(`[${agentName}: ${currentTokens} tokens (~${percentUsed}% of ${agent.model} limit), truncating to fit]`);
+    console.log(`[${agentName}: ${currentTokens}/${limits.maxInput} tokens (~${percentUsed}% of ${agent.model} configured limit), truncating to fit]`);
 
     const { messages: truncated, truncated: didTruncate } = TokenCounter.truncateMessages(
       messages.map(m => ({ ...m })),  // Copy to avoid mutating cache
@@ -978,7 +979,7 @@ export default class ConversationManager {
     // Verify we're now under the hard limit
     const postCheck = TokenCounter.estimateMessagesTokens(truncated, agent.systemPrompt);
     if (postCheck > inputBudget) {
-      console.log(`[${agentName}: still over limit after truncation (${postCheck} tokens), skipping]`);
+      console.log(`[${agentName}: still over limit after truncation (${postCheck}/${inputBudget} tokens), skipping]`);
       return null;
     }
 

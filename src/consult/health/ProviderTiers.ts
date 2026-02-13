@@ -21,11 +21,14 @@ export enum ProviderTier {
 export const PROVIDER_TIER_MAP: Record<string, ProviderTier> = {
   'claude-sonnet-4-5': ProviderTier.Tier1,
   'gpt-4o': ProviderTier.Tier1,
+  'gpt-4.1': ProviderTier.Tier1,
   'gemini-2.5-pro': ProviderTier.Tier1,
   'claude-sonnet-3.5': ProviderTier.Tier2,
   'gpt-4': ProviderTier.Tier2,
+  'gpt-4.1-mini': ProviderTier.Tier2,
   'gemini-2.0-flash': ProviderTier.Tier2,
   'gpt-3.5-turbo': ProviderTier.Tier3,
+  'gpt-4.1-nano': ProviderTier.Tier3,
   'mistral-large': ProviderTier.Tier3
 };
 
@@ -40,10 +43,13 @@ export const CHEAP_HEALTH_CHECK_MODEL: Record<string, string> = {
   'claude-opus-4': 'claude-haiku-4',
   'claude-haiku-4': 'claude-haiku-4', // Already cheapest
 
-  // OpenAI family -> Use GPT-3.5-turbo (cheapest)
-  'gpt-4o': 'gpt-3.5-turbo',
-  'gpt-4': 'gpt-3.5-turbo',
-  'gpt-4-turbo': 'gpt-3.5-turbo',
+  // OpenAI family -> Use cheapest variant
+  'gpt-4o': 'gpt-4.1-nano',
+  'gpt-4.1': 'gpt-4.1-nano',
+  'gpt-4.1-mini': 'gpt-4.1-nano',
+  'gpt-4.1-nano': 'gpt-4.1-nano', // Already cheapest
+  'gpt-4': 'gpt-4.1-nano',
+  'gpt-4-turbo': 'gpt-4.1-nano',
   'gpt-3.5-turbo': 'gpt-3.5-turbo', // Already cheapest
 
   // Gemini family -> Use Flash (cheapest)

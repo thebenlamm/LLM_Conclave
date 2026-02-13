@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 /**
@@ -16,9 +17,14 @@ export default class ConfigLoader {
     // Resolve configPath relative to current working directory if it's relative
     let filePath: string;
     if (configPath) {
-      filePath = path.isAbsolute(configPath)
-        ? configPath
-        : path.resolve(process.cwd(), configPath);
+      // Expand tilde to home directory (Node's path.isAbsolute doesn't handle ~)
+      let resolved = configPath;
+      if (resolved.startsWith('~/') || resolved === '~') {
+        resolved = path.join(os.homedir(), resolved.slice(1));
+      }
+      filePath = path.isAbsolute(resolved)
+        ? resolved
+        : path.resolve(process.cwd(), resolved);
     } else {
       filePath = defaultPath;
     }
