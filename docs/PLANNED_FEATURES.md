@@ -4,7 +4,7 @@ This document outlines potential features and enhancements for future developmen
 
 ## Table of Contents
 
-- [Recently Implemented](#recently-implemented) *(Jan 2026 additions)*
+- [Recently Implemented](#recently-implemented) *(Feb 2026 additions)*
 - [High Priority](#high-priority)
 - [User Experience](#user-experience)
 - [Security & Governance](#security--governance)
@@ -17,6 +17,46 @@ This document outlines potential features and enhancements for future developmen
 ---
 
 ## Recently Implemented
+
+### ✅ Context Tax Optimization — Phase 1-3
+**Status:** Implemented (commits `33596e3`, `d948619`, `93d70db`, `469aa68`, and prior)
+**Priority:** High
+**Complexity:** High
+
+Systematic context engineering to reduce LLM API token costs by 35-50%.
+
+**Phase 1 — Quick Wins (35-45% cost reduction):**
+- Anthropic prompt caching (90% discount on cached prefix)
+- OpenAI/Grok stable prefix ordering (automatic 50-75% cache discount)
+- 200K pricing cliff guard with accurate token counting
+- Judge case-file format (U-shaped attention optimization)
+- Tool schema thinning (30%+ prefix reduction)
+- Cache-aware cost tracking with provider-specific cache discounts
+
+**Phase 2 — Structural Improvements (additional 15-25%):**
+- Tool output offloading via ArtifactStore (tool outputs > 2KB stored to disk)
+- Judge discussion state extraction (structured positions/disagreements)
+- Model routing for subtasks (gpt-4o-mini for summarization, validation)
+- Two-step output pattern (scratchpad reasoning before structured verdict)
+- System prompts moved to stable position for provider caching
+
+**Phase 3 — Marginal Gains:**
+- Instruction-based tool pruning for iterative/orchestrated modes (cache-safe)
+- Anthropic context editing beta (auto-clears stale tool results at 50K tokens)
+- Gemini explicit caching (`--gemini-cache` flag, 75% input cost reduction at 50K+ tokens)
+
+**Implementation:**
+- `src/tools/ToolPruningInstructions.ts` — instruction-based tool restrictions per mode/phase
+- `src/providers/GeminiCacheManager.ts` — session-scoped Gemini cache lifecycle management
+- `src/providers/ClaudeProvider.ts` — context editing beta integration
+- `src/providers/GeminiProvider.ts` — explicit cache support via `cachedContent` config
+- `src/core/ArtifactStore.ts` — disk-backed tool output offloading
+- `src/core/TaskRouter.ts` — subtask model routing
+- `src/core/CostTracker.ts` — cache-aware cost calculations
+
+**Design doc:** `docs/plans/2026-02-12-context-tax-optimization.md`
+
+---
 
 ### ✅ Cost & Performance Tracking
 **Status:** Implemented (commit 672180b)
@@ -1038,7 +1078,17 @@ llm-conclave --dry-run "Task"
 - ✅ Persona aliases (17 shortcuts)
 - ✅ Inline JSON config for MCP
 
-### Phase 2 (Next) - Q1 2026
+### Phase 2 (Completed - Feb 2026) ✅
+- ✅ Context Tax Optimization (Phases 1-3)
+  - Prompt caching (Anthropic, OpenAI, Gemini)
+  - Tool output offloading (ArtifactStore)
+  - Model routing for subtasks
+  - Cache-aware cost tracking
+  - Instruction-based tool pruning
+  - Anthropic context editing beta
+  - Gemini explicit caching
+
+### Phase 3 (Next) - Q1 2026
 **Focus: User experience & reliability**
 - Full checkpoint/resume system with history preservation
 - Template library & guided runbooks
@@ -1047,7 +1097,7 @@ llm-conclave --dry-run "Task"
 - Budget alerts and spend limits
 - Streaming event channel for external UIs & webhooks
 
-### Phase 3 (Future) - Q2 2026
+### Phase 4 (Future) - Q2 2026
 **Focus: Scalability & intelligence**
 - Web UI/Dashboard
 - Embedding-backed memory & RAG for large codebases
@@ -1056,7 +1106,7 @@ llm-conclave --dry-run "Task"
 - ~~Dynamic turn management~~ ✅ (Implemented as Dynamic Speaker Selection)
 - Extended git integration
 
-### Phase 4 (Advanced) - Q3+ 2026
+### Phase 5 (Advanced) - Q3+ 2026
 **Focus: Advanced features & integrations**
 - MCP (Model Context Protocol) support
 - Parallel agent execution
@@ -1092,4 +1142,4 @@ Help prioritize! Vote for features you want:
 
 ---
 
-*Last Updated: January 21, 2026*
+*Last Updated: February 12, 2026*

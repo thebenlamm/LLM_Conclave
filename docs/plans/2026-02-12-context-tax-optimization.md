@@ -511,64 +511,56 @@ Consult Round 1 (parallel independent analysis) is a batch candidate — agents 
 
 ---
 
-### 3.2 Gemini Explicit Caching
+### 3.2 Gemini Explicit Caching ✅
 
-**Impact**: 75-90% input cost reduction for Gemini calls with large static documents
+**Status**: Implemented (commit `d948619`)
+**Impact**: 75% input cost reduction for Gemini calls with 50K+ token contexts
 **Effort**: Medium (3-5 days)
 **Risk**: Low
 
-For consult mode with large project context, create a Gemini cache object with TTL, reference by name in subsequent calls. Storage cost: $1.00/MTok/hour — only worthwhile for multi-agent reuse within the hour.
+**Implementation:**
+- `src/providers/GeminiCacheManager.ts` — Session-scoped cache lifecycle manager with sha256 content hashing, 5-min TTL, 50K token minimum threshold
+- `src/providers/GeminiProvider.ts` — `setCacheManager()` method, cache integration in `performChat()` via `cachedContent` config key
+- `src/orchestration/ConsultOrchestrator.ts` — Creates cache manager when `--gemini-cache` enabled, passes to Pragmatist's provider, cleanup on session end + SIGINT/SIGTERM
+- `src/commands/consult.ts` — `--gemini-cache` CLI flag
+- `src/providers/__tests__/GeminiCacheManager.test.ts` — 13 unit tests
 
-```typescript
-const cache = await client.caches.create({
-  model: 'gemini-2.5-flash',
-  config: {
-    systemInstruction: panelRules,
-    contents: [{ role: 'user', parts: [{ text: projectContext }] }],
-    ttl: '3600s',
-  },
-});
-const response = await client.models.generateContent({
-  model: 'gemini-2.5-flash',
-  cachedContent: cache.name,
-  contents: [{ role: 'user', parts: [{ text: currentPrompt }] }],
-});
-```
+**Critical bug fixed during implementation:** The `@google/genai` SDK expects `{ model, contents, config: { systemInstruction, tools, cachedContent } }` but the code was spreading config fields at the top level, where they were silently ignored. This pre-existing bug affected all Gemini calls. Fixed by nesting under `config` key per SDK's `generateContentParametersToMldev` interface.
+
+**Also fixed:** HedgedRequestManager was creating fresh providers via `ProviderFactory.createProvider()`, bypassing the cache manager attached to the original provider instance. Fixed by passing `providerInstance` through agentConfig.
 
 ---
 
-### 3.3 Anthropic Context Editing (Beta)
+### 3.3 Anthropic Context Editing (Beta) ✅
 
+**Status**: Implemented (commit `93d70db`)
 **Impact**: Automatic tool output management (complementary to 2.1)
 **Effort**: Medium
 **Risk**: Medium (beta API, may change)
 
-Anthropic's `context-management-2025-06-27` beta auto-clears old tool results when context exceeds a threshold. Handles edge cases where artifact offloading (2.1) wasn't triggered.
+**Implementation:**
+- `src/providers/ClaudeProvider.ts` — `contextEditingEnabled` flag, passes `context-management-2025-06-27` beta header and `context_management` config when enabled
+- `src/providers/ProviderFactory.ts` — Reads env var to enable context editing
+- `src/providers/__tests__/ClaudeProviderContextEditing.test.ts` — 3 unit tests (enabled/disabled/default)
 
-```typescript
-context_management: {
-  edits: [{
-    type: 'clear_tool_uses_20250919',
-    trigger: { type: 'input_tokens', value: 50000 },
-    keep: { type: 'tool_uses', value: 3 },
-    clear_at_least: { type: 'input_tokens', value: 10000 },
-  }],
-}
-```
-
-**Gotcha**: Clearing content before a cache breakpoint invalidates the cache. Design layout so clearable content (tool outputs) comes after the cached prefix.
+Enabled via `CONCLAVE_ANTHROPIC_CONTEXT_EDITING=1` environment variable. Auto-clears stale tool results when context exceeds 50K tokens, keeping the 3 most recent tool uses. Safe by construction — tool results are in `messages` which comes AFTER the cached prefix (system + tools).
 
 ---
 
-### 3.4 Dynamic Tool Pruning per Mode
+### 3.4 Dynamic Tool Pruning per Mode ✅
 
-**Impact**: Reduces prefix size, improves caching
-**Effort**: Medium
-**Risk**: Low
+**Status**: Implemented (commit `469aa68`)
+**Impact**: Reduces unnecessary tool calls, improves caching
+**Effort**: Low (1 day)
+**Risk**: None
 
-**Gotcha** (from Manus): Changing tool definitions mid-discussion invalidates KV cache for the entire prefix. Better to define all tools upfront and use agent instructions to limit which ones to call per phase. This preserves cache while limiting tool use.
+**Implementation:**
+- `src/tools/ToolPruningInstructions.ts` — `getToolRestrictionInstruction(mode, phase)` returns natural language restriction strings
+- `src/orchestration/Orchestrator.ts` — Appends restriction to validation prompts
+- `src/orchestration/IterativeCollaborativeOrchestrator.ts` — Appends restriction for non-judge agents
+- `src/tools/__tests__/ToolPruningInstructions.test.ts` — 5 unit tests
 
-Recommendation: instruction-based restriction over actual tool removal. Simpler, cache-safe.
+Uses instruction-based restriction (not schema removal) to preserve KV cache. Tool schemas stay in every request; agents are told which ones to use via natural language instructions per mode/phase.
 
 ---
 

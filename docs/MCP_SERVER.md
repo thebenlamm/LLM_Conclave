@@ -620,13 +620,14 @@ Set environment variables to customize agents:
 Each consultation uses multiple LLM providers:
 
 **Typical consultation cost:**
-- Quick mode (1 round): $0.10 - $0.20
-- Full mode (4 rounds): $0.30 - $0.60
+- Quick mode (1 round): $0.05 - $0.15
+- Full mode (4 rounds): $0.15 - $0.40
 
 **Cost factors:**
 - Number of rounds
 - Context size (larger projects = higher cost)
 - Provider pricing (Claude > GPT-4o > Gemini)
+- Prompt caching (Anthropic 90%, OpenAI 50%, Gemini 75% input discounts on cached prefix)
 
 **Budget management:**
 - Use `quick: true` for faster, cheaper consultations
@@ -638,6 +639,10 @@ Each consultation uses multiple LLM providers:
 ## What's Next?
 
 **Recently Implemented:**
+- ✅ Context Tax Optimization (Phases 1-3) — 35-50% cost reduction via prompt caching, tool output offloading, model routing, and cache-aware tracking
+- ✅ Instruction-based tool pruning — cache-safe tool restrictions per mode/phase
+- ✅ Anthropic context editing beta — auto-clears stale tool results
+- ✅ Gemini explicit caching — `--gemini-cache` for 75% input cost reduction on large contexts
 - ✅ Dynamic speaker selection (`dynamic: true`) - LLM chooses who speaks next
 - ✅ Session continuation (`llm_conclave_continue`, `llm_conclave_sessions`)
 - ✅ Structured output (key_decisions, action_items, dissent, confidence)

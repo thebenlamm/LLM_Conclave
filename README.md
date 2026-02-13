@@ -14,6 +14,7 @@ A command-line tool that enables multiple LLMs (OpenAI GPT, Anthropic Claude, xA
 - **Tool Support**: Agents can read/write files, run commands, and perform real file operations
 - **Project Context Analysis**: Point the conclave at any codebase or document directory for analysis
 - **Cost & Performance Tracking**: Automatic tracking of token usage, API costs, and latency for all providers
+- **Context Tax Optimization**: Prompt caching (Anthropic, OpenAI, Gemini), instruction-based tool pruning, context editing, and cache-aware cost tracking
 - **High Performance**: Optimized with async I/O, intelligent caching, and parallel processing (5.3x faster than baseline)
 - **Streaming Output**: Real-time streaming of agent responses as they're generated
 - **Smart Agent Generation**: AI creates optimized, concise agents (1-4 based on task complexity) with format-enforced prompts
@@ -143,6 +144,9 @@ cat requirements.md | llm-conclave consult "Estimate implementation complexity"
 
 # Non-interactive (auto-approve costs)
 llm-conclave consult --yes "Quick question for CI/CD pipeline"
+
+# Enable Gemini explicit caching for large project contexts
+llm-conclave consult --gemini-cache -p ./large-project "Review architecture"
 ```
 
 **Features:**
@@ -152,6 +156,7 @@ llm-conclave consult --yes "Quick question for CI/CD pipeline"
 - **Early Termination**: Skip rounds when confidence is high (saves money)
 - **Brownfield Detection**: Auto-detects existing projects and biases toward consistency
 - **Sensitive Data Scrubbing**: API keys and passwords automatically masked
+- **Gemini Caching**: `--gemini-cache` flag for explicit context caching on large projects (50K+ tokens)
 
 **Analytics Dashboard:**
 ```bash
@@ -275,6 +280,7 @@ llm-conclave server -p 8080         # Custom port
 --thorough                  # Maximum thoroughness
 --stream / --no-stream      # Enable/disable streaming
 --dynamic                   # Dynamic speaker selection (discuss mode)
+--gemini-cache              # Enable Gemini explicit caching (consult mode)
 -h, --help                  # Show help
 ```
 
@@ -964,6 +970,11 @@ MISTRAL_API_KEY=...
 ```
 
 You only need API keys for the providers you're using.
+
+**Optional environment variables:**
+```env
+CONCLAVE_ANTHROPIC_CONTEXT_EDITING=1  # Enable beta context editing (auto-clears stale tool results)
+```
 
 **Get your API keys:**
 - OpenAI: https://platform.openai.com/settings/organization/api-keys
