@@ -114,26 +114,34 @@ export default class ClaudeProvider extends LLMProvider {
         );
       }
 
-      // Add context editing config when enabled (beta feature).
-      // Clears stale tool results when input exceeds 50K tokens, keeping 3 most recent.
-      // Safe for cache: tool results are in `messages` AFTER cached system/tools prefix.
+      // Context editing uses the beta endpoint (client.beta.messages.create) which accepts
+      // `betas` and `context_management` in the body params. The regular endpoint rejects them.
       const apiOptions: any = {};
       if (signal) apiOptions.signal = signal;
-      if (this.contextEditingEnabled) {
-        apiOptions.betas = ['context-management-2025-06-27'];
-        params.context_management = {
-          edits: [{
-            type: 'clear_tool_uses_20250919',
-            trigger: { type: 'input_tokens', value: 50000 },
-            keep: { type: 'tool_uses', value: 3 },
-            clear_at_least: { type: 'input_tokens', value: 10000 },
-          }],
-        };
-      }
+
+      // Helper: choose between regular and beta messages endpoint
+      const createMessage = (messageParams: any, opts: any) => {
+        if (this.contextEditingEnabled) {
+          // Beta endpoint: betas + context_management go in the body params
+          return (this.client.beta.messages as any).create({
+            ...messageParams,
+            betas: ['context-management-2025-06-27'],
+            context_management: {
+              edits: [{
+                type: 'clear_tool_uses_20250919',
+                trigger: { type: 'input_tokens', value: 50000 },
+                keep: { type: 'tool_uses', value: 3 },
+                clear_at_least: { type: 'input_tokens', value: 10000 },
+              }],
+            },
+          }, opts);
+        }
+        return this.client.messages.create(messageParams, opts);
+      };
 
       // Streaming supported only when tools aren't requested to avoid partial tool parsing
       if (stream && !params.tools) {
-        const streamResp: any = await this.client.messages.create({ ...params, stream: true }, apiOptions);
+        const streamResp: any = await createMessage({ ...params, stream: true }, apiOptions);
         let fullText = '';
         let streamUsage: { input_tokens: number; output_tokens: number } | undefined;
 
@@ -176,7 +184,7 @@ export default class ClaudeProvider extends LLMProvider {
         return { text: fullText || null, usage: streamUsage };
       }
 
-      const response = await this.client.messages.create(params, apiOptions);
+      const response: any = await createMessage(params, apiOptions);
 
       const usage = {
         input_tokens: response.usage.input_tokens || 0,
@@ -207,7 +215,7 @@ export default class ClaudeProvider extends LLMProvider {
       }
 
       // Check if response contains tool uses
-      const toolUses = response.content.filter(block => block.type === 'tool_use');
+      const toolUses = response.content.filter((block: any) => block.type === 'tool_use');
       if (toolUses.length > 0) {
         // Return tool calls for execution
         return {
@@ -216,13 +224,13 @@ export default class ClaudeProvider extends LLMProvider {
             name: tu.name,
             input: tu.input
           })),
-          text: (response.content.find(block => block.type === 'text') as any)?.text || null,
+          text: (response.content.find((block: any) => block.type === 'text') as any)?.text || null,
           usage,
         };
       }
 
       // Claude responses have a 'text' property in content blocks
-      const textContent = response.content.find(block => block.type === 'text') as any;
+      const textContent = response.content.find((block: any) => block.type === 'text') as any;
       if (!textContent || !textContent.text) {
         throw new Error(`No text content in response: ${JSON.stringify(response.content)}`);
       }

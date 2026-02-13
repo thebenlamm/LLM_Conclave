@@ -159,7 +159,8 @@ export class ConfigCascade {
     'providers_anthropic',
     'providers_google',
     'providers_xai',
-    'providers_mistral'
+    'providers_mistral',
+    'anthropic_context_editing'
   ]);
 
   /**
