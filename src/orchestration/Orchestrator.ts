@@ -27,6 +27,7 @@ import {
   OrchestrationResult
 } from '../types';
 import { ArtifactStore } from '../core/ArtifactStore';
+import { getToolRestrictionInstruction } from '../tools/ToolPruningInstructions';
 
 /**
  * Orchestrator - Manages structured multi-agent coordination
@@ -605,6 +606,7 @@ Based on the feedback above, provide a revised response. Incorporate valid sugge
       }
 
       const contextPrefix = isAugmented ? '' : `${context}Task: ${task}\n\n`;
+      const toolRestriction = getToolRestrictionInstruction('orchestrated', 'validation');
       const validationPrompt = `${contextPrefix}Proposed Output:
 ${content}
 
@@ -613,7 +615,7 @@ As a validator, review the above output for your domain concerns. Provide:
 2. Issues found (if any)
 3. Recommendations for improvement (if any)
 
-Be thorough but concise.`;
+Be thorough but concise.${toolRestriction}`;
 
       const messages = [{ role: 'user' as const, content: validationPrompt }];
 

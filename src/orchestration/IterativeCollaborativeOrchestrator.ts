@@ -3,6 +3,7 @@ import ToolRegistry from '../tools/ToolRegistry';
 import ProviderFactory from '../providers/ProviderFactory';
 import { EventBus } from '../core/EventBus';
 import { createChatOptions } from './chatOptionsHelper';
+import { getToolRestrictionInstruction } from '../tools/ToolPruningInstructions';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -577,14 +578,15 @@ Collaborate with other agents to complete this chunk. You can read from and writ
         // Build agent's context: chunk description + conversation history + their state file
         const agentStateContent = fs.readFileSync(this.agentStateFiles.get(agent.name)!, 'utf-8');
 
+        const toolRestriction = getToolRestrictionInstruction('iterative', 'agent');
         const agentMessages = [
           { role: 'user', content: contextMessage },
           ...chunkMessages,
           {
             role: 'user',
-            content: round === 1
+            content: (round === 1
               ? 'Provide your initial thoughts on this chunk.'
-              : 'Respond to the other agents\' comments and continue the discussion.'
+              : 'Respond to the other agents\' comments and continue the discussion.') + toolRestriction
           }
         ];
 
