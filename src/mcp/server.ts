@@ -48,7 +48,7 @@ import { ContextLoader } from '../consult/context/ContextLoader.js';
 // Server Factory - creates a configured Server instance per connection
 // ============================================================================
 
-function createServer(): Server {
+export function createServer(): Server {
   const server = new Server(
     {
       name: 'llm-conclave',
@@ -778,7 +778,7 @@ async function handleSessions(args: {
 // Helper Functions
 // ============================================================================
 
-function validatePath(filePath: string, baseDir: string): string {
+export function validatePath(filePath: string, baseDir: string): string {
   if (filePath.includes('\0')) {
     throw new Error(`Invalid path (null byte detected): ${filePath}`);
   }
@@ -798,7 +798,7 @@ function validatePath(filePath: string, baseDir: string): string {
   return absolutePath;
 }
 
-async function loadContextFromPath(contextPath: string): Promise<string> {
+export async function loadContextFromPath(contextPath: string): Promise<string> {
   const loader = new ContextLoader();
 
   if (contextPath.includes(',')) {
@@ -1032,7 +1032,7 @@ async function startStdio() {
   console.error('LLM Conclave MCP Server running on stdio');
 }
 
-async function startSSE(port: number) {
+export async function startSSE(port: number) {
   const app = express();
   app.use(express.json());
 

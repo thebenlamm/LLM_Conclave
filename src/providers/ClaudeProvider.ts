@@ -18,65 +18,70 @@ export default class ClaudeProvider extends LLMProvider {
     this.contextEditingEnabled = options?.contextEditing ?? (process.env.CONCLAVE_ANTHROPIC_CONTEXT_EDITING === '1');
   }
 
+  /**
+   * Convert internal message format to Claude API format.
+   * Extracts system messages and converts tool_result/tool_calls to Anthropic format.
+   * Returns { messages, additionalSystemMessages }.
+   */
+  static convertMessagesToClaudeFormat(messages: Message[]): { messages: any[]; additionalSystemMessages: string[] } {
+    const additionalSystemMessages: string[] = [];
+
+    const messageArray = messages
+      .filter(msg => {
+        if (msg.role === 'system') {
+          additionalSystemMessages.push(msg.content);
+          return false;
+        }
+        return true;
+      })
+      .map(msg => {
+        if (msg.role === 'tool_result') {
+          return {
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: (msg as any).tool_use_id,
+              content: msg.content
+            }]
+          };
+        }
+
+        if (msg.role === 'assistant' && (msg as any).tool_calls) {
+          const content: any[] = [];
+
+          if (msg.content && msg.content.trim()) {
+            content.push({ type: 'text', text: msg.content });
+          }
+
+          content.push(...(msg as any).tool_calls.map((tc: any) => ({
+            type: 'tool_use',
+            id: tc.id,
+            name: tc.name,
+            input: tc.input
+          })));
+
+          return {
+            role: 'assistant',
+            content
+          };
+        }
+
+        return {
+          role: msg.role === 'assistant' ? 'assistant' : 'user',
+          content: msg.content
+        };
+      });
+
+    return { messages: messageArray, additionalSystemMessages };
+  }
+
   protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
     try {
       const { tools = null, stream = false, onToken, signal } = options;
 
       // Claude API expects messages without system role in the messages array
       // System prompt is passed separately - collect any system messages to merge
-      const additionalSystemMessages: string[] = [];
-
-      const messageArray = messages
-        .filter(msg => {
-          // Extract system messages to merge into system prompt
-          if (msg.role === 'system') {
-            additionalSystemMessages.push(msg.content);
-            return false; // Don't include in message array
-          }
-          return true;
-        })
-        .map(msg => {
-          // Handle messages with tool results
-          if (msg.role === 'tool_result') {
-            return {
-              role: 'user',
-              content: [{
-                type: 'tool_result',
-                tool_use_id: (msg as any).tool_use_id,
-                content: msg.content
-              }]
-            };
-          }
-
-          // Handle messages with tool calls from assistant
-          // FIXED: Preserve text content alongside tool_use blocks
-          if (msg.role === 'assistant' && (msg as any).tool_calls) {
-            const content: any[] = [];
-
-            // Add text content if present (preserves reasoning/explanation)
-            if (msg.content && msg.content.trim()) {
-              content.push({ type: 'text', text: msg.content });
-            }
-
-            // Add tool_use blocks
-            content.push(...(msg as any).tool_calls.map((tc: any) => ({
-              type: 'tool_use',
-              id: tc.id,
-              name: tc.name,
-              input: tc.input
-            })));
-
-            return {
-              role: 'assistant',
-              content
-            };
-          }
-
-          return {
-            role: msg.role === 'assistant' ? 'assistant' : 'user',
-            content: msg.content
-          };
-        });
+      const { messages: messageArray, additionalSystemMessages } = ClaudeProvider.convertMessagesToClaudeFormat(messages);
 
       const params: any = {
         model: this.modelName,

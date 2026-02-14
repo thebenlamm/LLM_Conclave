@@ -19,7 +19,7 @@ export default class OpenAIProvider extends LLMProvider {
   /**
    * Convert messages to OpenAI format, handling tool_result messages
    */
-  private convertMessagesToOpenAIFormat(messages: Message[]): any[] {
+  static convertMessagesToOpenAIFormat(messages: Message[]): any[] {
     return messages.map(msg => {
       // Convert tool_result to OpenAI's tool format
       if (msg.role === 'tool_result') {
@@ -61,7 +61,7 @@ export default class OpenAIProvider extends LLMProvider {
   /**
    * Safely parse JSON with fallback
    */
-  private safeJsonParse(jsonString: string, fallback: any = {}): any {
+  static safeJsonParse(jsonString: string, fallback: any = {}): any {
     try {
       return JSON.parse(jsonString);
     } catch {
@@ -78,7 +78,7 @@ export default class OpenAIProvider extends LLMProvider {
       // System prompt and tool definitions MUST come before conversation history.
       // Do not add volatile content (timestamps, request IDs) before stable content.
       // See: docs/plans/2026-02-12-context-tax-optimization.md
-      const convertedMessages = this.convertMessagesToOpenAIFormat(messages);
+      const convertedMessages = OpenAIProvider.convertMessagesToOpenAIFormat(messages);
       const messageArray = systemPrompt
         ? [{ role: 'system', content: systemPrompt }, ...convertedMessages]
         : convertedMessages;
@@ -142,7 +142,7 @@ export default class OpenAIProvider extends LLMProvider {
           tool_calls: message.tool_calls.map((tc: any) => ({
             id: tc.id,
             name: tc.function.name,
-            input: this.safeJsonParse(tc.function.arguments)
+            input: OpenAIProvider.safeJsonParse(tc.function.arguments)
           })),
           text: message.content || null,
           usage,
