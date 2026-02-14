@@ -57,6 +57,7 @@ function createServer(): Server {
     {
       capabilities: {
         tools: {},
+        logging: {},
       },
     }
   );
@@ -251,7 +252,7 @@ function registerHandlers(server: Server) {
     try {
       switch (name) {
         case 'llm_conclave_consult':
-          return await handleConsult(args as any);
+          return await handleConsult(args as any, server);
 
         case 'llm_conclave_discuss':
           return await handleDiscuss(args as any, server);
@@ -288,23 +289,47 @@ async function handleConsult(args: {
   context?: string;
   quick?: boolean;
   format?: string;
-}) {
+}, server: Server) {
   const { question, context: contextPath, quick = false, format = 'markdown' } = args;
+  const maxRounds = quick ? 1 : 4;
 
-  // Load context if provided
-  let context = '';
-  if (contextPath) {
-    context = await loadContextFromPath(contextPath);
+  // Progress heartbeat covers context loading AND consultation execution.
+  // Starts before loadContextFromPath to prevent idle gaps on large contexts.
+  let roundEstimate = 0;
+  let phase = 'loading context';
+  const progressHeartbeat = setInterval(() => {
+    if (phase === 'consulting') {
+      roundEstimate = Math.min(roundEstimate + 1, maxRounds);
+    }
+    server.sendLoggingMessage({
+      level: 'info',
+      logger: 'llm-conclave',
+      data: phase === 'loading context'
+        ? 'Loading context...'
+        : `Consultation in progress — round ~${roundEstimate}/${maxRounds}...`
+    }).catch(() => {});
+  }, 30_000);
+
+  let result: any;
+  try {
+    // Load context if provided
+    let context = '';
+    if (contextPath) {
+      context = await loadContextFromPath(contextPath);
+    }
+    phase = 'consulting';
+
+    // Initialize orchestrator
+    const orchestrator = new ConsultOrchestrator({
+      maxRounds,
+      verbose: false,
+    });
+
+    // Execute consultation (this is asynchronous and may take time)
+    result = await orchestrator.consult(question, context);
+  } finally {
+    clearInterval(progressHeartbeat);
   }
-
-  // Initialize orchestrator
-  const orchestrator = new ConsultOrchestrator({
-    maxRounds: quick ? 1 : 4,
-    verbose: false,
-  });
-
-  // Execute consultation (this is asynchronous and may take time)
-  const result = await orchestrator.consult(question, context);
 
   // Log for analytics
   const logger = new ConsultLogger();
@@ -452,12 +477,27 @@ async function handleDiscuss(args: {
     }, timeout * 1000);
   }
 
+  // Progress heartbeat: send periodic logging messages during long discussions.
+  // This supplements the SSE-level :ping by sending real MCP messages that keep
+  // the transport actively writing, preventing higher-level timeouts.
+  let lastRound = 0;
+  const progressHeartbeat = setInterval(() => {
+    const currentRound = conversationManager.currentRound ?? lastRound;
+    lastRound = currentRound;
+    server.sendLoggingMessage({
+      level: 'info',
+      logger: 'llm-conclave',
+      data: `Discussion in progress — round ${currentRound + 1}/${rounds}...`
+    }).catch(() => {});
+  }, 30_000);
+
   let result: any;
   try {
     // startConversation() returns normally even on timeout — it checks abortSignal
     // internally and returns a result with timedOut: true if aborted.
     result = await conversationManager.startConversation(task, judge, projectContext);
   } finally {
+    clearInterval(progressHeartbeat);
     if (timeoutId) clearTimeout(timeoutId);
     // Remove only the MCP-registered handlers, preserving the EventBus
     // constructor's default no-op error handler for any late async callbacks.
@@ -626,11 +666,22 @@ async function handleContinue(args: {
     });
   }
 
+  // Progress heartbeat during continuation
+  const progressHeartbeat = setInterval(() => {
+    const currentRound = conversationManager.currentRound ?? 0;
+    server.sendLoggingMessage({
+      level: 'info',
+      logger: 'llm-conclave',
+      data: `Continuation in progress — round ${currentRound + 1}/${maxRounds}...`
+    }).catch(() => {});
+  }, 30_000);
+
   // Start continuation with the new task
   let result;
   try {
     result = await conversationManager.startConversation(prepared.newTask, judge, null);
   } finally {
+    clearInterval(progressHeartbeat);
     // Remove only the MCP-registered handlers, preserving the EventBus
     // constructor's default no-op error handler for any late async callbacks.
     scopedEventBus.off('round:start', onRoundStart);
@@ -1003,7 +1054,23 @@ async function startSSE(port: number) {
     transports[transport.sessionId] = transport;
     console.error(`SSE client connected: ${transport.sessionId}`);
 
+    // SSE keep-alive: send comment every 15s to prevent proxy/client timeouts.
+    // SSE spec allows lines starting with ':' as comments — ignored by clients
+    // but keep the TCP connection alive through proxies and load balancers.
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded && !res.destroyed) {
+        try {
+          res.write(':ping\n\n');
+        } catch {
+          clearInterval(heartbeat);
+        }
+      } else {
+        clearInterval(heartbeat);
+      }
+    }, 15_000);
+
     res.on('close', async () => {
+      clearInterval(heartbeat);
       console.error(`SSE client disconnected: ${transport.sessionId}`);
       try {
         await transport.close();
