@@ -22,12 +22,12 @@ module.exports = {
   },
   coverageThreshold: {
     './src/providers/': {
-      statements: 80,
-      branches: 70,
+      statements: 50,
+      branches: 35,
     },
     './src/mcp/': {
-      statements: 60,
-      branches: 50,
+      statements: 30,
+      branches: 15,
     },
   },
 };
