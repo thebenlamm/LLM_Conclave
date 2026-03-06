@@ -285,33 +285,65 @@ export default class ConversationManager {
       await this.compressHistory();
     }
 
-    // If aborted (e.g. MCP timeout), return partial result immediately — skip final vote
+    // If aborted (e.g. MCP timeout), attempt judge summary before falling back to heuristic.
+    // The judge didn't fail — only the discussion was cut short. A proper summary is still valuable.
     if (this.abortSignal?.aborted) {
       console.log(`\n${'='.repeat(80)}`);
-      console.log(`Discussion aborted after ${this.currentRound} rounds.`);
+      console.log(`Discussion aborted after ${this.currentRound} rounds. Attempting judge summary...`);
       console.log(`${'='.repeat(80)}\n`);
 
       if (this.eventBus) {
-        this.eventBus.emitEvent('status', { message: `Discussion aborted after ${this.currentRound} rounds` });
+        this.eventBus.emitEvent('status', { message: `Discussion aborted after ${this.currentRound} rounds. Running judge summary...` });
       }
-
-      // Build best-effort result from whatever we have
-      const bestEffort = this.bestEffortJudgeResult();
 
       const failedAgentsList = this.conversationHistory
         .filter((msg: any) => msg.error === true)
         .map((msg: any) => msg.speaker);
+
+      // Try to get a proper judge summary with a fresh (non-aborted) signal.
+      // The abort signal cancelled the discussion loop, but the judge can still summarize.
+      // Replace with a new 30-second timeout guard to prevent hanging indefinitely.
+      const abortReason = this.abortSignal.reason || 'aborted';
+      const judgeController = new AbortController();
+      const judgeTimeout = setTimeout(() => judgeController.abort('judge-timeout'), 30_000);
+      this.abortSignal = judgeController.signal;
+      if (this.speakerSelector) {
+        this.speakerSelector.abortSignal = undefined;
+      }
+
+      let solution: string;
+      let keyDecisions: string[] = [];
+      let actionItems: string[] = [];
+      let dissent: string[] = [`Discussion was interrupted (${abortReason})`];
+      let confidence: string = 'LOW';
+
+      try {
+        const voteResult = await this.conductFinalVote(judge);
+        solution = voteResult.solution;
+        keyDecisions = voteResult.keyDecisions;
+        actionItems = voteResult.actionItems;
+        dissent = [...(voteResult.dissent || []), `Discussion was interrupted after ${this.currentRound}/${this.maxRounds} rounds (${abortReason})`];
+        confidence = voteResult.confidence;
+        console.log(`[Judge summary succeeded despite timeout]`);
+      } catch (judgeError: any) {
+        console.error(`[Judge summary failed after timeout: ${judgeError.message}]`);
+        // Fall back to heuristic only if judge itself fails
+        const bestEffort = this.bestEffortJudgeResult();
+        solution = bestEffort.solution;
+      } finally {
+        clearTimeout(judgeTimeout);
+      }
 
       return {
         task: task,
         rounds: this.currentRound,
         maxRounds: this.maxRounds,
         consensusReached: false,
-        solution: bestEffort.solution,
-        keyDecisions: [],
-        actionItems: [],
-        dissent: [`Discussion was interrupted (${this.abortSignal.reason || 'aborted'})`],
-        confidence: 'LOW',
+        solution,
+        keyDecisions,
+        actionItems,
+        dissent,
+        confidence,
         conversationHistory: this.conversationHistory,
         failedAgents: [...new Set(failedAgentsList)],
         agentSubstitutions: Object.fromEntries(this.agentSubstitutions),
@@ -1322,6 +1354,15 @@ export default class ConversationManager {
       const agreementMatches = this.cachedRecentDiscussion.match(agreementPatterns) || [];
       const isShallowAgreement = agreementMatches.length >= 2;
 
+      // Detect if agents are quoting each other extensively in the current round
+      const currentRoundText = this.conversationHistory
+        .filter(e => this.getRoundForEntry(e) === this.currentRound && e.role === 'assistant' && e.speaker !== 'Judge')
+        .map(e => e.content)
+        .join('\n');
+      const quotingPatterns = /as .{2,30} (?:noted|mentioned|pointed out|said|observed|highlighted|emphasized|stated)/gi;
+      const quotingMatches = currentRoundText.match(quotingPatterns) || [];
+      const isExcessiveQuoting = quotingMatches.length >= 3;
+
       // Check which agents have contributed to the discussion
       const contributingAgents = new Set<string>();
       for (const entry of this.conversationHistory) {
@@ -1336,6 +1377,8 @@ export default class ConversationManager {
       let roundContext = '';
       if (!allAgentsContributed) {
         roundContext = `\n\n⚠️ WARNING: Not all agents have contributed yet. Missing: ${missingAgents.join(', ')}. Consensus CANNOT be declared until all agents have had a chance to speak.`;
+      } else if (isExcessiveQuoting) {
+        roundContext = `\n\nNote: Agents are quoting each other extensively instead of adding new ideas. In your guidance, tell them: "STOP restating what others said. Reference ideas briefly then ADD something new — a counterargument, an edge case, a concrete implementation detail. If you have nothing new, say so in one sentence."`;
       } else if (this.currentRound > 2 && isShallowAgreement) {
         roundContext = `\n\nNote: This is round ${this.currentRound}. The agents appear to be agreeing superficially. Push them to challenge assumptions, explore edge cases, or identify weaknesses that haven't been addressed.`;
       }

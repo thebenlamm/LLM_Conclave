@@ -65,8 +65,10 @@ IMPORTANT PARTICIPATION RULES:
    - Noting trade-offs that weren't mentioned
 4. Play devil's advocate when appropriate - challenge assumptions even if you agree overall.
 5. If you truly have nothing new to add, state WHAT was already covered AND WHY it's complete.
+6. NEVER quote other agents at length. Reference their ideas briefly ("As X noted, ...") then ADD NEW VALUE. Repeating what others said wastes everyone's time and tokens.
+7. Keep responses focused and concise. Long responses that restate the discussion are less valuable than short responses that advance it.
 
-Your unique perspective is why you're here. Don't waste it on empty agreement.`;
+Your unique perspective is why you're here. Don't waste it on empty agreement or verbose repetition.`;
 
 /**
  * Alias map for common persona name variations.

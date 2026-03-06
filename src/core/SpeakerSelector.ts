@@ -485,6 +485,7 @@ EXCERPT: ${lastResponse.substring(0, SpeakerSelector.MAX_CONTENT_PREVIEW)}...` :
 Analyze the conversation state.
 1. Should the discussion continue in this round, or has it reached a natural conclusion/pause point?
 2. If continuing, who should speak next to add the most value? (Must be one of AVAILABLE AGENTS)
+3. If agents are quoting each other at length or restating previous points, END the round (shouldContinue: false). Repetition means the discussion has stalled — a new round with judge guidance is more productive.
 
 Output ONLY valid JSON:
 {\"shouldContinue\": true, \"nextSpeaker\":\"<agent name>\", \"reason\":\"<reason>\", \"confidence\":0.8}
