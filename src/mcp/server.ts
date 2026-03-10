@@ -184,8 +184,8 @@ Example inline JSON:
         },
         timeout: {
           type: 'number',
-          description: 'Max time in seconds. Returns partial results when exceeded. 0 = no timeout (default: 300)',
-          default: 300,
+          description: 'Max time in seconds. Returns partial results when exceeded. 0 = no timeout (default: 900)',
+          default: 900,
         },
       },
       required: ['task'],
@@ -368,7 +368,7 @@ async function handleDiscuss(args: {
     min_rounds = 0,
     dynamic = false,
     selector_model = DEFAULT_SELECTOR_MODEL,
-    timeout = 300
+    timeout = 900
   } = args;
 
   // Resolve configuration with optional custom config path
@@ -450,9 +450,19 @@ async function handleDiscuss(args: {
     }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
+  const onStatus = (event: any) => {
+    const message = event?.payload?.message ?? 'Status update';
+    server.sendLoggingMessage({
+      level: 'info',
+      logger: 'llm-conclave',
+      data: message
+    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
+  };
+
   scopedEventBus.on('round:start', onRoundStart);
   scopedEventBus.on('agent:thinking', onAgentThinking);
   scopedEventBus.on('error', onError);
+  scopedEventBus.on('status', onStatus);
 
   const conversationManager = new ConversationManager(
     config,
@@ -504,6 +514,7 @@ async function handleDiscuss(args: {
     scopedEventBus.off('round:start', onRoundStart);
     scopedEventBus.off('agent:thinking', onAgentThinking);
     scopedEventBus.off('error', onError);
+    scopedEventBus.off('status', onStatus);
   }
 
   // Save full discussion to file (preserves all agent contributions)
@@ -651,11 +662,34 @@ async function handleContinue(args: {
     }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
+  const onStatus = (event: any) => {
+    const message = event?.payload?.message ?? 'Status update';
+    server.sendLoggingMessage({
+      level: 'info',
+      logger: 'llm-conclave',
+      data: message
+    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
+  };
+
   scopedEventBus.on('round:start', onRoundStart);
   scopedEventBus.on('agent:thinking', onAgentThinking);
   scopedEventBus.on('error', onError);
+  scopedEventBus.on('status', onStatus);
 
   const conversationManager = new ConversationManager(config, null, false, scopedEventBus, false, DEFAULT_SELECTOR_MODEL);
+
+  // Set up timeout with abort signal (same pattern as handleDiscuss)
+  const continueTimeout = 900; // seconds
+  const abortController = new AbortController();
+  let continueTimeoutId: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+
+  conversationManager.abortSignal = abortController.signal;
+  continueTimeoutId = setTimeout(() => {
+    timedOut = true;
+    abortController.abort('timeout');
+    console.log(`[MCP continue timeout: ${continueTimeout}s exceeded, aborting]`);
+  }, continueTimeout * 1000);
 
   // Inject previous history before starting
   for (const msg of prepared.mergedHistory) {
@@ -682,11 +716,13 @@ async function handleContinue(args: {
     result = await conversationManager.startConversation(prepared.newTask, judge, null);
   } finally {
     clearInterval(progressHeartbeat);
+    if (continueTimeoutId) clearTimeout(continueTimeoutId);
     // Remove only the MCP-registered handlers, preserving the EventBus
     // constructor's default no-op error handler for any late async callbacks.
     scopedEventBus.off('round:start', onRoundStart);
     scopedEventBus.off('agent:thinking', onAgentThinking);
     scopedEventBus.off('error', onError);
+    scopedEventBus.off('status', onStatus);
   }
 
   // Save as new session with parent reference
@@ -870,22 +906,29 @@ function saveFullDiscussion(result: any): string {
   if (conversationHistory && conversationHistory.length > 0) {
     fullLog += `## Full Discussion\n\n`;
 
-    // Group messages by speaker
-    const speakerMessages: Record<string, string[]> = {};
+    let currentRound = 0;
+    let emittedFirstRound = false;
     for (const msg of conversationHistory) {
       const speaker = msg.speaker || msg.name || 'Unknown';
-      if (speaker === 'System' || speaker === 'Judge') continue;
-      if (!speakerMessages[speaker]) {
-        speakerMessages[speaker] = [];
-      }
-      speakerMessages[speaker].push(msg.content);
-    }
+      if (speaker === 'System') continue;
+      if (msg.error) continue;  // Skip error entries — reported in header
 
-    // Output each agent's contributions
-    for (const [speaker, messages] of Object.entries(speakerMessages)) {
-      fullLog += `### ${speaker}\n\n`;
-      fullLog += messages.join('\n\n---\n\n');
-      fullLog += '\n\n';
+      // Emit Round 1 header before the first agent response
+      if (!emittedFirstRound && speaker !== 'Judge') {
+        currentRound = 1;
+        fullLog += `### Round ${currentRound}\n\n`;
+        emittedFirstRound = true;
+      }
+
+      // Use Judge guidance entries as round boundary markers for subsequent rounds
+      if (speaker === 'Judge') {
+        currentRound++;
+        fullLog += `### Round ${currentRound}\n\n`;
+        fullLog += `> **Judge:** ${msg.content}\n\n`;
+        continue;
+      }
+
+      fullLog += `**${speaker}** _(${msg.model || 'unknown'})_:\n\n${msg.content}\n\n---\n\n`;
     }
   }
 

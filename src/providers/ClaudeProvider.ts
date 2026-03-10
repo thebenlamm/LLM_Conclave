@@ -186,7 +186,7 @@ export default class ClaudeProvider extends LLMProvider {
           }
         }
 
-        return { text: fullText || null, usage: streamUsage };
+        return { text: fullText || '', usage: streamUsage };
       }
 
       const response: any = await createMessage(params, apiOptions);

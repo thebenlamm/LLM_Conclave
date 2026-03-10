@@ -107,7 +107,7 @@ export default class GeminiProvider extends LLMProvider {
         }
 
         // Note: Token usage not available in streaming mode
-        return { text: fullText || null };
+        return { text: fullText || '' };
       }
 
       // Non-streaming mode with improved token usage tracking
@@ -168,7 +168,7 @@ export default class GeminiProvider extends LLMProvider {
       const text = candidate.content.parts.map((p: any) => p.text).join('');
 
       // Return regular text response
-      return { text: text || null, usage };
+      return { text: text || '', usage };
     } catch (error: any) {
       throw new Error(`Gemini API error: ${error.message}`);
     }

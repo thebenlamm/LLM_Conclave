@@ -478,7 +478,14 @@ export default class ConversationManager {
         // Clone messages per attempt — prepareMessagesForAgent() returns a cached array
         // that some providers may mutate in place, corrupting future turns
         const attemptMessages = messages.map(m => ({ ...m }));
-        const response = await agent.provider.chat(attemptMessages, agent.systemPrompt, this.getChatOptions(agentName));
+        const { controller: callController, cleanup: callCleanup } = this.createCallAbortController();
+        let response;
+        try {
+          const chatOpts = { ...this.getChatOptions(agentName), signal: callController.signal };
+          response = await agent.provider.chat(attemptMessages, agent.systemPrompt, chatOpts);
+        } finally {
+          callCleanup();
+        }
         text = typeof response === 'string' ? response : (response.text ?? '');
 
         // Strip leading speaker name prefix if LLM echoed it back (prevents compounding prefixes)
@@ -561,7 +568,14 @@ export default class ConversationManager {
               );
               messages = truncated;
             }
-            const fallbackResponse = await fallbackProvider.chat(messages, agent.systemPrompt, this.getChatOptions(agentName));
+            const { controller: fbController, cleanup: fbCleanup } = this.createCallAbortController(60_000);
+            let fallbackResponse;
+            try {
+              const fbOpts = { ...this.getChatOptions(agentName), signal: fbController.signal };
+              fallbackResponse = await fallbackProvider.chat(messages, agent.systemPrompt, fbOpts);
+            } finally {
+              fbCleanup();
+            }
             let fallbackText = typeof fallbackResponse === 'string' ? fallbackResponse : (fallbackResponse.text ?? '');
 
             const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -645,6 +659,11 @@ export default class ConversationManager {
    * Track consecutive failures for an agent and trip the circuit breaker after 2.
    */
   private recordAgentFailure(agentName: string, reason: string): void {
+    // Timeouts/aborts are infrastructure failures, not agent failures — don't count them.
+    // Match specific patterns to avoid false positives from unrelated error messages.
+    if (/per-call timeout|main abort|^timeout$|request was aborted/i.test(reason)) {
+      return;
+    }
     const count = (this.consecutiveAgentFailures.get(agentName) || 0) + 1;
     this.consecutiveAgentFailures.set(agentName, count);
 
@@ -947,19 +966,18 @@ export default class ConversationManager {
   }
 
   /**
-   * Prepare message array for an agent from conversation history
-   * Uses incremental caching to avoid rebuilding the entire array every turn
+   * Prepare message array for an agent from conversation history.
+   * Rebuilds from scratch each call to correctly filter errors and merge
+   * consecutive same-role messages (required by Claude's alternation rule).
    * @returns {Array} - Array of messages in OpenAI format
    */
   prepareMessagesForAgent() {
-    // If no new messages since last cache update, return cached version
-    if (this.lastCacheUpdateIndex === this.conversationHistory.length) {
-      return this.messageCache;
-    }
-
-    // Process only new messages since last cache update
-    const newMessages = this.conversationHistory
-      .slice(this.lastCacheUpdateIndex)
+    // Rebuild from scratch every time — merging consecutive same-role messages
+    // requires a full pass (incremental append can't merge with previous tail).
+    const rawMessages = this.conversationHistory
+      // Filter out error entries — they have role 'assistant' and cause
+      // consecutive same-role sequences that Claude rejects.
+      .filter(entry => !entry.error)
       .map(entry => ({
         role: entry.role === 'user' ? 'user' : 'assistant',
         content: entry.speaker !== 'System'
@@ -967,11 +985,26 @@ export default class ConversationManager {
           : entry.content
       }));
 
-    // Append to cache
-    this.messageCache.push(...newMessages);
-    this.lastCacheUpdateIndex = this.conversationHistory.length;
+    // Merge consecutive same-role messages to avoid Claude's
+    // "must alternate user/assistant" rejection.
+    const merged: any[] = [];
+    for (const msg of rawMessages) {
+      if (merged.length > 0 && merged[merged.length - 1].role === msg.role) {
+        merged[merged.length - 1].content += '\n\n' + msg.content;
+      } else {
+        merged.push({ ...msg });
+      }
+    }
 
-    return this.messageCache;
+    // Ensure array ends with a user message — Claude rejects assistant-last sequences.
+    if (merged.length > 0 && merged[merged.length - 1].role === 'assistant') {
+      merged.push({
+        role: 'user',
+        content: 'Please continue the discussion with your perspective.'
+      });
+    }
+
+    return merged;
   }
 
   /**
@@ -1024,7 +1057,7 @@ export default class ConversationManager {
   getChatOptions(agentName?: string) {
     const options: any = {};
 
-    if (this.streamOutput || this.eventBus) {
+    if (this.streamOutput) {
         options.stream = true;
         options.onToken = (token: string) => {
             if (this.streamOutput) process.stdout.write(token);
@@ -1034,11 +1067,38 @@ export default class ConversationManager {
         };
     }
 
+    return options;
+  }
+
+  /**
+   * Create a per-call AbortController that respects the main abort signal.
+   * Each provider call gets its own timeout so one slow call doesn't kill the whole discussion.
+   * @param timeoutMs - Per-call timeout in milliseconds (default: 150s for primary, 60s for fallback)
+   */
+  private createCallAbortController(timeoutMs: number = 150_000): { controller: AbortController; cleanup: () => void } {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort('per-call timeout'), timeoutMs);
+
+    // Bridge main abort signal to per-call controller
+    let onMainAbort: (() => void) | undefined;
     if (this.abortSignal) {
-      options.signal = this.abortSignal;
+      if (this.abortSignal.aborted) {
+        controller.abort('main abort');
+        clearTimeout(timeout);
+      } else {
+        onMainAbort = () => controller.abort('main abort');
+        this.abortSignal.addEventListener('abort', onMainAbort, { once: true });
+      }
     }
 
-    return options;
+    const cleanup = () => {
+      clearTimeout(timeout);
+      if (onMainAbort && this.abortSignal) {
+        this.abortSignal.removeEventListener('abort', onMainAbort);
+      }
+    };
+
+    return { controller, cleanup };
   }
 
   /**
@@ -1442,8 +1502,15 @@ Your guidance should FORCE new insights, not just encourage more discussion.`;
         }
       ];
 
-      const response = await judge.provider.chat(messages, judge.systemPrompt, this.getChatOptions('Judge'));
-      const text = typeof response === 'string' ? response : response.text || '';
+      const { controller: judgeController, cleanup: judgeCleanup } = this.createCallAbortController();
+      let response;
+      try {
+        const judgeOpts = { ...this.getChatOptions('Judge'), signal: judgeController.signal };
+        response = await judge.provider.chat(messages, judge.systemPrompt, judgeOpts);
+      } finally {
+        judgeCleanup();
+      }
+      const text = typeof response === 'string' ? response : (response.text ?? '');
 
       if (this.streamOutput) {
         process.stdout.write('\n');
@@ -1482,11 +1549,18 @@ Your guidance should FORCE new insights, not just encourage more discussion.`;
             this.cachedRecentDiscussion
           );
           const fallbackPrompt = `Full discussion:\n${fittedDiscussion}\n\nProvide brief guidance for the next round of discussion.`;
-          const response = await fallbackProvider.chat(
-            [{ role: 'user', content: fallbackPrompt }],
-            judge.systemPrompt,
-            this.getChatOptions('Judge')
-          );
+          const { controller: jfController, cleanup: jfCleanup } = this.createCallAbortController(60_000);
+          let response;
+          try {
+            const jfOpts = { ...this.getChatOptions('Judge'), signal: jfController.signal };
+            response = await fallbackProvider.chat(
+              [{ role: 'user', content: fallbackPrompt }],
+              judge.systemPrompt,
+              jfOpts
+            );
+          } finally {
+            jfCleanup();
+          }
           const text = typeof response === 'string' ? response : (response.text ?? '');
           if (text && text.length > 0) {
             if (text.includes('CONSENSUS_REACHED')) {
@@ -1583,7 +1657,14 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
         }
       ];
 
-      const finalDecision = await judge.provider.chat(messages, judge.systemPrompt, this.getChatOptions('Judge'));
+      const { controller: voteController, cleanup: voteCleanup } = this.createCallAbortController();
+      let finalDecision;
+      try {
+        const voteOpts = { ...this.getChatOptions('Judge'), signal: voteController.signal };
+        finalDecision = await judge.provider.chat(messages, judge.systemPrompt, voteOpts);
+      } finally {
+        voteCleanup();
+      }
       const text = typeof finalDecision === 'string' ? finalDecision : (finalDecision.text ?? '');
 
       if (this.streamOutput) {
