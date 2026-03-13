@@ -111,10 +111,17 @@ The AI assistant will invoke the tool, wait for the multi-model consultation to 
 
 **Fast 4-round multi-model consultation**
 
-Get consensus from 3 expert agents:
+Get consensus from a configurable expert panel (2-5 agents). Default panel:
 - **Security Expert** (Claude Sonnet 4.5)
 - **Architect** (GPT-4o)
 - **Pragmatist** (Gemini 2.5 Pro)
+
+Via CLI, the panel is configurable with `--with`:
+```bash
+llm-conclave consult --with creative,architect,pragmatic "Design a landing page"
+```
+
+MCP persona support is coming in a future release.
 
 **Parameters:**
 - `question` (required): The question or decision to consult on
@@ -460,12 +467,12 @@ Provider is auto-inferred from model name, or specify explicitly with `"provider
     ┌──────┴──────┬──────────────┐
     ↓             ↓              ↓
 ┌─────────┐  ┌─────────┐  ┌─────────┐
-│ Claude  │  │ GPT-4o  │  │ Gemini  │
-│ Sonnet  │  │         │  │ 2.5 Pro │
+│ Agent 1 │  │ Agent 2 │  │ Agent 3 │  (2-5 configurable agents)
+│(Persona)│  │(Persona)│  │(Persona)│
 └─────────┘  └─────────┘  └─────────┘
 
-    Security      Architect    Pragmatist
-    Expert
+    Default: Security Expert, Architect, Pragmatist
+    Custom via CLI: --with creative,architect,pragmatic
 
     [4-Round Debate: Independent → Synthesis → Cross-Exam → Verdict]
 
@@ -657,6 +664,7 @@ Each consultation uses multiple LLM providers:
 - Stdin piping and flexible I/O
 
 **Coming Soon to MCP:**
+- `llm_conclave_consult` persona support (`personas` parameter) — match CLI `--with` functionality
 - `llm_conclave_iterate` - Chunk-based iterative collaboration
 - `llm_conclave_stats` - Usage analytics via MCP
 

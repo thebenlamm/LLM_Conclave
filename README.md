@@ -124,8 +124,17 @@ llm-conclave iterate --deep "Fix bugs line by line"
 Get quick, structured multi-model consultations with cost controls:
 
 ```bash
-# Basic consultation
+# Basic consultation (auto-selects panel based on question, or uses default)
 llm-conclave consult "Should we use Redis or Memcached for caching?"
+
+# Choose your expert panel
+llm-conclave consult --with creative,architect,pragmatic "Design a landing page"
+
+# Use persona aliases
+llm-conclave consult --with sec,perf "Review this API for production readiness"
+
+# Use persona sets (defined in ~/.llm-conclave/config.json)
+llm-conclave consult --with @startup "Evaluate our MVP strategy"
 
 # Quick mode (single round, faster)
 llm-conclave consult --quick "What's the time complexity of this algorithm?"
@@ -151,7 +160,7 @@ llm-conclave consult --gemini-cache -p ./large-project "Review architecture"
 
 **Features:**
 - **4-Round Structured Debate**: Independent analysis → Synthesis → Cross-examination → Verdict
-- **Fixed Expert Panel**: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini)
+- **Configurable Expert Panel**: Choose from 10+ personas via `--with` flag, or let the system auto-select based on your question. Defaults to Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini).
 - **Cost Controls**: Pre-flight estimates, user consent, auto-approval threshold
 - **Early Termination**: Skip rounds when confidence is high (saves money)
 - **Brownfield Detection**: Auto-detects existing projects and biases toward consistency
@@ -321,7 +330,9 @@ llm-conclave discuss --dynamic --selector-model claude-haiku "Task"
 
 **Consult Mode (`consult`):**
 - Fast 4-round structured debate for quick decision-making
-- Fixed expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini)
+- Configurable expert panel via `--with` flag (2-5 agents from 10+ personas)
+- Auto-selects relevant experts based on question keywords, or defaults to Security/Architect/Pragmatist
+- Set a persistent default panel via `consult.default_panel` in `~/.llm-conclave/config.json`
 - Rounds: Independent Analysis → Synthesis → Cross-Examination → Verdict
 - Pre-flight cost estimation with user consent
 - Early termination when confidence is high (saves money)
@@ -330,6 +341,7 @@ llm-conclave discuss --dynamic --selector-model claude-haiku "Task"
 Example:
 ```bash
 llm-conclave consult "Should we use GraphQL or REST for our API?"
+llm-conclave consult --with creative,pragmatic "Design a notification system"
 llm-conclave consult --mode explore "Ideas for improving user engagement"
 ```
 
@@ -651,7 +663,7 @@ Instead of running CLI commands yourself, let your AI assistant invoke consultat
 #### Consultation Tools
 
 - **`llm_conclave_consult`** - Fast 4-round multi-model consultation
-  - Fixed expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini)
+  - Configurable expert panel (defaults to Security Expert, Architect, Pragmatist)
   - Parameters: `question` (required), `context`, `quick`, `format`
 
 - **`llm_conclave_discuss`** - Democratic consensus discussion with custom personas

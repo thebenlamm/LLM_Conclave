@@ -72,7 +72,7 @@ export function createServer(): Server {
 const TOOLS: Tool[] = [
   {
     name: 'llm_conclave_consult',
-    description: 'Run a structured 4-phase consultation (positions, synthesis, debate, resolution). Uses fixed expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini). Faster but less customizable than discuss.',
+    description: 'Run a structured 4-phase consultation (positions, synthesis, debate, resolution). Default expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini). Panel is configurable via CLI --with flag; MCP persona support coming soon.',
     inputSchema: {
       type: 'object',
       properties: {
