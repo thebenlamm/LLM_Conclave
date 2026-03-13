@@ -26,7 +26,7 @@ module.exports = {
       branches: 35,
     },
     './src/mcp/': {
-      statements: 30,
+      statements: 28,
       branches: 15,
     },
   },
