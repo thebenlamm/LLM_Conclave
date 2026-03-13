@@ -11,6 +11,15 @@ jest.mock('../../utils/ProjectContext');
 jest.mock('../../cli/ConsultConsoleLogger');
 jest.mock('../../consult/artifacts/ArtifactTransformer');
 jest.mock('../../consult/output/OutputFormatter');
+jest.mock('../../cli/PersonaSystem', () => ({
+  PersonaSystem: {
+    resolveConsultPanelFromOptions: jest.fn().mockReturnValue([
+      { name: 'Security Expert', model: 'claude-sonnet-4-5', provider: { chat: jest.fn() }, systemPrompt: 'You are a security expert.' },
+      { name: 'Architect', model: 'gpt-4o', provider: { chat: jest.fn() }, systemPrompt: 'You are an architect.' },
+      { name: 'Pragmatist', model: 'gemini-2.5-pro', provider: { chat: jest.fn() }, systemPrompt: 'You are a pragmatist.' },
+    ]),
+  },
+}));
 
 describe('consult command formatting integration', () => {
   let mockOrchestratorInstance: any;

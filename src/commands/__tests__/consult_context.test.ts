@@ -11,6 +11,15 @@ jest.mock('../../consult/context/ContextLoader');
 jest.mock('../../cli/ConsultConsoleLogger');
 jest.mock('../../utils/ConsultLogger');
 jest.mock('../../utils/ProjectContext');
+jest.mock('../../cli/PersonaSystem', () => ({
+  PersonaSystem: {
+    resolveConsultPanelFromOptions: jest.fn().mockReturnValue([
+      { name: 'Security Expert', model: 'claude-sonnet-4-5', provider: { chat: jest.fn() }, systemPrompt: 'You are a security expert.' },
+      { name: 'Architect', model: 'gpt-4o', provider: { chat: jest.fn() }, systemPrompt: 'You are an architect.' },
+      { name: 'Pragmatist', model: 'gemini-2.5-pro', provider: { chat: jest.fn() }, systemPrompt: 'You are a pragmatist.' },
+    ]),
+  },
+}));
 
 describe('consult command - context loading', () => {
   let mockOrchestratorInstance: any;
