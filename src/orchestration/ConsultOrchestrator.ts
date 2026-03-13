@@ -109,6 +109,7 @@ export default class ConsultOrchestrator {
   private interactive: boolean;
   private _stableContext: string = '';
   private geminiCacheManager: GeminiCacheManager | null = null;
+  private _externalAgents?: Agent[];
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     // Core configuration
@@ -122,6 +123,7 @@ export default class ConsultOrchestrator {
     this.projectPath = options.projectPath;
     this.greenfieldOverride = options.greenfield ?? false;
     this.loadedContext = options.loadedContext;
+    this._externalAgents = options.agents;
 
     // Initialize component groups
     this.initializeCoreComponents();
@@ -138,14 +140,23 @@ export default class ConsultOrchestrator {
     // Initialize agents
     this.agents = this.initializeAgents();
 
-    // Attach Gemini cache manager to the Pragmatist agent when enabled
+    // Validate agent count
+    if (this.agents.length < 2 || this.agents.length > 5) {
+      throw new Error(`Consult requires 2-5 agents, got ${this.agents.length}`);
+    }
+
+    // Attach Gemini cache manager to any Gemini provider agent
     if (options.geminiCaching) {
-      const pragmatist = this.agents.find(a => a.name === 'Pragmatist');
-      if (pragmatist && pragmatist.provider instanceof GeminiProvider) {
-        this.geminiCacheManager = new GeminiCacheManager(pragmatist.provider.client);
-        pragmatist.provider.setCacheManager(this.geminiCacheManager);
-      } else {
-        console.warn('Warning: --gemini-cache requested but Pragmatist is not using a Gemini provider. Caching disabled.');
+      for (const agent of this.agents) {
+        if (agent.provider instanceof GeminiProvider) {
+          if (!this.geminiCacheManager) {
+            this.geminiCacheManager = new GeminiCacheManager(agent.provider.client);
+          }
+          agent.provider.setCacheManager(this.geminiCacheManager);
+        }
+      }
+      if (!this.geminiCacheManager) {
+        console.warn('Warning: --gemini-cache requested but no agent uses Gemini. Caching disabled.');
       }
     }
 
@@ -247,9 +258,14 @@ export default class ConsultOrchestrator {
   }
 
   /**
-   * Initialize the 3 consultation agents
+   * Initialize consultation agents.
+   * Uses externally-provided agents if available, otherwise falls back to hardcoded panel.
    */
   private initializeAgents(): Agent[] {
+    if (this._externalAgents && this._externalAgents.length > 0) {
+      return this._externalAgents;
+    }
+
     return [
       {
         name: 'Security Expert',
@@ -270,6 +286,17 @@ export default class ConsultOrchestrator {
         systemPrompt: this.getPragmatistPrompt()
       }
     ];
+  }
+
+  /**
+   * Build a panel preamble describing who is in the consultation.
+   * Injected into augmented system prompts so each agent knows the full panel.
+   */
+  private buildPanelPreamble(): string {
+    const agentList = this.agents
+      .map(a => `- ${a.name} (${a.model})`)
+      .join('\n');
+    return `\nCONSULTATION PANEL:\n${agentList}\n\nYour role is defined in your system prompt. Engage with the other panelists from your expertise.\n`;
   }
 
   /**
@@ -690,7 +717,9 @@ export default class ConsultOrchestrator {
     // Context is now in augmented system prompts — pass empty to strategy
     const independentPrompt = this.strategy.getIndependentPrompt(question, '');
 
-    // Augment agent system prompts with stable context (activates provider caching)
+    // Augment agent system prompts with stable context and panel info
+    // Panel preamble goes AFTER stable context to preserve Anthropic prompt cache prefix stability
+    const panelPreamble = this.buildPanelPreamble();
     const augmentedAgents = this.agents.map(agent => {
       let augmentedPrompt = agent.systemPrompt;
       if (this._stableContext) {
@@ -699,6 +728,7 @@ export default class ConsultOrchestrator {
       if (this.brownfieldAnalysis) {
         augmentedPrompt = this.contextAugmenter.augmentPrompt(augmentedPrompt, this.brownfieldAnalysis);
       }
+      augmentedPrompt += panelPreamble;
       return { ...agent, systemPrompt: augmentedPrompt };
     });
 
@@ -983,7 +1013,10 @@ export default class ConsultOrchestrator {
         };
         systemPrompt = this.contextAugmenter.augmentPrompt(systemPrompt, greenfieldAnalysis);
       }
-      
+
+      // Panel preamble after stable context to preserve cache prefix stability
+      systemPrompt += this.buildPanelPreamble();
+
       this.eventBus.emitEvent('agent:thinking', {
         consultation_id: this.consultationId,
         agent_name: agent.name,

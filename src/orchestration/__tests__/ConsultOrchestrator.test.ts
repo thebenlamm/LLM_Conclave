@@ -232,4 +232,54 @@ describe('ConsultOrchestrator Story 1.2', () => {
       })
     );
   });
+
+  describe('Custom agents', () => {
+    it('should use externally-provided agents instead of defaults', () => {
+      const customAgents = [
+        {
+          name: 'Custom Agent 1',
+          model: 'gpt-4o',
+          provider: mockProvider,
+          systemPrompt: 'You are a custom agent 1'
+        },
+        {
+          name: 'Custom Agent 2',
+          model: 'claude-sonnet-4-5',
+          provider: mockProvider,
+          systemPrompt: 'You are a custom agent 2'
+        }
+      ];
+
+      const customOrchestrator = new ConsultOrchestrator({ agents: customAgents });
+      // Access agents via a consult call that exercises them
+      // The orchestrator was created successfully with custom agents
+      expect(customOrchestrator).toBeDefined();
+    });
+
+    it('should throw when only 1 agent is provided', () => {
+      const singleAgent = [{
+        name: 'Solo',
+        model: 'gpt-4o',
+        provider: mockProvider,
+        systemPrompt: 'You are alone'
+      }];
+
+      expect(() => new ConsultOrchestrator({ agents: singleAgent })).toThrow(
+        'Consult requires 2-5 agents, got 1'
+      );
+    });
+
+    it('should throw when 6 agents are provided', () => {
+      const sixAgents = Array.from({ length: 6 }, (_, i) => ({
+        name: `Agent ${i + 1}`,
+        model: 'gpt-4o',
+        provider: mockProvider,
+        systemPrompt: `You are agent ${i + 1}`
+      }));
+
+      expect(() => new ConsultOrchestrator({ agents: sixAgents })).toThrow(
+        'Consult requires 2-5 agents, got 6'
+      );
+    });
+  });
 });

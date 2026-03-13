@@ -12,6 +12,8 @@ import { DebateValueFormatter } from '../consult/analysis/DebateValueFormatter';
 import { ContextLoader, LoadedContext } from '../consult/context/ContextLoader';
 import { StdinHandler, StdinResult } from '../consult/context/StdinHandler';
 import { SensitiveDataScrubber } from '../consult/security/SensitiveDataScrubber';
+import { PersonaSystem } from '../cli/PersonaSystem';
+import { ConfigCascade } from '../cli/ConfigCascade';
 
 /**
  * Consult command - Fast multi-model consultation
@@ -32,6 +34,7 @@ export function createConsultCommand(): Command {
     .option('-q, --quick', 'Single round consultation (faster)', false)
     .option('-v, --verbose', 'Show full agent conversation', false)
     .option('--greenfield', 'Ignore brownfield detection and use greenfield mode', false)
+    .option('-w, --with <personas>', 'Expert panel (e.g., "creative,architect,pragmatic" or "@design")')
     .option('--gemini-cache', 'Enable Gemini explicit caching for large contexts (50K+ tokens)', false)
     .option('--no-scrub', 'Disable sensitive data scrubbing (use with caution)')
     .action(async (questionArgs: string[], options: any) => {
@@ -166,7 +169,18 @@ export function createConsultCommand(): Command {
           logInfo(chalk.cyan(`🎯 Mode: ${modeType} (${modeType === 'explore' ? 'divergent brainstorming' : 'decisive consensus'})`));
         }
 
-        // Initialize orchestrator with strategy
+        // Resolve consultation panel
+        const config = ConfigCascade.resolve({}, process.env);
+        const agents = PersonaSystem.resolveConsultPanelFromOptions({
+          withPersonas: options.with,
+          defaultPanel: config.consult?.default_panel,
+          question,
+        });
+
+        // Display panel composition
+        logInfo(chalk.cyan(`\n🧑‍💼 Panel: ${agents.map(a => `${a.name} (${a.model})`).join(', ')}`));
+
+        // Initialize orchestrator with strategy and resolved agents
         const orchestrator = new ConsultOrchestrator({
           maxRounds: options.quick ? 1 : 4,
           verbose: options.verbose,
@@ -176,7 +190,8 @@ export function createConsultCommand(): Command {
           greenfield: options.greenfield,
           loadedContext: loadedContext ?? undefined,
           interactive: isInteractive,
-          geminiCaching: options.geminiCache
+          geminiCaching: options.geminiCache,
+          agents,
         });
 
         // Execute consultation

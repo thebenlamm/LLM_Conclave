@@ -72,7 +72,8 @@ export class ConfigCascade {
       },
       // Consult mode defaults (Epic 2, Story 1)
       consult: {
-        alwaysAllowUnder: 0.50 // Auto-approve consultations under $0.50
+        alwaysAllowUnder: 0.50, // Auto-approve consultations under $0.50
+        default_panel: null     // null = use suggestPersonas or hardcoded fallback
       }
     };
   }

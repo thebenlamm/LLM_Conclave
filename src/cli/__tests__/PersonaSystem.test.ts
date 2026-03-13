@@ -12,6 +12,14 @@ jest.mock('../../utils/ConfigPaths', () => ({
   }
 }));
 
+// Mock ProviderFactory for resolveConsultPanel tests
+jest.mock('../../providers/ProviderFactory', () => ({
+  __esModule: true,
+  default: {
+    createProvider: jest.fn().mockReturnValue({ chat: jest.fn() })
+  }
+}));
+
 describe('PersonaSystem', () => {
   beforeEach(() => {
     PersonaSystem.clearCache();
@@ -414,6 +422,94 @@ describe('PersonaSystem', () => {
       expect(personas.some(p => p.name === 'Security Expert')).toBe(true);
       expect(personas.some(p => p.name === 'Pragmatic Engineer')).toBe(true);
       expect(personas.some(p => p.name === 'Creative Innovator')).toBe(true);
+    });
+  });
+
+  describe('resolveConsultPanel', () => {
+    it('should return Agent[] with provider instances and PARTICIPATION_REQUIREMENT', () => {
+      const personas = PersonaSystem.getPersonas('security,architecture');
+      const agents = PersonaSystem.resolveConsultPanel(personas);
+
+      expect(agents).toHaveLength(2);
+      expect(agents[0].name).toBe('Security Expert');
+      expect(agents[0].model).toBe('claude-sonnet-4-5');
+      expect(agents[0].provider).toBeDefined();
+      expect(agents[0].provider.chat).toBeDefined();
+      expect(agents[0].systemPrompt).toContain('PARTICIPATION RULES');
+      expect(agents[1].name).toBe('Systems Architect');
+    });
+  });
+
+  describe('resolveConsultPanelFromOptions', () => {
+    it('tier 1: should use --with flag directly', () => {
+      const agents = PersonaSystem.resolveConsultPanelFromOptions({
+        withPersonas: 'creative,pragmatic,architecture',
+      });
+      expect(agents).toHaveLength(3);
+      expect(agents[0].name).toBe('Creative Innovator');
+      expect(agents[1].name).toBe('Pragmatic Engineer');
+      expect(agents[2].name).toBe('Systems Architect');
+    });
+
+    it('tier 2: should use config default_panel when no --with flag', () => {
+      const agents = PersonaSystem.resolveConsultPanelFromOptions({
+        defaultPanel: 'creative,skeptic',
+      });
+      expect(agents).toHaveLength(2);
+      expect(agents[0].name).toBe('Creative Innovator');
+      expect(agents[1].name).toBe('Critical Analyst');
+    });
+
+    it('tier 3: should auto-select from question when no --with or config', () => {
+      const agents = PersonaSystem.resolveConsultPanelFromOptions({
+        question: 'Review security and performance bottlenecks',
+      });
+      expect(agents.length).toBeGreaterThanOrEqual(2);
+      expect(agents.length).toBeLessThanOrEqual(3);
+    });
+
+    it('tier 4: should use fallback panel when no matches', () => {
+      const agents = PersonaSystem.resolveConsultPanelFromOptions({
+        question: 'hello world',
+      });
+      expect(agents).toHaveLength(3);
+      expect(agents[0].name).toBe('Security Expert');
+      expect(agents[1].name).toBe('Systems Architect');
+      expect(agents[2].name).toBe('Pragmatic Engineer');
+    });
+
+    it('should throw on fewer than 2 agents', () => {
+      expect(() => {
+        PersonaSystem.resolveConsultPanelFromOptions({
+          withPersonas: 'security',
+        });
+      }).toThrow('Consult requires 2-5 unique agents');
+    });
+
+    it('should throw on more than 5 agents', () => {
+      expect(() => {
+        PersonaSystem.resolveConsultPanelFromOptions({
+          withPersonas: 'security,architecture,creative,pragmatic,skeptic,performance',
+        });
+      }).toThrow('Consult requires 2-5 unique agents');
+    });
+
+    it('should throw when --with resolves to zero valid personas', () => {
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      expect(() => {
+        PersonaSystem.resolveConsultPanelFromOptions({
+          withPersonas: 'nonexistent1,nonexistent2',
+        });
+      }).toThrow('No valid personas found for --with');
+      consoleSpy.mockRestore();
+    });
+
+    it('should throw when --with has only duplicates collapsing below minimum', () => {
+      expect(() => {
+        PersonaSystem.resolveConsultPanelFromOptions({
+          withPersonas: 'security,security,sec',
+        });
+      }).toThrow('Consult requires 2-5 unique agents');
     });
   });
 

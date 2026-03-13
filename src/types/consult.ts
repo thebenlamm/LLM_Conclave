@@ -8,6 +8,7 @@
 
 import type { ModeStrategy } from '../consult/strategies/ModeStrategy';
 import type { BrownfieldAnalysis } from '../consult/context/BrownfieldDetector';
+import type { Agent } from './index';
 
 // ============================================================================
 // State Machine Types
@@ -585,4 +586,5 @@ export interface ConsultOrchestratorOptions {
   scrubbingReport?: ScrubReport;
   interactive?: boolean;
   geminiCaching?: boolean;
+  agents?: Agent[];
 }

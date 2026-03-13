@@ -29,6 +29,8 @@
 
 import * as fs from 'fs';
 import { ConfigPaths } from '../utils/ConfigPaths';
+import ProviderFactory from '../providers/ProviderFactory';
+import { Agent } from '../types';
 
 export interface Persona {
   name: string;
@@ -543,6 +545,79 @@ Provide recommendations for improving documentation quality and coverage.`,
     }
 
     return agents;
+  }
+
+  /**
+   * Convert Persona[] to Agent[] with live provider instances.
+   * Appends PARTICIPATION_REQUIREMENT to each system prompt.
+   */
+  static resolveConsultPanel(personas: Persona[]): Agent[] {
+    return personas.map(persona => ({
+      name: persona.name,
+      model: persona.model,
+      provider: ProviderFactory.createProvider(persona.model),
+      systemPrompt: persona.systemPrompt + PARTICIPATION_REQUIREMENT
+    }));
+  }
+
+  /**
+   * Four-tier resolution for consult panel agents:
+   * 1. withPersonas (--with flag) → getPersonas() + resolveConsultPanel()
+   * 2. defaultPanel (config value) → getPersonas() + resolveConsultPanel()
+   * 3. question → suggestPersonas(), take first 3 if ≥2 results
+   * 4. Fallback → [security, architecture, pragmatic]
+   *
+   * Validates 2-5 agent range.
+   */
+  static resolveConsultPanelFromOptions(opts: {
+    withPersonas?: string;
+    defaultPanel?: string | null;
+    question?: string;
+  }): Agent[] {
+    let personas: Persona[] = [];
+
+    // Tier 1: Explicit --with flag
+    if (opts.withPersonas) {
+      personas = this.getPersonas(opts.withPersonas);
+      if (personas.length === 0) {
+        throw new Error(
+          `No valid personas found for --with "${opts.withPersonas}". ` +
+          `Use 'llm-conclave personas' to see available options.`
+        );
+      }
+    }
+
+    // Tier 2: Config default_panel
+    if (personas.length === 0 && opts.defaultPanel) {
+      personas = this.getPersonas(opts.defaultPanel);
+    }
+
+    // Tier 3: Auto-suggest from question
+    if (personas.length === 0 && opts.question) {
+      const suggestions = this.suggestPersonas(opts.question);
+      if (suggestions.length >= 2) {
+        personas = suggestions.slice(0, 3);
+      }
+    }
+
+    // Tier 4: Hardcoded fallback (matches current consult defaults)
+    if (personas.length === 0) {
+      personas = [
+        this.personas.security,
+        this.personas.architecture,
+        this.personas.pragmatic
+      ];
+    }
+
+    // Validate agent count
+    if (personas.length < 2 || personas.length > 5) {
+      throw new Error(
+        `Consult requires 2-5 unique agents, got ${personas.length} after deduplication. ` +
+        `Adjust your --with flag or config default_panel.`
+      );
+    }
+
+    return this.resolveConsultPanel(personas);
   }
 
   /**
