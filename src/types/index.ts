@@ -338,6 +338,7 @@ export interface SessionManifest {
   status: 'in_progress' | 'completed' | 'interrupted' | 'error';
   currentRound: number;
   maxRounds?: number;
+  minRounds?: number;
 
   // Content
   conversationHistory: SessionMessage[];

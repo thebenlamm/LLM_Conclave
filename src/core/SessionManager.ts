@@ -262,6 +262,7 @@ export default class SessionManager {
       status: 'completed',
       currentRound: result.rounds || 1,
       maxRounds: result.maxRounds,
+      minRounds: result.minRounds,
       conversationHistory: sessionMessages,
       projectContext: projectContext,
       consensusReached: result.consensusReached,

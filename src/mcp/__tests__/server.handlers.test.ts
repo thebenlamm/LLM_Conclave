@@ -251,6 +251,71 @@ describe('MCP Server Handlers', () => {
       expect(result.content[0].text).toContain('not found');
     });
 
+    it('handleDiscuss rejects negative timeout', async () => {
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test', timeout: -1 },
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('timeout must be >= 0');
+    });
+
+    it('handleContinue uses minRounds=0 for legacy sessions without the field', async () => {
+      const SessionManager = require('../../core/SessionManager').default;
+      const ConversationManager = require('../../core/ConversationManager').default;
+
+      const legacySession = {
+        id: 'session-legacy',
+        mode: 'consensus',
+        task: 'old task',
+        agents: [{ name: 'Agent1', model: 'gpt-4o', systemPrompt: 'test' }],
+        judge: { model: 'gpt-4o', systemPrompt: 'judge' },
+        maxRounds: 4,
+        // minRounds intentionally absent — simulates pre-change session
+        conversationHistory: [],
+        status: 'completed',
+      };
+
+      SessionManager.mockImplementation(() => ({
+        loadSession: jest.fn().mockResolvedValue(legacySession),
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'new-session' }),
+        saveSession: jest.fn().mockResolvedValue('new-session'),
+      }));
+
+      // Capture the config passed to ConversationManager constructor
+      let capturedConfig: any;
+      ConversationManager.mockImplementation((config: any) => {
+        capturedConfig = config;
+        return {
+          conversationHistory: [],
+          currentRound: 0,
+          abortSignal: undefined,
+          startConversation: jest.fn().mockResolvedValue({
+            task: 'follow up',
+            rounds: 1,
+            maxRounds: 4,
+            minRounds: 0,
+            consensusReached: false,
+            solution: 'test solution',
+            conversationHistory: [],
+            failedAgents: [],
+            agentSubstitutions: {},
+          }),
+        };
+      });
+
+      await callToolHandler({
+        params: {
+          name: 'llm_conclave_continue',
+          arguments: { session_id: 'session-legacy', task: 'follow up' },
+        },
+      });
+
+      expect(capturedConfig.min_rounds).toBe(0);
+    });
+
     it('handleContinue without session_id uses most recent', async () => {
       const SessionManager = require('../../core/SessionManager').default;
       const getMostRecent = jest.fn().mockResolvedValue(null);

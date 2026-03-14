@@ -90,13 +90,20 @@ export function createContinueCommand(): Command {
         includeFullHistory: !options.reset,
       });
 
+      // Helper to fix legacy sessions that stored provider class name instead of model
+      const fixLegacyModel = (model: string | undefined, fallback: string): string => {
+        if (!model) return fallback;
+        if (model.endsWith('Provider')) return fallback;
+        return model;
+      };
+
       // Rebuild config from session
       const config: any = {
         max_rounds: session.maxRounds || 4,
-        min_rounds: 0,
+        min_rounds: session.minRounds ?? 0, // Legacy sessions didn't persist minRounds; preserve their original behavior
         agents: {},
         judge: {
-          model: session.judge?.model || 'gpt-4o',
+          model: fixLegacyModel(session.judge?.model, 'gpt-4o'),
           prompt: session.judge?.systemPrompt || 'You are a judge evaluating agent responses.',
         },
       };
@@ -104,7 +111,7 @@ export function createContinueCommand(): Command {
       // Reconstruct agents from session
       for (const agent of session.agents) {
         config.agents[agent.name] = {
-          model: agent.model,
+          model: fixLegacyModel(agent.model, 'gpt-4o'),
           prompt: agent.systemPrompt,
         };
       }

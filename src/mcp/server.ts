@@ -169,8 +169,8 @@ Example inline JSON:
         },
         min_rounds: {
           type: 'number',
-          description: 'Minimum rounds before consensus can end early. Set equal to rounds for guaranteed full debate (default: 0)',
-          default: 0,
+          description: 'Minimum rounds of debate before consensus can end discussion early (default: 2)',
+          default: 2,
         },
         dynamic: {
           type: 'boolean',
@@ -184,8 +184,8 @@ Example inline JSON:
         },
         timeout: {
           type: 'number',
-          description: 'Max time in seconds. Returns partial results when exceeded. 0 = no timeout (default: 900)',
-          default: 900,
+          description: 'Max time in seconds. Do NOT set this parameter — discussions need time to complete. Only set if the user explicitly requests a timeout. 0 = no timeout (default: 0)',
+          default: 0,
         },
       },
       required: ['task'],
@@ -365,10 +365,10 @@ async function handleDiscuss(args: {
     personas,
     config: configPath,
     rounds = 4,
-    min_rounds = 0,
+    min_rounds = 2,
     dynamic = false,
     selector_model = DEFAULT_SELECTOR_MODEL,
-    timeout = 900
+    timeout = 0
   } = args;
 
   // Resolve configuration with optional custom config path
@@ -474,17 +474,22 @@ async function handleDiscuss(args: {
   );
 
   // Set up timeout with abort signal
+  // Reject negative values; if timeout is set, enforce a minimum of 600s to prevent premature cutoffs
+  if (timeout < 0) {
+    throw new Error('timeout must be >= 0 (0 = no timeout)');
+  }
+  const effectiveTimeout = timeout === 0 ? 0 : Math.max(timeout, 600);
   const abortController = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
 
-  if (timeout > 0) {
+  if (effectiveTimeout > 0) {
     conversationManager.abortSignal = abortController.signal;
     timeoutId = setTimeout(() => {
       timedOut = true;
       abortController.abort('timeout');
-      console.log(`[MCP timeout: ${timeout}s exceeded, aborting discussion]`);
-    }, timeout * 1000);
+      console.log(`[MCP timeout: ${effectiveTimeout}s exceeded, aborting discussion]`);
+    }, effectiveTimeout * 1000);
   }
 
   // Progress heartbeat: send periodic logging messages during long discussions.
@@ -542,7 +547,7 @@ async function handleDiscuss(args: {
   // Format brief summary for MCP response (keeps context small)
   let summary = '';
   if (result.timedOut) {
-    summary += `**⏱️ Discussion timed out after ${timeout}s** (${result.rounds} rounds completed)\n\n`;
+    summary += `**⏱️ Discussion timed out after ${effectiveTimeout}s** (${result.rounds} rounds completed)\n\n`;
   }
   summary += formatDiscussionResult(result, logFilePath, sessionId);
 
@@ -605,7 +610,7 @@ async function handleContinue(args: {
   // Rebuild config from session
   const config: any = {
     max_rounds: session.maxRounds || 4,
-    min_rounds: 0,
+    min_rounds: session.minRounds ?? 0, // Legacy sessions didn't persist minRounds; preserve their original behavior
     agents: {},
     judge: {
       model: fixLegacyModel(session.judge?.model, 'gpt-4o'),
@@ -678,18 +683,11 @@ async function handleContinue(args: {
 
   const conversationManager = new ConversationManager(config, null, false, scopedEventBus, false, DEFAULT_SELECTOR_MODEL);
 
-  // Set up timeout with abort signal (same pattern as handleDiscuss)
-  const continueTimeout = 900; // seconds
+  // No default timeout for continuations (matches handleDiscuss behavior).
+  // Continuations inherit the same "let it run" philosophy.
   const abortController = new AbortController();
   let continueTimeoutId: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
-
-  conversationManager.abortSignal = abortController.signal;
-  continueTimeoutId = setTimeout(() => {
-    timedOut = true;
-    abortController.abort('timeout');
-    console.log(`[MCP continue timeout: ${continueTimeout}s exceeded, aborting]`);
-  }, continueTimeout * 1000);
 
   // Inject previous history before starting
   for (const msg of prepared.mergedHistory) {
@@ -962,6 +960,21 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   let output = `# Discussion Summary\n\n`;
   output += `**Task:** ${task}\n\n`;
 
+  // Report degradation immediately after task — most important context for interpreting results
+  if (failedAgents.length > 0) {
+    output += `**⚠️ Unavailable:** ${failedAgents.join(', ')} (API errors)\n\n`;
+  }
+
+  const subEntries = Object.entries(agentSubstitutions);
+  if (subEntries.length > 0) {
+    output += `**🔄 Model Substitutions:**\n`;
+    for (const [agent, sub] of subEntries) {
+      const s = sub as any;
+      output += `- ${agent}: \`${s.original}\` → \`${s.fallback}\` (${s.reason})\n`;
+    }
+    output += `\n💡 **Action:** Check provider credits/quotas for the original models.\n\n`;
+  }
+
   // Clearer rounds display showing actual/max
   const roundsDisplay = consensusReached
     ? `${rounds}/${maxRounds || rounds} (consensus reached early)`
@@ -980,27 +993,16 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
     output += `**Agents:** ${Array.from(speakers).join(', ')}\n\n`;
   }
 
-  // Report failed agents prominently
-  if (failedAgents.length > 0) {
-    output += `**⚠️ Unavailable:** ${failedAgents.join(', ')} (API errors)\n\n`;
-  }
-
-  // Report agent substitutions (model fallbacks)
-  const subEntries = Object.entries(agentSubstitutions);
-  if (subEntries.length > 0) {
-    output += `**🔄 Model Substitutions:**\n`;
-    for (const [agent, sub] of subEntries) {
-      const s = sub as any;
-      output += `- ${agent}: \`${s.original}\` → \`${s.fallback}\` (${s.reason})\n`;
-    }
-    output += `\n💡 **Action:** Check provider credits/quotas for the original models.\n\n`;
-  }
-
   // Final solution/recommendation (the key output)
   if (solution) {
     output += `## Summary\n\n${solution}\n\n`;
   } else {
     output += `*No final solution reached*\n\n`;
+  }
+
+  // Post-solution note if agents were missing
+  if (failedAgents.length > 0) {
+    output += `> **Note:** This discussion ran without ${failedAgents.length} requested agent(s). Consider re-running if those perspectives are important.\n\n`;
   }
 
   // Key Decisions

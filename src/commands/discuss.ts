@@ -23,7 +23,7 @@ export function createDiscussCommand(): Command {
     .option('-w, --with <personas>', 'Comma-separated list of personas (e.g., security,performance)')
     .option('--personas <personas>', 'Alias for --with')
     .option('-r, --rounds <n>', 'Number of discussion rounds', '3')
-    .option('--min-rounds <n>', 'Minimum rounds before consensus can end discussion', '0')
+    .option('--min-rounds <n>', 'Minimum rounds before consensus can end discussion', '2')
     .option('--stream', 'Stream agent responses', true)
     .option('--no-stream', 'Disable streaming')
     .option('--dynamic', 'Use dynamic speaker selection (LLM picks who speaks next)')
@@ -62,7 +62,18 @@ export function createDiscussCommand(): Command {
 
       // Set rounds from options
       config.max_rounds = parseInt(options.rounds);
-      config.min_rounds = parseInt(options.minRounds || '0');
+
+      // Validate min_rounds: must be non-negative integer and <= max_rounds
+      const minRounds = Number.parseInt(options.minRounds, 10);
+      if (!Number.isFinite(minRounds) || minRounds < 0) {
+        console.error(chalk.red('\n❌ --min-rounds must be a non-negative integer\n'));
+        process.exit(1);
+      }
+      if (minRounds > config.max_rounds) {
+        console.error(chalk.red(`\n❌ --min-rounds (${minRounds}) cannot exceed --rounds (${config.max_rounds})\n`));
+        process.exit(1);
+      }
+      config.min_rounds = minRounds;
 
       // Load project context if specified
       let projectContext = null;
