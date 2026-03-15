@@ -546,6 +546,9 @@ async function handleDiscuss(args: {
 
   // Format brief summary for MCP response (keeps context small)
   let summary = '';
+  if (result.degraded) {
+    summary += `**❌ Discussion aborted:** ${result.degradedReason}\nCheck MCP server logs at ~/.llm-conclave/mcp-server.log\n\n`;
+  }
   if (result.timedOut) {
     summary += `**⏱️ Discussion timed out after ${effectiveTimeout}s** (${result.rounds} rounds completed)\n\n`;
   }
@@ -883,9 +886,19 @@ function saveFullDiscussion(result: any): string {
     : `${rounds}/${maxRounds || rounds}`;
   fullLog += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
 
-  // Report failed agents
+  // Report failed agents with error details
+  const failedDetails = result.failedAgentDetails || {};
   if (failedAgents.length > 0) {
-    fullLog += `**⚠️ Unavailable Agents:** ${failedAgents.join(', ')}\n\n`;
+    fullLog += `**⚠️ Agent Errors:**\n`;
+    for (const agent of failedAgents) {
+      const detail = failedDetails[agent];
+      if (detail) {
+        fullLog += `- ${agent} (${detail.model}): ${detail.error}\n`;
+      } else {
+        fullLog += `- ${agent}: Unknown error\n`;
+      }
+    }
+    fullLog += `\n`;
   }
 
   // Report agent substitutions
@@ -960,9 +973,19 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   let output = `# Discussion Summary\n\n`;
   output += `**Task:** ${task}\n\n`;
 
-  // Report degradation immediately after task — most important context for interpreting results
+  // Report degradation with per-agent error details (not just names)
+  const failedDetails = result.failedAgentDetails || {};
   if (failedAgents.length > 0) {
-    output += `**⚠️ Unavailable:** ${failedAgents.join(', ')} (API errors)\n\n`;
+    output += `**⚠️ Agent Errors:**\n`;
+    for (const agent of failedAgents) {
+      const detail = failedDetails[agent];
+      if (detail) {
+        output += `- ${agent} (${detail.model}): ${detail.error}\n`;
+      } else {
+        output += `- ${agent}: Unknown error\n`;
+      }
+    }
+    output += `\n`;
   }
 
   const subEntries = Object.entries(agentSubstitutions);

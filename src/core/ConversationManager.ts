@@ -191,7 +191,73 @@ export default class ConversationManager {
         }
       }
 
-      // Check if enough agents remain for meaningful discussion after failures
+      // Early abort: count how many agents actually contributed THIS round.
+      // If fewer than 2 agents responded (and we have 2+ agents total), the discussion
+      // has degraded into a monologue or silence — abort immediately instead of continuing.
+      const roundContributors = new Set<string>();
+      // Scan history entries added this round (entries after the round-start boundary)
+      for (let i = this.conversationHistory.length - 1; i >= 0; i--) {
+        const entry = this.conversationHistory[i];
+        // Stop scanning when we hit a Judge entry (previous round boundary) or System entry
+        if (entry.speaker === 'Judge' || entry.speaker === 'System') break;
+        if (entry.role === 'assistant' && entry.speaker && !entry.error) {
+          roundContributors.add(entry.speaker);
+        }
+      }
+
+      const totalAgents = this.agentOrder.length;
+      if (roundContributors.size < 2 && totalAgents >= 2) {
+        const degradedReason = `Only ${roundContributors.size} of ${totalAgents} agents responded in round ${this.currentRound}`;
+        console.log(`\n[Discussion aborted: ${degradedReason}]\n`);
+        if (this.eventBus) {
+          this.eventBus.emitEvent('status', { message: `Discussion aborted: ${degradedReason}` });
+        }
+
+        // Build failedAgentDetails for the degraded return
+        const degradedFailedDetails: Record<string, { error: string; model: string }> = {};
+        for (const entry of this.conversationHistory) {
+          if (entry.error === true && entry.speaker) {
+            degradedFailedDetails[entry.speaker] = {
+              error: entry.errorDetails || 'Unknown error',
+              model: entry.model || 'unknown',
+            };
+          }
+        }
+        const degradedFailedAgents = [...new Set(
+          this.conversationHistory.filter((msg: any) => msg.error === true).map((msg: any) => msg.speaker)
+        )];
+
+        // Attempt judge summary of whatever exists
+        let degradedSolution: string;
+        try {
+          const voteResult = await this.conductFinalVote(judge);
+          degradedSolution = voteResult.solution;
+        } catch {
+          const bestEffort = this.bestEffortJudgeResult();
+          degradedSolution = bestEffort.solution;
+        }
+
+        return {
+          task: task,
+          rounds: this.currentRound,
+          maxRounds: this.maxRounds,
+          minRounds: this.minRounds,
+          consensusReached: false,
+          solution: degradedSolution,
+          keyDecisions: [] as string[],
+          actionItems: [] as string[],
+          dissent: [degradedReason],
+          confidence: 'LOW',
+          conversationHistory: this.conversationHistory,
+          failedAgents: degradedFailedAgents,
+          failedAgentDetails: degradedFailedDetails,
+          agentSubstitutions: Object.fromEntries(this.agentSubstitutions),
+          degraded: true,
+          degradedReason,
+        };
+      }
+
+      // Also check circuit breaker: if persistently failed agents leave only 1 alive, stop
       if (this.persistentlyFailedAgents.size > 0) {
         const aliveAgents = this.agentOrder.filter(a => !this.persistentlyFailedAgents.has(a));
         if (aliveAgents.length <= 1) {
@@ -300,6 +366,17 @@ export default class ConversationManager {
         .filter((msg: any) => msg.error === true)
         .map((msg: any) => msg.speaker);
 
+      // Build detailed error map for abort return
+      const failedAgentDetails: Record<string, { error: string; model: string }> = {};
+      for (const entry of this.conversationHistory) {
+        if (entry.error === true && entry.speaker) {
+          failedAgentDetails[entry.speaker] = {
+            error: entry.errorDetails || 'Unknown error',
+            model: entry.model || 'unknown',
+          };
+        }
+      }
+
       // Try to get a proper judge summary with a fresh (non-aborted) signal.
       // The abort signal cancelled the discussion loop, but the judge can still summarize.
       // Replace with a new 30-second timeout guard to prevent hanging indefinitely.
@@ -347,6 +424,7 @@ export default class ConversationManager {
         confidence,
         conversationHistory: this.conversationHistory,
         failedAgents: [...new Set(failedAgentsList)],
+        failedAgentDetails,
         agentSubstitutions: Object.fromEntries(this.agentSubstitutions),
         timedOut: true,
       };
@@ -377,6 +455,17 @@ export default class ConversationManager {
       .map((msg: any) => msg.speaker);
     const uniqueFailedAgents = [...new Set(failedAgents)];
 
+    // Build detailed error map for failed agents (surfaces actual error messages, not just names)
+    const failedAgentDetails: Record<string, { error: string; model: string }> = {};
+    for (const entry of this.conversationHistory) {
+      if (entry.error === true && entry.speaker) {
+        failedAgentDetails[entry.speaker] = {
+          error: entry.errorDetails || 'Unknown error',
+          model: entry.model || 'unknown',
+        };
+      }
+    }
+
     // Report agent substitutions so user can debug provider issues
     if (this.agentSubstitutions.size > 0) {
       console.log(`\n${'─'.repeat(60)}`);
@@ -401,9 +490,10 @@ export default class ConversationManager {
       confidence: confidence,
       conversationHistory: this.conversationHistory,
       failedAgents: uniqueFailedAgents,
+      failedAgentDetails,
       agentSubstitutions: Object.fromEntries(this.agentSubstitutions),
     };
-    
+
     if (this.eventBus) {
         this.eventBus.emitEvent('run:complete', { result });
     }
@@ -546,6 +636,54 @@ export default class ConversationManager {
     } catch (error: any) {
       const errorMsg = error.message || 'Unknown error';
       console.error(`Error with agent ${agentName}: ${errorMsg}`);
+
+      // Connection-error retry: detect stale connections (common in long-running launchd processes)
+      // and retry once before falling through to model-fallback logic.
+      const isConnectionError = /connection.?error|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket.?hang.?up|fetch.?failed|network/i.test(errorMsg);
+      const isClientError = /4\d{2}|unauthorized|forbidden|bad.?request/i.test(errorMsg);
+      if (isConnectionError && !isClientError) {
+        console.log(`[${agentName}: Connection error detected, retrying once after 2s...]`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+          const retryMessages = this.prepareMessagesWithBudget(agentName);
+          if (retryMessages) {
+            const retryMsgs = retryMessages.map(m => ({ ...m }));
+            const { controller: retryController, cleanup: retryCleanup } = this.createCallAbortController(90_000);
+            let retryResponse;
+            try {
+              const retryOpts = { ...this.getChatOptions(agentName), signal: retryController.signal };
+              retryResponse = await agent.provider.chat(retryMsgs, agent.systemPrompt, retryOpts);
+            } finally {
+              retryCleanup();
+            }
+            let retryText = typeof retryResponse === 'string' ? retryResponse : (retryResponse.text ?? '');
+            const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const prefixPattern = new RegExp(`^\\s*${escapeRegex(agentName)}\\s*:\\s*`, 'i');
+            retryText = retryText.replace(prefixPattern, '').trim();
+
+            if (retryText && retryText.length > 0) {
+              console.log(`[${agentName}: Connection retry succeeded]`);
+              if (!this.streamOutput) {
+                console.log(`${agentName}: ${retryText}\n`);
+              }
+              if (this.eventBus) {
+                this.eventBus.emitEvent('agent:response', { agent: agentName, content: retryText });
+              }
+              this.conversationHistory.push({
+                role: 'assistant',
+                content: retryText,
+                speaker: agentName,
+                model: agent.model
+              });
+              this.recordAgentSuccess(agentName);
+              return;
+            }
+          }
+        } catch (retryError: any) {
+          console.error(`[${agentName}: Connection retry also failed: ${retryError.message}]`);
+        }
+        // Fall through to existing fallback/failure logic
+      }
 
       // Try fallback to a different provider on retryable errors (429, 502, 503)
       // NOTE: Emit error event AFTER fallback attempt — if fallback succeeds, no error to report

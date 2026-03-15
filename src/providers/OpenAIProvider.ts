@@ -12,7 +12,9 @@ export default class OpenAIProvider extends LLMProvider {
   constructor(modelName: string, apiKey?: string) {
     super(modelName);
     this.client = new OpenAI({
-      apiKey: apiKey || process.env.OPENAI_API_KEY
+      apiKey: apiKey || process.env.OPENAI_API_KEY,
+      maxRetries: 3,
+      timeout: 60_000,
     });
   }
 

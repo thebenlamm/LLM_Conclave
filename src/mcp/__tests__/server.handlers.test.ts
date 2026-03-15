@@ -135,6 +135,10 @@ jest.mock('../../types/consult.js', () => ({}));
 
 import { createServer } from '../server';
 
+// Import saveFullDiscussion and formatDiscussionResult for direct testing
+// They are not exported, so we test them indirectly through handleDiscuss.
+// Instead, we test the output formatting by examining the CallTool handler results.
+
 describe('MCP Server Handlers', () => {
   describe('createServer', () => {
     it('creates server with correct name and version', () => {
@@ -332,6 +336,114 @@ describe('MCP Server Handlers', () => {
       expect(getMostRecent).toHaveBeenCalled();
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('No sessions found');
+    });
+
+    it('handleDiscuss shows per-agent error details in output', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      ConversationManager.mockImplementation(() => ({
+        conversationHistory: [],
+        currentRound: 1,
+        abortSignal: undefined,
+        startConversation: jest.fn().mockResolvedValue({
+          task: 'test task',
+          rounds: 1,
+          maxRounds: 4,
+          minRounds: 0,
+          consensusReached: false,
+          solution: 'partial solution',
+          conversationHistory: [
+            { role: 'assistant', content: 'Agent1 response', speaker: 'Agent1', model: 'gpt-4o' },
+            { role: 'assistant', content: '[Agent2 unavailable]', speaker: 'Agent2', model: 'claude-sonnet-4-5', error: true, errorDetails: 'Connection error.' },
+          ],
+          failedAgents: ['Agent2'],
+          failedAgentDetails: {
+            Agent2: { error: 'Connection error.', model: 'claude-sonnet-4-5' },
+          },
+          agentSubstitutions: {},
+          keyDecisions: [],
+          actionItems: [],
+          dissent: [],
+          confidence: 'LOW',
+        }),
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test task' },
+        },
+      });
+
+      expect(result.isError).toBeUndefined();
+      const text = result.content[0].text;
+      // Should contain per-agent error details, not generic "API errors"
+      expect(text).toContain('Agent2');
+      expect(text).toContain('Connection error.');
+      expect(text).toContain('claude-sonnet-4-5');
+      expect(text).not.toContain('(API errors)');
+    });
+
+    it('handleDiscuss shows degraded abort message', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      ConversationManager.mockImplementation(() => ({
+        conversationHistory: [],
+        currentRound: 1,
+        abortSignal: undefined,
+        startConversation: jest.fn().mockResolvedValue({
+          task: 'test task',
+          rounds: 1,
+          maxRounds: 4,
+          minRounds: 0,
+          consensusReached: false,
+          solution: 'partial',
+          conversationHistory: [],
+          failedAgents: ['Agent1', 'Agent2'],
+          failedAgentDetails: {
+            Agent1: { error: 'Connection error.', model: 'gpt-4o' },
+            Agent2: { error: 'Connection error.', model: 'claude-sonnet-4-5' },
+          },
+          agentSubstitutions: {},
+          degraded: true,
+          degradedReason: 'Only 0 of 2 agents responded in round 1',
+          keyDecisions: [],
+          actionItems: [],
+          dissent: [],
+          confidence: 'LOW',
+        }),
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test task' },
+        },
+      });
+
+      expect(result.isError).toBeUndefined();
+      const text = result.content[0].text;
+      expect(text).toContain('Discussion aborted');
+      expect(text).toContain('Only 0 of 2 agents responded');
+      expect(text).toContain('mcp-server.log');
     });
   });
 });

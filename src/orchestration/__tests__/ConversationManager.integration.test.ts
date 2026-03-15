@@ -402,6 +402,209 @@ describe('ConversationManager Integration Tests', () => {
     });
   });
 
+  describe('Connection retry on transient errors', () => {
+    it('should retry and succeed on connection error', async () => {
+      // Agent1 fails with connection error first, succeeds on retry
+      let a1CallCount = 0;
+      const mockAgent1Chat = jest.fn().mockImplementation(() => {
+        a1CallCount++;
+        if (a1CallCount === 1) {
+          return Promise.reject(new Error('Connection error.'));
+        }
+        return Promise.resolve({ text: 'Agent1 response after retry' });
+      });
+
+      const mockAgent2Chat = jest.fn().mockResolvedValue({ text: 'Agent2 response' });
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildConsensusText({ summary: 'Solution after retry', confidence: 'HIGH' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockAgent2Chat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
+        },
+        judge: { model: 'gpt-4o', prompt: 'You are the judge' },
+        max_rounds: 3,
+      };
+
+      const cm = new ConversationManager(config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'You are the judge',
+        model: 'gpt-4o',
+      };
+
+      const result = await cm.startConversation('Test task', judge);
+
+      // Agent1 should have contributed via retry
+      expect(result.consensusReached).toBe(true);
+      const agent1Entries = result.conversationHistory.filter(
+        (e: any) => e.speaker === 'Agent1' && !e.error
+      );
+      expect(agent1Entries.length).toBeGreaterThanOrEqual(1);
+    }, 15000);
+
+    it('should populate failedAgentDetails when connection retry also fails', async () => {
+      // Agent1 always fails with connection error
+      const mockAgent1Chat = jest.fn().mockRejectedValue(new Error('Connection error.'));
+      const mockAgent2Chat = jest.fn().mockResolvedValue({ text: 'Agent2 response' });
+
+      let jIdx = 0;
+      const judgeTexts = [
+        'Keep discussing',
+        buildConsensusText({ summary: 'Solution without Agent1', confidence: 'MEDIUM' }),
+      ];
+      const mockJudgeChat = jest.fn().mockImplementation(() => {
+        const text = judgeTexts[jIdx] || judgeTexts[judgeTexts.length - 1];
+        jIdx++;
+        return Promise.resolve({ text });
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockAgent2Chat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
+        },
+        judge: { model: 'gpt-4o', prompt: 'You are the judge' },
+        max_rounds: 3,
+      };
+
+      const cm = new ConversationManager(config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'You are the judge',
+        model: 'gpt-4o',
+      };
+
+      const result = await cm.startConversation('Test task', judge);
+
+      expect(result.failedAgentDetails).toBeDefined();
+      expect(result.failedAgentDetails['Agent1']).toBeDefined();
+      expect(result.failedAgentDetails['Agent1'].error).toContain('Connection error');
+      expect(result.failedAgentDetails['Agent1'].model).toBe('gpt-4o');
+    }, 15000);
+  });
+
+  describe('Early abort on degraded round', () => {
+    it('should abort when fewer than 2 agents respond in a round', async () => {
+      // Both Agent1 and Agent2 fail → 0 contributors → degraded
+      const mockAgent1Chat = jest.fn().mockRejectedValue(new Error('Connection error.'));
+      const mockAgent2Chat = jest.fn().mockRejectedValue(new Error('Connection error.'));
+
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildFinalVoteText({ summary: 'Degraded summary', confidence: 'LOW' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockAgent2Chat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
+        },
+        judge: { model: 'gpt-4o', prompt: 'You are the judge' },
+        max_rounds: 4,
+      };
+
+      const cm = new ConversationManager(config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'You are the judge',
+        model: 'gpt-4o',
+      };
+
+      const result = await cm.startConversation('Test task', judge);
+
+      expect((result as any).degraded).toBe(true);
+      expect((result as any).degradedReason).toContain('0 of 2');
+      expect(result.rounds).toBe(1); // Stopped after round 1
+      expect(result.failedAgentDetails).toBeDefined();
+    }, 15000);
+
+    it('should continue when enough agents respond (2 of 3)', async () => {
+      // 3 agents: Agent1 fails, Agent2 and Agent3 succeed → 2 contributors → continue
+      const mockAgent1Chat = jest.fn().mockRejectedValue(new Error('Connection error.'));
+      const mockAgent2Chat = jest.fn().mockResolvedValue({ text: 'Agent2 response' });
+      const mockAgent3Chat = jest.fn().mockResolvedValue({ text: 'Agent3 response' });
+
+      let jIdx = 0;
+      const judgeTexts = [
+        'Keep discussing',
+        buildConsensusText({ summary: 'Solution from 2 agents', confidence: 'MEDIUM' }),
+      ];
+      const mockJudgeChat = jest.fn().mockImplementation(() => {
+        const text = judgeTexts[jIdx] || judgeTexts[judgeTexts.length - 1];
+        jIdx++;
+        return Promise.resolve({ text });
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockAgent2Chat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'gemini-2.5-pro') return { chat: mockAgent3Chat, getProviderName: jest.fn().mockReturnValue('Gemini') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
+          Agent3: { model: 'gemini-2.5-pro', prompt: 'You are Agent3' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'You are the judge' },
+        max_rounds: 3,
+      };
+
+      const cm = new ConversationManager(config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'You are the judge',
+        model: 'gpt-4o-mini',
+      };
+
+      const result = await cm.startConversation('Test task', judge);
+
+      // Should NOT be degraded — 2 agents responded
+      expect((result as any).degraded).toBeUndefined();
+      expect(result.rounds).toBeGreaterThanOrEqual(1);
+    }, 15000);
+  });
+
+  describe('failedAgentDetails in result', () => {
+    it('should include correct agent-to-error mapping', async () => {
+      const { cm, judge } = createSetup({
+        agent1Responses: ['Agent1 response'],
+        agent2Responses: ['Agent2 response'],
+        judgeResponses: [
+          buildConsensusText({ summary: 'Solution', confidence: 'HIGH' }),
+        ],
+      });
+
+      const result = await cm.startConversation('Test task', judge);
+
+      // No failures → failedAgentDetails should be empty
+      expect(result.failedAgentDetails).toBeDefined();
+      expect(Object.keys(result.failedAgentDetails)).toHaveLength(0);
+    });
+  });
+
   describe('EventBus integration', () => {
     it('should emit events during conversation flow', async () => {
       const eventBus = new EventBus();
