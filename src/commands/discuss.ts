@@ -28,6 +28,7 @@ export function createDiscussCommand(): Command {
     .option('--no-stream', 'Disable streaming')
     .option('--dynamic', 'Use dynamic speaker selection (LLM picks who speaks next)')
     .option('--selector-model <model>', 'Model for speaker selection', DEFAULT_SELECTOR_MODEL)
+    .option('--judge-model <model>', 'Model for the judge (default: gemini-2.5-flash)')
     .option('--no-routing', 'Disable cheap model routing for subtasks (summarization)')
     .action(async (taskArgs: string[], options: any) => {
       const task = taskArgs.join(' ');
@@ -90,11 +91,12 @@ export function createDiscussCommand(): Command {
         console.log(chalk.cyan(`Speaker selector: ${options.selectorModel}\n`));
       }
 
-      // Create judge
+      // Create judge (CLI --judge-model overrides config)
+      const judgeModel = options.judgeModel || config.judge.model;
       const judge = {
-        provider: ProviderFactory.createProvider(config.judge.model),
+        provider: ProviderFactory.createProvider(judgeModel),
         systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.',
-        model: config.judge.model
+        model: judgeModel
       };
 
       // Run conversation with optional dynamic speaker selection

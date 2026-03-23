@@ -191,6 +191,10 @@ Example inline JSON:
           description: `Model for speaker selection when dynamic=true (default: ${DEFAULT_SELECTOR_MODEL})`,
           default: DEFAULT_SELECTOR_MODEL,
         },
+        judge_model: {
+          type: 'string',
+          description: 'Model for the judge (evaluates consensus, writes summary). Default: gemini-2.5-flash (1M context, cheapest). Options: gemini-2.5-flash, gemini-2.5-pro, claude-sonnet-4-5, gpt-4o.',
+        },
         timeout: {
           type: 'number',
           description: 'Max time in seconds. Do NOT set this parameter — discussions need time to complete. Only set if the user explicitly requests a timeout. 0 = no timeout (default: 0)',
@@ -378,6 +382,7 @@ async function handleDiscuss(args: {
   min_rounds?: number;
   dynamic?: boolean;
   selector_model?: string;
+  judge_model?: string;
   timeout?: number;
 }, server: Server) {
   const {
@@ -430,10 +435,11 @@ async function handleDiscuss(args: {
     await projectContext.load();
   }
 
-  // Create judge
+  // Create judge (judge_model param overrides config)
+  const judgeModel = args.judge_model || config.judge.model;
   const judge = {
-    model: config.judge.model,
-    provider: ProviderFactory.createProvider(config.judge.model),
+    model: judgeModel,
+    provider: ProviderFactory.createProvider(judgeModel),
     systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.',
   };
 

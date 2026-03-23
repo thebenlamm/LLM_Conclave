@@ -157,6 +157,7 @@ Run a collaborative discussion where agents contribute equally and build on each
 - `min_rounds` (optional): Minimum rounds before early consensus can end discussion (default: 0)
 - `dynamic` (optional): Enable LLM-based speaker selection instead of round-robin (default: false)
 - `selector_model` (optional): Model for speaker selection when dynamic=true (default: gpt-4o-mini)
+- `judge_model` (optional): Model for the judge that evaluates consensus. Default: `gemini-2.5-flash` (1M context, cheapest). Options: `gemini-2.5-flash`, `gemini-2.5-pro`, `claude-sonnet-4-5`, `gpt-4o`
 
 **Built-in Personas:**
 - `security` - Security Expert (Claude) - OWASP, auth, encryption

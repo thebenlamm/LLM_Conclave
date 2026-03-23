@@ -1426,8 +1426,12 @@ export default class ConversationManager {
     const budget = limits.maxInput - 6000;
 
     // Build case file header (placed at START for high attention)
-    const caseFile = this.buildCaseFile();
-    const caseFileTokens = TokenCounter.estimateTokens(caseFile);
+    // Cap case file + state at 30% of budget to guarantee discussion space
+    const maxHeaderPercent = 0.3;
+    const headerBudget = Math.floor(budget * maxHeaderPercent);
+
+    let caseFile = this.buildCaseFile();
+    let caseFileTokens = TokenCounter.estimateTokens(caseFile);
 
     // Extract discussion state for richer judge signal (Phase 2 Context Tax)
     const roundGroups = this.groupHistoryByRound();
@@ -1435,6 +1439,15 @@ export default class ConversationManager {
     const discussionState = DiscussionStateExtractor.extract(roundGroups, currentRound);
     const stateText = discussionState ? DiscussionStateExtractor.format(discussionState) : '';
     const stateTokens = stateText ? TokenCounter.estimateTokens(stateText) : 0;
+
+    // Truncate case file if it exceeds the header budget
+    if (caseFileTokens + stateTokens > headerBudget) {
+      const caseFileBudget = Math.max(1000, headerBudget - stateTokens);
+      const { text } = TokenCounter.truncateText(caseFile, caseFileBudget);
+      caseFile = text;
+      caseFileTokens = TokenCounter.estimateTokens(caseFile);
+      console.log(`[Judge: case file truncated to fit 30% budget cap (${caseFileTokens} tokens)]`);
+    }
 
     // Budget for the discussion text after accounting for the case file and state
     const discussionBudget = Math.max(0, budget - caseFileTokens - stateTokens);
