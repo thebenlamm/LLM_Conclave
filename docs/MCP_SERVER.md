@@ -8,7 +8,7 @@ The Model Context Protocol (MCP) is a standard way for AI assistants to access e
 
 ## Why Use the MCP Server?
 
-**Instead of running llm_conclave CLI commands yourself**, you can let your AI assistant:
+LLM Conclave is an MCP-native tool that lets your AI assistant:
 - Run multi-model consultations as part of solving your problem
 - Get expert consensus on technical decisions in real-time
 - Leverage 5 different LLM providers (OpenAI, Claude, Gemini, Grok, Mistral) simultaneously
@@ -471,7 +471,7 @@ Provider is auto-inferred from model name, or specify explicitly with `"provider
 └─────────┘  └─────────┘  └─────────┘
 
     Default: Security Expert, Architect, Pragmatist
-    Custom via CLI: --with creative,architect,pragmatic
+    Custom via MCP: personas "creative,architect,pragmatic"
 
     [4-Round Debate: Independent → Synthesis → Cross-Exam → Verdict]
 
@@ -656,18 +656,11 @@ Each consultation uses multiple LLM providers:
 - ✅ Inline JSON config support
 - ✅ Devil's advocate mode (detects shallow agreement)
 
-**Already Implemented (via CLI):**
-- Cost controls with pre-flight estimates and user consent
-- Analytics dashboard with usage tracking (`llm-conclave consult-stats`)
-- Advanced modes (explore vs converge)
-- Stdin piping and flexible I/O
-
-**Coming Soon to MCP:**
-- Custom persona definitions via config
+**Coming Soon:**
 - `llm_conclave_iterate` - Chunk-based iterative collaboration
-- `llm_conclave_stats` - Usage analytics via MCP
+- `llm_conclave_stats` - Usage analytics and cost tracking via MCP
 
-**See:** `docs/PLANNED_FEATURES.md` for full roadmap
+**See:** `docs/PLANNED_FEATURES.md` for the full MCP roadmap
 
 ---
 

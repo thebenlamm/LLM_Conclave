@@ -52,68 +52,40 @@ This document outlines the design for a **Resume & Continuation** feature in LLM
 
 ## 3. User Experience
 
-### 3.1 CLI Interface
+### 3.1 MCP Tool Interface
 
-#### Basic Continuation
-```bash
-# Continue most recent conversation
-llm-conclave --continue "Follow-up: Can you elaborate on the scalability concerns?"
+> **Note**: LLM Conclave no longer has a CLI. All interaction happens via MCP tools.
 
-# Continue specific conversation by ID
-llm-conclave --resume <session-id> "What about using a database instead of files?"
+#### Continuation via MCP Tools
 
-# Continue from file path
-llm-conclave --resume ./outputs/conclave-2025-12-06T20-42-25-full.json \
-  "Based on your feedback, here's my revised approach: [...]"
-
-# List available sessions to resume
-llm-conclave --list-sessions
+**`llm_conclave_continue`** — Continue a previous session with a follow-up question:
+```json
+{
+  "session_id": "session_20251206_204225_a3f2",
+  "follow_up": "Can you elaborate on the scalability concerns?"
+}
 ```
 
-#### Advanced Options
-```bash
-# Resume with different agents
-llm-conclave --resume <session-id> --models gpt-4o,claude-sonnet-4-5 "Question"
-
-# Resume but start fresh discussion (context-only)
-llm-conclave --resume <session-id> --reset-discussion "New question"
-
-# Resume and force new consensus attempt
-llm-conclave --resume <session-id> --force-consensus "Question"
-
-# Resume iterative mode from specific chunk
-llm-conclave --resume <session-id> --start-chunk 5
+**`llm_conclave_sessions`** — List and inspect available sessions:
+```json
+{
+  "action": "list",
+  "mode": "consensus",
+  "limit": 5
+}
 ```
 
-#### Session Management
-```bash
-# List all saved sessions
-llm-conclave --list-sessions
+#### Advanced Options (via tool parameters)
+- `models`: Override agents for the continuation (e.g., `["claude-sonnet-4-5", "gemini-2.5-pro"]`)
+- `reset_discussion`: Start fresh discussion with context-only from previous session
+- `force_consensus`: Force a new consensus attempt
+- `start_chunk`: Resume iterative mode from a specific chunk
 
-# Show details of a session
-llm-conclave --show-session <session-id>
-
-# Delete old sessions
-llm-conclave --delete-session <session-id>
-
-# Clean up sessions older than N days
-llm-conclave --cleanup-sessions --older-than 30
-```
-
-### 3.2 Interactive Prompts
-
-When running `--continue` without parameters:
-```
-Found 5 recent sessions:
-
-1. [2025-12-06 20:42] "Evaluate AI brain idea..." (Consensus, 1 round)
-2. [2025-12-06 18:30] "Review authentication code" (Orchestrated, 3 rounds)
-3. [2025-12-05 14:22] "OCR correction task" (Iterative, 8/10 chunks)
-4. [2025-12-05 10:15] "Design API architecture" (Consensus, 2 rounds)
-5. [2025-12-04 16:45] "Refactor user module" (Orchestrated, completed)
-
-Which session would you like to continue? (1-5, or 'q' to quit): _
-```
+#### Session Management (via `llm_conclave_sessions` tool)
+- `action: "list"` — List all saved sessions with optional filters
+- `action: "show"` — Show details of a specific session
+- `action: "delete"` — Delete a session
+- `action: "cleanup"` — Clean up sessions older than N days
 
 ---
 
@@ -389,7 +361,7 @@ class ConversationManager {
 
 #### Consensus Mode Resume Flow
 ```
-1. User: llm-conclave --resume <id> "Follow-up question"
+1. MCP tool call: llm_conclave_continue(session_id, follow_up)
    ↓
 2. Load SessionManifest from disk
    ↓
@@ -420,7 +392,7 @@ class ConversationManager {
 
 #### Iterative Mode Resume Flow
 ```
-1. User: llm-conclave --resume <id> --start-chunk 5
+1. MCP tool call: llm_conclave_continue(session_id, start_chunk=5)
    ↓
 2. Load SessionManifest + agent notes + shared output
    ↓
@@ -460,10 +432,9 @@ class ConversationManager {
 ### Phase 2: List & Inspect Sessions (Week 1)
 **Goal:** Users can browse saved sessions
 
-- [ ] Implement `--list-sessions` command
-- [ ] Implement `--show-session <id>` command
+- [ ] Implement `llm_conclave_sessions` MCP tool (list, show actions)
 - [ ] Add session summary formatting
-- [ ] Add interactive session picker
+- [ ] Support filtering by mode, status, date range
 
 **Testing:**
 - List sessions with various filters
@@ -474,8 +445,8 @@ class ConversationManager {
 **Goal:** Resume consensus mode conversations
 
 - [ ] Create `ContinuationHandler` class
-- [ ] Implement `--continue` flag for most recent session
-- [ ] Implement `--resume <id>` flag for specific session
+- [ ] Implement `llm_conclave_continue` MCP tool
+- [ ] Support continuation by session ID or most recent
 - [ ] Generate continuation prompts
 - [ ] Merge conversation histories
 - [ ] Create linked session (parent reference)
@@ -492,7 +463,7 @@ class ConversationManager {
 - [ ] Enhance `SessionManifest` with iterative state
 - [ ] Save/restore agent notes files
 - [ ] Save/restore shared output
-- [ ] Implement `--start-chunk` with resume
+- [ ] Implement `start_chunk` parameter in continue tool
 - [ ] Auto-detect interruption and offer resume
 
 **Testing:**
@@ -520,7 +491,7 @@ class ConversationManager {
 - [ ] Implement checkpoint creation every N rounds
 - [ ] Save lightweight checkpoints (not full copies)
 - [ ] Detect crashes and offer resume from checkpoint
-- [ ] Add `--checkpoint-interval` flag
+- [ ] Add `checkpoint_interval` parameter to MCP tools
 
 **Testing:**
 - Run long sessions and verify checkpoints
@@ -530,8 +501,7 @@ class ConversationManager {
 ### Phase 7: Session Management (Week 4)
 **Goal:** Cleanup and maintenance
 
-- [ ] Implement `--delete-session`
-- [ ] Implement `--cleanup-sessions --older-than N`
+- [ ] Implement delete and cleanup actions in `llm_conclave_sessions` tool
 - [ ] Add retention policies to config
 - [ ] Add disk space warnings
 - [ ] Implement session archival (compress old sessions)
@@ -545,7 +515,7 @@ class ConversationManager {
 ### Phase 8: Advanced Features (Future)
 **Goal:** Power user features
 
-- [ ] Session branching (`--branch-from <id> --at-round N`)
+- [ ] Session branching (via `branch_from` and `at_round` parameters)
 - [ ] Diff between sessions
 - [ ] Export/import sessions
 - [ ] Session search by content
@@ -585,49 +555,44 @@ session:
 
 ## 7. User Interface Examples
 
-### Example 1: Basic Follow-up
-```bash
-$ llm-conclave "Evaluate my AI brain idea..."
-[... discussion happens ...]
-✓ Consensus reached!
-Session saved: session_20251206_204225_a3f2
+### Example 1: Basic Follow-up (via MCP)
+```
+// Initial discussion via llm_conclave_discuss tool
+→ Consensus reached!
+→ Session saved: session_20251206_204225_a3f2
 
-$ llm-conclave --continue "Can you elaborate on the scalability concerns?"
+// Follow-up via llm_conclave_continue tool
+// Input: { session_id: "session_20251206_204225_a3f2", follow_up: "Elaborate on scalability concerns?" }
 → Loading session session_20251206_204225_a3f2...
 → Continuing discussion with 5 agents...
 
 [Architect]: In our previous discussion, I mentioned scalability issues...
 [... continuation ...]
 
-✓ Follow-up discussion complete!
-Session saved: session_20251206_210834_f8a1 (parent: session_20251206_204225_a3f2)
+→ Follow-up discussion complete!
+→ Session saved: session_20251206_210834_f8a1 (parent: session_20251206_204225_a3f2)
 ```
 
 ### Example 2: Resume Interrupted Iterative Session
-```bash
-$ llm-conclave --iterative --project oz.txt "Fix OCR errors"
-[... processing chunks 1-7 ...]
-^C
-✗ Interrupted at chunk 7/15
+```
+// Iterative session interrupted at chunk 7/15
+// Session saved: session_20251206_145523_c2d8
 
-$ llm-conclave --resume
-→ Detected interrupted session: session_20251206_145523_c2d8
-→ Task: "Fix OCR errors" (Iterative mode)
-→ Progress: 7/15 chunks completed
-→ Resume from chunk 8? [Y/n]: y
-
+// Resume via llm_conclave_continue tool
+// Input: { session_id: "session_20251206_145523_c2d8", start_chunk: 8 }
 → Restoring agent states...
 → Resuming from chunk 8...
 
 [... continues from chunk 8 ...]
 
-✓ All chunks completed!
-Session session_20251206_145523_c2d8 marked complete.
+→ All chunks completed!
+→ Session session_20251206_145523_c2d8 marked complete.
 ```
 
 ### Example 3: List & Select Session
-```bash
-$ llm-conclave --list-sessions --mode consensus --limit 5
+```
+// Via llm_conclave_sessions tool
+// Input: { action: "list", mode: "consensus", limit: 5 }
 
 Recent Consensus Sessions:
 1. [Dec 6, 8:42 PM] "Evaluate AI brain idea..."
@@ -639,10 +604,8 @@ Recent Consensus Sessions:
 3. [Dec 5, 2:22 PM] "Review security approach"
    Status: Completed | Rounds: 3 | Cost: $0.067
 
-$ llm-conclave --resume 2 "What about authentication?"
-→ Loading session "Design API architecture"...
-→ Continuing discussion...
-[...]
+// Then continue via llm_conclave_continue tool
+// Input: { session_id: "<id-from-session-2>", follow_up: "What about authentication?" }
 ```
 
 ---
@@ -798,7 +761,7 @@ Available recent sessions:
   - session_20251206_204225_a3f2: "Evaluate AI brain idea..."
   - session_20251206_183045_b7e9: "Review authentication code"
 
-Run 'llm-conclave --list-sessions' to see all sessions.
+Use llm_conclave_sessions tool with action "list" to see all sessions.
 ```
 
 ### Session Corrupted
@@ -810,8 +773,8 @@ Details:
   - JSON parse error at line 142
 
 Try:
-  - llm-conclave --recover-session session_20251206_204225_a3f2
-  - llm-conclave --list-sessions (to find other sessions)
+  - Use llm_conclave_sessions tool with action "recover"
+  - Use llm_conclave_sessions tool with action "list" to find other sessions
 ```
 
 ### Model Unavailable
@@ -821,7 +784,7 @@ Warning: Original model 'gpt-4o' from session no longer available.
 Options:
   1. Continue with 'gpt-4o' (current version may differ)
   2. Use 'gpt-4' instead
-  3. Specify different models with --models
+  3. Specify different models via the `models` parameter
 
 Continue? [y/N]:
 ```
@@ -847,7 +810,7 @@ Choice [1-3]:
 ## 10. Success Metrics
 
 ### Adoption Metrics
-- **Usage Rate**: % of users who use `--continue` at least once
+- **Usage Rate**: % of users who use the continue tool at least once
 - **Follow-up Rate**: % of sessions that have follow-ups
 - **Session Count**: Average number of sessions per user
 
@@ -862,7 +825,7 @@ Choice [1-3]:
 - **Cost Impact**: Additional token costs from context loading
 
 ### Target Metrics (6 months post-launch)
-- 40% of users try `--continue` feature
+- 40% of users try the continue feature
 - 25% of sessions have at least one follow-up
 - <5% resume error rate
 - <2 second resume latency
@@ -878,17 +841,10 @@ Choice [1-3]:
 - Session permissions and access control
 
 ### Advanced Branching
-```bash
-# Create multiple branches from same session
-llm-conclave --branch-from <id> --at-round 2 "Explore approach A"
-llm-conclave --branch-from <id> --at-round 2 "Explore approach B"
-
-# Compare branches
-llm-conclave --diff-sessions <branch-a> <branch-b>
-
-# Merge insights from branches
-llm-conclave --merge-sessions <branch-a> <branch-b> "Synthesize best approach"
-```
+Via `llm_conclave_continue` with `branch_from` and `at_round` parameters:
+- Create multiple branches from same session at different rounds
+- Compare branches via `llm_conclave_sessions` with `action: "diff"`
+- Merge insights via `llm_conclave_sessions` with `action: "merge"`
 
 ### Smart Context Selection
 - AI-powered selection of relevant history
@@ -896,16 +852,11 @@ llm-conclave --merge-sessions <branch-a> <branch-b> "Synthesize best approach"
 - Intelligent prompt compression
 
 ### Session Analytics
-```bash
-# Analyze session patterns
-llm-conclave --analyze-session <id>
-
-Output:
-  - Consensus patterns
-  - Agent agreement/disagreement metrics
-  - Topic drift analysis
-  - Cost breakdown by agent/round
-```
+Via `llm_conclave_sessions` with `action: "analyze"`:
+- Consensus patterns
+- Agent agreement/disagreement metrics
+- Topic drift analysis
+- Cost breakdown by agent/round
 
 ### Web UI
 - Visual session browser
@@ -941,7 +892,6 @@ Output:
 
 ### Internal Dependencies
 - ConversationManager (enhanced)
-- OutputHandler (enhanced)
 - CostTracker (enhanced for lineage)
 
 ---
@@ -979,7 +929,7 @@ Output:
 ### User Documentation
 - Tutorial: "Asking Follow-up Questions"
 - Tutorial: "Resuming Interrupted Sessions"
-- CLI reference for resume flags
+- MCP tool reference for resume parameters
 - FAQ on session management
 
 ### Developer Documentation
@@ -995,12 +945,11 @@ Output:
 ### Existing Users
 - Automatic migration: old outputs remain in `outputs/`
 - New sessions automatically saved to `.llm-conclave/sessions/`
-- Option to import old sessions: `llm-conclave --import-legacy-outputs`
+- Option to import old sessions via `llm_conclave_sessions` tool with `action: "import_legacy"`
 
 ### Backward Compatibility
-- Resume feature is opt-in via flags
+- Resume feature is opt-in via MCP tool parameters
 - Existing workflows unchanged
-- No breaking changes to CLI
 
 ---
 
@@ -1033,7 +982,7 @@ The Resume & Continuation feature addresses a critical gap in LLM Conclave's wor
 1. Review and approve this design document
 2. Create GitHub issues for each implementation phase
 3. Begin Phase 1 implementation (session persistence)
-4. Gather user feedback on `--list-sessions` before building resume logic
+4. Gather user feedback on session listing before building resume logic
 
 ---
 

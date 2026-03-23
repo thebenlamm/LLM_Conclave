@@ -498,7 +498,7 @@ interface CallLog {
 
 Consult Round 1 (parallel independent analysis) is a batch candidate — agents are independent, no sequential dependency. Also: eval runs, regression tests, MCP background tasks.
 
-**CLI flag**: `llm-conclave consult --batch "question"`
+**MCP parameter**: `batch: true` on `llm_conclave_consult` tool
 
 **Implementation**:
 1. Serialize Round 1 prompts to JSONL
@@ -521,8 +521,8 @@ Consult Round 1 (parallel independent analysis) is a batch candidate — agents 
 **Implementation:**
 - `src/providers/GeminiCacheManager.ts` — Session-scoped cache lifecycle manager with sha256 content hashing, 5-min TTL, 50K token minimum threshold
 - `src/providers/GeminiProvider.ts` — `setCacheManager()` method, cache integration in `performChat()` via `cachedContent` config key
-- `src/orchestration/ConsultOrchestrator.ts` — Creates cache manager when `--gemini-cache` enabled, passes to Pragmatist's provider, cleanup on session end + SIGINT/SIGTERM
-- `src/commands/consult.ts` — `--gemini-cache` CLI flag
+- `src/orchestration/ConsultOrchestrator.ts` — Creates cache manager when gemini-cache is enabled, passes to Pragmatist's provider, cleanup on session end + SIGINT/SIGTERM
+- Gemini cache enabled via `--gemini-cache` option (previously in `src/commands/consult.ts`, now exposed via MCP tool parameters)
 - `src/providers/__tests__/GeminiCacheManager.test.ts` — 13 unit tests
 
 **Critical bug fixed during implementation:** The `@google/genai` SDK expects `{ model, contents, config: { systemInstruction, tools, cachedContent } }` but the code was spreading config fields at the top level, where they were silently ignored. This pre-existing bug affected all Gemini calls. Fixed by nesting under `config` key per SDK's `generateContentParametersToMldev` interface.
@@ -609,7 +609,7 @@ Uses instruction-based restriction (not schema removal) to preserve KV cache. To
 
 3. **Tool pruning vs. instruction-based restriction**: Manus recommends keeping tools stable for cache. Start with instruction-based restriction (simpler, cache-safe), measure if agents respect it reliably.
 
-4. **Batch mode UX**: For CLI, batch makes users wait up to 24 hours. Consider a `--batch` flag for explicit opt-in, or auto-batch only for eval/regression runs. Never auto-batch interactive sessions.
+4. **Batch mode UX**: Batch makes callers wait up to 24 hours. Consider a `batch` parameter for explicit opt-in, or auto-batch only for eval/regression runs. Never auto-batch interactive sessions.
 
 5. **Discussion state extraction quality**: Deterministic heuristic (last paragraph = position, "?" = question) may miss nuance. Monitor quality; upgrade to gpt-4o-mini extraction only if judge verdicts degrade.
 
