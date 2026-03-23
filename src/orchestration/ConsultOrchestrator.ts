@@ -16,7 +16,7 @@ import { ArtifactFilter } from '../consult/artifacts/ArtifactFilter';
 import { FilterConfig } from '../consult/artifacts/FilterConfig';
 import { CostEstimator, CostEstimate } from '../consult/cost/CostEstimator';
 import { CostGate } from '../consult/cost/CostGate';
-import { ConfigCascade } from '../cli/ConfigCascade';
+import { ConfigCascade } from '../config/ConfigCascade';
 import { ConsultationFileLogger } from '../consult/logging/ConsultationFileLogger';
 import { ProviderHealthMonitor } from '../consult/health/ProviderHealthMonitor';
 import { PROVIDER_TIER_MAP } from '../consult/health/ProviderTiers';

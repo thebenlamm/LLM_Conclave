@@ -60,8 +60,8 @@ jest.mock('../../core/ContinuationHandler.js', () => ({ __esModule: true, defaul
 jest.mock('../../providers/ProviderFactory.js', () => ({ __esModule: true, default: { createProvider: jest.fn() } }));
 jest.mock('../../utils/ProjectContext.js', () => ({ __esModule: true, default: jest.fn() }));
 jest.mock('../../utils/ConsultLogger.js', () => ({ __esModule: true, default: jest.fn() }));
-jest.mock('../../cli/ConfigCascade.js', () => ({ ConfigCascade: { resolve: jest.fn(() => ({ agents: {}, judge: {} })) } }));
-jest.mock('../../cli/PersonaSystem.js', () => ({ PersonaSystem: { getPersonas: jest.fn(), personasToAgents: jest.fn() } }));
+jest.mock('../../config/ConfigCascade.js', () => ({ ConfigCascade: { resolve: jest.fn(() => ({ agents: {}, judge: {} })) } }));
+jest.mock('../../config/PersonaSystem.js', () => ({ PersonaSystem: { getPersonas: jest.fn(), personasToAgents: jest.fn() } }));
 jest.mock('../../consult/formatting/FormatterFactory.js', () => ({ FormatterFactory: { format: jest.fn() } }));
 jest.mock('../../consult/context/ContextLoader.js', () => ({ ContextLoader: jest.fn() }));
 jest.mock('../../constants.js', () => ({ DEFAULT_SELECTOR_MODEL: 'gpt-4o-mini' }));

@@ -95,7 +95,7 @@ jest.mock('../../utils/ConsultLogger.js', () => ({
   })),
 }));
 
-jest.mock('../../cli/ConfigCascade.js', () => ({
+jest.mock('../../config/ConfigCascade.js', () => ({
   ConfigCascade: {
     resolve: jest.fn(() => ({
       agents: {
@@ -107,7 +107,7 @@ jest.mock('../../cli/ConfigCascade.js', () => ({
   },
 }));
 
-jest.mock('../../cli/PersonaSystem.js', () => ({
+jest.mock('../../config/PersonaSystem.js', () => ({
   PersonaSystem: {
     getPersonas: jest.fn(() => []),
     personasToAgents: jest.fn(() => ({})),

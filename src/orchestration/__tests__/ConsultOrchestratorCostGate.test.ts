@@ -11,7 +11,7 @@
 
 import ConsultOrchestrator from '../ConsultOrchestrator';
 import { CostGate } from '../../consult/cost/CostGate';
-import { ConfigCascade } from '../../cli/ConfigCascade';
+import { ConfigCascade } from '../../config/ConfigCascade';
 import { ConsultState } from '../../types/consult';
 import * as fs from 'fs';
 import * as path from 'path';

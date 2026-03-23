@@ -268,30 +268,8 @@ export interface DecisionRecord {
 }
 
 // ============================================================================
-// Init Types
+// Project Scan Types
 // ============================================================================
-
-export interface InteractiveInitOptions {
-  projectName?: string;
-  overwrite?: boolean;
-  scan?: boolean;
-  noScan?: boolean;
-  scanTimeout?: number;
-}
-
-export interface GeneratedAgent {
-  name: string;
-  model: string;
-  prompt: string;
-  type: 'decision_maker' | 'validator';
-  role: string;
-  domains: string[];
-}
-
-export interface AgentGenerationResult {
-  agents: GeneratedAgent[];
-  reasoning: string;
-}
 
 export interface ProjectScanResult {
   projectType: string | null;
@@ -306,17 +284,6 @@ export interface KeyFile {
   name: string;
   content: string;
   isAIDoc: boolean;
-}
-
-// ============================================================================
-// API Key Detection
-// ============================================================================
-
-export interface ProviderAvailability {
-  provider: string;
-  model: string;
-  available: boolean;
-  priority: number;
 }
 
 // ============================================================================

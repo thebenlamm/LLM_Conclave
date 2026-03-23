@@ -1,6 +1,6 @@
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
-import ProjectScanner from '../../init/ProjectScanner';
+import ProjectScanner from './ProjectScanner';
 
 export interface FrameworkDetectionResult {
   framework: string | null;
