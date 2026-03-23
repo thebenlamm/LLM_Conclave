@@ -1591,11 +1591,23 @@ export default class ConversationManager {
       const allAgentsContributed = activeAgents.every(agent => contributingAgents.has(agent));
       const missingAgents = activeAgents.filter(agent => !contributingAgents.has(agent));
 
+      // Detect rubber-stamping: agents respond to proposals with praise but no challenge
+      const currentRoundEntries = this.conversationHistory
+        .filter(e => this.getRoundForEntry(e) === this.currentRound && e.role === 'assistant' && e.speaker !== 'Judge' && !e.error);
+      let isRubberStamped = false;
+      if (currentRoundEntries.length >= 2) {
+        const challengePatterns = /\?|however|but |risk|concern|downside|problem|what if|what about|trade.?off|cost of|challenge|disagree|alternative/gi;
+        const entriesWithChallenge = currentRoundEntries.filter(e => challengePatterns.test(e.content));
+        isRubberStamped = entriesWithChallenge.length < Math.ceil(currentRoundEntries.length / 2);
+      }
+
       let roundContext = '';
       if (!allAgentsContributed) {
         roundContext = `\n\n⚠️ WARNING: Not all agents have contributed yet. Missing: ${missingAgents.join(', ')}. Consensus CANNOT be declared until all agents have had a chance to speak.`;
       } else if (isExcessiveQuoting) {
         roundContext = `\n\nNote: Agents are quoting each other extensively instead of adding new ideas. In your guidance, tell them: "STOP restating what others said. Reference ideas briefly then ADD something new — a counterargument, an edge case, a concrete implementation detail. If you have nothing new, say so in one sentence."`;
+      } else if (isRubberStamped && this.currentRound <= 2) {
+        roundContext = `\n\nNote: This round's responses showed mostly agreement without substantive challenge. No agent asked probing questions about risks, costs, or implementation feasibility. In your evaluation, treat this as premature consensus. Your guidance should name specific agents and ask them to identify concrete risks or trade-offs.`;
       } else if (this.currentRound > 2 && isShallowAgreement) {
         roundContext = `\n\nNote: This is round ${this.currentRound}. The agents appear to be agreeing superficially. Push them to challenge assumptions, explore edge cases, or identify weaknesses that haven't been addressed.`;
       }
@@ -1614,8 +1626,19 @@ Given the case file and discussion above, evaluate whether the agents have reach
 3. Trade-offs acknowledged and resolved
 4. Potential objections addressed (not just glossed over)
 5. Each agent contributing distinct value (not just echoing others)
+6. Novel proposals were CHALLENGED before acceptance (not just praised)
+7. At least one agent explicitly acknowledged a trade-off they're accepting
 
-WARNING: "I agree with X" statements without new insights do NOT constitute genuine consensus. This is shallow agreement.
+WARNING: The following are NOT genuine consensus:
+- "I agree with X" without stating what trade-off you're accepting
+- A novel idea accepted without anyone questioning implementation risks
+- Agents converging without any position changes from Round 1
+- "Well said" or "exactly right" without adding new substance
+
+A consensus is GENUINE when:
+- At least one agent CHANGED their initial position and stated why
+- Trade-offs were named (not just acknowledged abstractly)
+- Novel proposals were stress-tested (risks, costs, edge cases explored)
 
 If YES (genuine consensus reached), respond with EXACTLY this format:
 CONSENSUS_REACHED
@@ -1645,12 +1668,13 @@ DISSENT:
 
 CONFIDENCE: [HIGH/MEDIUM/LOW based on strength of agreement]
 
-If NO (no genuine consensus), provide SPECIFIC, CHALLENGING guidance:
-- If agents are just agreeing: "Play devil's advocate on [specific point]. What could go wrong with [recommendation]? What's the strongest argument AGAINST this approach?"
+If NO (no genuine consensus), provide SPECIFIC, CHALLENGING guidance. Name agents directly:
+- If agents agreed too quickly: "STOP. [Agent name] proposed [idea] and it was accepted without challenge. [Other agent], identify the single biggest implementation risk or hidden cost. [Third agent], what assumption is this idea relying on that might be wrong?"
+- If shallow agreement: "Each agent stated a position but no one pushed back. [Agent name], play devil's advocate: what's the strongest argument AGAINST the current direction?"
 - If discussion is circular: "We've covered [X] enough. Focus next on [unexplored aspect Y]."
-- If one perspective is missing: "No one has addressed [gap]. [Agent name], challenge the current thinking."
+- If one perspective is missing: "No one has addressed [gap]. [Agent name], challenge the current thinking from your expertise."
 
-Your guidance should FORCE new insights, not just encourage more discussion.`;
+Your guidance should FORCE new insights, not just encourage more discussion. Always name specific agents and give them specific tasks.`;
 
       const messages = [
         {
