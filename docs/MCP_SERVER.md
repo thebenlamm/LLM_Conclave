@@ -109,30 +109,28 @@ The AI assistant will invoke the tool, wait for the multi-model consultation to 
 
 ### 1. `llm_conclave_consult`
 
-**Fast 4-round multi-model consultation**
+**Configurable multi-round multi-model consultation**
 
 Get consensus from a configurable expert panel (2-5 agents). Default panel:
 - **Security Expert** (Claude Sonnet 4.5)
 - **Architect** (GPT-4o)
 - **Pragmatist** (Gemini 2.5 Pro)
 
-Via CLI, the panel is configurable with `--with`:
-```bash
-llm-conclave consult --with creative,architect,pragmatic "Design a landing page"
-```
-
-MCP persona support is coming in a future release.
-
 **Parameters:**
 - `question` (required): The question or decision to consult on
 - `context` (optional): File paths (comma-separated) or project directory
-- `quick` (optional): Use single-round mode (faster, less thorough)
+- `personas` (optional): Expert panel selection (comma-separated). Built-in: `security`, `performance`, `architect`, `creative`, `skeptic`, `pragmatic`, `qa`, `devops`, `accessibility`, `documentation`. Sets: `@design`, `@backend`. Example: `"creative,architect,pragmatic"`
+- `rounds` (optional): Number of rounds 1-4. `1` = independent opinions, `2` = positions + synthesis, `3` = adds cross-examination, `4` = full consultation with verdict. Default: `4`.
+- `quick` (optional): Quick mode (2 rounds: positions + synthesis)
 - `format` (optional): `markdown` (default), `json`, or `both`
 
-**Example prompt for your AI assistant:**
+**Example prompts:**
 ```
-"Use llm_conclave_consult to analyze the security implications
-of storing JWT tokens in localStorage vs httpOnly cookies"
+"Use llm_conclave_consult with personas creative,architect,pragmatic
+to design a landing page for a meditation app"
+
+"Use llm_conclave_consult with rounds 2 to quickly get expert opinions
+on storing JWT tokens in localStorage vs httpOnly cookies"
 ```
 
 **When to use:**
@@ -664,7 +662,7 @@ Each consultation uses multiple LLM providers:
 - Stdin piping and flexible I/O
 
 **Coming Soon to MCP:**
-- `llm_conclave_consult` persona support (`personas` parameter) — match CLI `--with` functionality
+- Custom persona definitions via config
 - `llm_conclave_iterate` - Chunk-based iterative collaboration
 - `llm_conclave_stats` - Usage analytics via MCP
 

@@ -25,8 +25,8 @@ export class ConsultStateMachine {
     // AwaitingConsent can transition to Independent or Aborted
     [ConsultState.AwaitingConsent, [ConsultState.Independent, ConsultState.Aborted]],
 
-    // Independent can transition to Synthesis or Aborted
-    [ConsultState.Independent, [ConsultState.Synthesis, ConsultState.Aborted]],
+    // Independent can transition to Synthesis, Complete (single-round mode), or Aborted
+    [ConsultState.Independent, [ConsultState.Synthesis, ConsultState.Complete, ConsultState.Aborted]],
 
     // Synthesis can transition to CrossExam, Complete (early termination), or Aborted
     [ConsultState.Synthesis, [ConsultState.CrossExam, ConsultState.Complete, ConsultState.Aborted]],

@@ -515,6 +515,16 @@ export default class ConsultOrchestrator {
       // Save Checkpoint (Story 2.5)
       await this.saveCheckpoint(question, context, successfulArtifacts, null, null, null, agentResponses);
 
+      // --- Round gate: skip synthesis if maxRounds < 2 ---
+      if (this.maxRounds < 2) {
+        this.stateMachine.transition(ConsultState.Complete);
+        return this.createFinalResult({
+          question, context, startTime, estimate: estimate!,
+          agentResponses, successfulArtifacts,
+          synthesisArtifact: null, verdictArtifact: null,
+        });
+      }
+
       // --- State: Synthesis (Round 2) ---
       this.stateMachine.transition(ConsultState.Synthesis);
       if (this.verbose) console.log(`\n--- Round 2: Synthesis ---\n`);
@@ -578,6 +588,17 @@ export default class ConsultOrchestrator {
           console.log(chalk.cyan('🔍 Explore mode: all rounds will execute'));
       }
 
+      // --- Round gate: skip cross-exam if maxRounds < 3 ---
+      if (this.maxRounds < 3) {
+        verdictArtifact = this.synthesizeVerdictFromSynthesis(synthesisArtifact!);
+        this.stateMachine.transition(ConsultState.Complete);
+        return this.createFinalResult({
+          question, context, startTime, estimate: estimate!,
+          agentResponses, successfulArtifacts,
+          synthesisArtifact, verdictArtifact,
+        });
+      }
+
       // --- State: CrossExam (Round 3) ---
       this.stateMachine.transition(ConsultState.CrossExam);
       if (this.verbose) console.log(`\n--- Round 3: Cross-Examination ---\n`);
@@ -590,6 +611,17 @@ export default class ConsultOrchestrator {
         await this.saveCheckpoint(question, context, successfulArtifacts, synthesisArtifact, crossExamArtifact, null, agentResponses);
       } else {
         console.warn("Skipping Round 3 due to missing Synthesis artifact");
+      }
+
+      // --- Round gate: skip verdict if maxRounds < 4 ---
+      if (this.maxRounds < 4) {
+        verdictArtifact = this.synthesizeVerdictFromSynthesis(synthesisArtifact!);
+        this.stateMachine.transition(ConsultState.Complete);
+        return this.createFinalResult({
+          question, context, startTime, estimate: estimate!,
+          agentResponses, successfulArtifacts,
+          synthesisArtifact, crossExamArtifact, verdictArtifact,
+        });
       }
 
       // --- State: Verdict (Round 4) ---
@@ -660,7 +692,13 @@ export default class ConsultOrchestrator {
             verdictArtifact,
             agentResponses
           );
-          throw error;
+          // Return partial results instead of throwing — completed rounds are still useful
+          return this.createPartialResult({
+            question, context, startTime, estimate,
+            agentResponses, successfulArtifacts,
+            synthesisArtifact, crossExamArtifact, verdictArtifact,
+            abortReason: error.message,
+          });
       }
 
       // Generic error handling (Story 2.5 requirement: partial save on error/exception)
@@ -678,6 +716,16 @@ export default class ConsultOrchestrator {
             agentResponses,
             error.message
           );
+      }
+
+      // If we have any completed artifacts, return partial results instead of throwing
+      if (successfulArtifacts.length > 0) {
+        return this.createPartialResult({
+          question, context, startTime, estimate,
+          agentResponses, successfulArtifacts,
+          synthesisArtifact, crossExamArtifact, verdictArtifact,
+          abortReason: error.message,
+        });
       }
 
       throw error;
@@ -1590,6 +1638,47 @@ export default class ConsultOrchestrator {
   }
 
   /**
+   * Create a partial result for graceful degradation on abort.
+   * Returns a ConsultationResult with status: 'partial' containing whatever rounds completed.
+   */
+  private createPartialResult(params: {
+    question: string;
+    context: string;
+    startTime: number;
+    estimate: CostEstimate | null;
+    agentResponses: AgentResponse[];
+    successfulArtifacts: IndependentArtifact[];
+    synthesisArtifact: SynthesisArtifact | null;
+    crossExamArtifact?: CrossExamArtifact | null;
+    verdictArtifact?: VerdictArtifact | null;
+    abortReason: string;
+  }): ConsultationResult {
+    const { question, context, startTime, estimate, abortReason } = params;
+
+    // Use createFinalResult with a fallback estimate to build the result structure
+    const fallbackEstimate: CostEstimate = estimate || {
+      estimatedCostUsd: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
+    };
+
+    const result = this.createFinalResult({
+      question, context, startTime,
+      estimate: fallbackEstimate,
+      agentResponses: params.agentResponses,
+      successfulArtifacts: params.successfulArtifacts,
+      synthesisArtifact: params.synthesisArtifact,
+      crossExamArtifact: params.crossExamArtifact || null,
+      verdictArtifact: params.verdictArtifact || null,
+    });
+
+    // Override with partial status
+    result.status = 'partial';
+    result.abortReason = abortReason;
+    result.state = ConsultState.Aborted;
+
+    return result;
+  }
+
+  /**
    * Save checkpoint
    */
   private async saveCheckpoint(
@@ -1685,12 +1774,20 @@ export default class ConsultOrchestrator {
     const threshold = this.estimatedCostUsd * 1.5; // 50% over estimate
     if (this.actualCostUsd > threshold) {
       const percentOver = ((this.actualCostUsd - this.estimatedCostUsd) / this.estimatedCostUsd) * 100;
+      const currentPhase = this.stateMachine.getCurrentState();
       console.log(chalk.red(`\n⚠️  Cost exceeded estimate by ${percentOver.toFixed(1)}%. Aborting consultation.`));
       console.log(chalk.gray(`   Estimated: $${this.estimatedCostUsd.toFixed(4)}`));
       console.log(chalk.gray(`   Actual: $${this.actualCostUsd.toFixed(4)}`));
 
       this.stateMachine.transition(ConsultState.Aborted, 'Cost exceeded estimate by >50%');
-      throw new Error('Cost threshold exceeded - consultation aborted');
+      throw new Error(
+        `Cost threshold exceeded — consultation aborted.\n` +
+        `  Estimated: $${this.estimatedCostUsd.toFixed(4)}\n` +
+        `  Actual:    $${this.actualCostUsd.toFixed(4)} (${percentOver.toFixed(1)}% over estimate)\n` +
+        `  Threshold: 150% of estimate (automatic safety limit)\n` +
+        `  Completed: ${currentPhase} phase\n` +
+        `To adjust: use --yes flag, set higher alwaysAllowUnder in config, or reduce rounds with --rounds <n>.`
+      );
     }
   }
 
@@ -1708,12 +1805,37 @@ export default class ConsultOrchestrator {
     // Average confidence from consensus points
     const avgConfidence = this.earlyTerminationManager.calculateSynthesisConfidence(synthesis);
 
-    // Map tensions to dissent
-    const dissent: Dissent[] = synthesis.tensions.map(t => ({
-      agent: t.viewpoints[0]?.agent || 'unknown',
-      concern: t.topic,
-      severity: 'medium' as const
-    }));
+    // Map tensions to dissent using consensus-aware logic
+    const consensusAgents = new Set(
+      synthesis.consensusPoints.flatMap(cp => cp.supportingAgents)
+    );
+    const avgConsensusConfidence = synthesis.consensusPoints.length > 0
+      ? synthesis.consensusPoints.reduce((s, cp) => s + cp.confidence, 0) / synthesis.consensusPoints.length
+      : 0.5;
+
+    const dissent: Dissent[] = synthesis.tensions.flatMap(t => {
+      // Find the viewpoint that disagrees with consensus
+      const dissenter = t.viewpoints.find(vp => !consensusAgents.has(vp.agent));
+
+      if (dissenter) {
+        // Severity from consensus strength: strong consensus = minor dissent
+        const severity: 'high' | 'medium' | 'low' =
+          avgConsensusConfidence > 0.85 ? 'low' :
+          avgConsensusConfidence > 0.70 ? 'medium' : 'high';
+        return [{
+          agent: dissenter.agent,
+          concern: `${t.topic}: ${dissenter.viewpoint}`,
+          severity
+        }];
+      }
+
+      // Both viewpoints outside consensus — map both as low severity
+      return t.viewpoints.map(vp => ({
+        agent: vp.agent,
+        concern: `${t.topic}: ${vp.viewpoint}`,
+        severity: 'low' as const
+      }));
+    });
 
     return {
       artifactType: 'verdict',

@@ -250,10 +250,10 @@ describe('ConsultOrchestrator + CostGate Integration', () => {
         .spyOn(orchestratorAny.partialResultManager, 'savePartialResults')
         .mockResolvedValue(undefined);
 
-      await expect(localOrchestrator.consult('test question')).rejects.toThrow(
-        'Cost threshold exceeded'
-      );
-
+      // Now returns partial results instead of throwing (graceful degradation)
+      const result = await localOrchestrator.consult('test question');
+      expect(result.status).toBe('partial');
+      expect(result.abortReason).toContain('Cost threshold exceeded');
       expect(partialSpy).toHaveBeenCalledTimes(1);
     });
   });

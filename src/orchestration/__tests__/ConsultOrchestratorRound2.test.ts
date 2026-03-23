@@ -139,9 +139,9 @@ describe('ConsultOrchestrator Round 2: Synthesis', () => {
       .mockResolvedValueOnce(agentResponse3)
       .mockRejectedValueOnce(new Error("Judge Failed"));
 
-    await expect(orchestrator.consult("Test Question")).rejects.toThrow("Judge Failed");
-
-    // Should have emitted abort event or similar (via state machine transition usually)
-    // The implementation throws the error up.
+    // Returns partial results with Round 1 data instead of throwing (graceful degradation)
+    const result = await orchestrator.consult("Test Question");
+    expect(result.status).toBe('partial');
+    expect(result.abortReason).toContain("Judge Failed");
   });
 });

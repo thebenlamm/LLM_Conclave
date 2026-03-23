@@ -12,12 +12,24 @@ export class MarkdownFormatter implements IOutputFormatter {
 
     lines.push('# Consultation Summary');
     lines.push('');
+
+    // Partial results banner
+    if (result.status === 'partial') {
+      lines.push(`> **Partial Results** — Consultation interrupted after ${result.completedRounds} of ${result.rounds} rounds.`);
+      if (result.abortReason) {
+        lines.push(`> ${result.abortReason.split('\n')[0]}`);
+      }
+      lines.push('');
+    }
+
     lines.push(`**Question:** ${result.question}`);
     lines.push(`**Confidence:** ${Math.round(result.confidence * 100)}%`);
     lines.push('');
 
-    lines.push('## Consensus');
-    lines.push(result.recommendation || result.consensus || 'No clear consensus reached.');
+    // Use "Independent Opinions" when no synthesis occurred (single round)
+    const hasConsensus = result.recommendation && result.recommendation !== 'Consultation incomplete';
+    lines.push(hasConsensus ? '## Consensus' : '## Independent Opinions');
+    lines.push(hasConsensus ? result.recommendation! : (result.consensus || 'No synthesis performed — see individual perspectives below.'));
     lines.push('');
 
     lines.push('## Agent Perspectives');
@@ -50,28 +62,42 @@ export class MarkdownFormatter implements IOutputFormatter {
       lines.push('');
     }
 
-    // Include the full raw agent response that best matches the recommendation.
-    // This preserves any structured output tags (e.g., <corrected>) that get
-    // summarized away in the Judge's recommendation.
+    // Include the full raw agent response that is most actionable and unique.
+    // Rewards concrete, specific content over generic advice that echoes the consensus.
     if (result.agentResponses && result.agentResponses.length > 0) {
       const validResponses = result.agentResponses.filter(r => r.content && !r.error);
       if (validResponses.length > 0) {
-        // Pick the response most relevant to the recommendation:
-        // 1. If recommendation text overlaps significantly with a response, prefer it
-        // 2. Otherwise fall back to longest response (most likely to contain full output)
-        const recommendation = result.recommendation || '';
+        const allContents = validResponses.map(r => r.content.toLowerCase());
         let bestResponse = validResponses[0];
         let bestScore = 0;
-        for (const resp of validResponses) {
-          // Simple overlap: count shared words (>= 5 chars to skip stopwords)
-          const respWords = new Set(resp.content.toLowerCase().split(/\s+/).filter(w => w.length >= 5));
-          const recWords = recommendation.toLowerCase().split(/\s+/).filter(w => w.length >= 5);
-          const overlap = recWords.filter(w => respWords.has(w)).length;
-          // Score = overlap count, tie-break by length
-          const score = overlap * 1000 + resp.content.length;
+
+        for (let i = 0; i < validResponses.length; i++) {
+          const content = validResponses[i].content;
+          const lower = content.toLowerCase();
+
+          // Actionability signals: concrete, specific content
+          const numberedLists = (content.match(/^\s*\d+\.\s/gm) || []).length;
+          const bulletPoints = (content.match(/^\s*[-*]\s/gm) || []).length;
+          const codeBlocks = Math.floor((content.match(/```/g) || []).length / 2);
+          const namedTech = (content.match(/\b[A-Z][a-zA-Z]*(?:\.js|DB|SQL|MQ)?\b/g) || [])
+            .filter(w => w.length >= 4).length;
+          const quantified = (content.match(/\$[\d,.]+|\d+\s*(?:ms|MB|GB|hours?|days?|weeks?|minutes?|%)/gi) || []).length;
+          const actionability = numberedLists * 3 + bulletPoints * 2 + codeBlocks * 5 + namedTech * 2 + quantified * 2;
+
+          // Uniqueness: penalize overlap with OTHER agents (not the recommendation)
+          const words = new Set(lower.split(/\s+/).filter(w => w.length >= 5));
+          let overlapWithOthers = 0;
+          for (let j = 0; j < allContents.length; j++) {
+            if (i === j) continue;
+            const otherWords = new Set(allContents[j].split(/\s+/).filter(w => w.length >= 5));
+            overlapWithOthers += [...words].filter(w => otherWords.has(w)).length;
+          }
+          const uniqueness = Math.max(0, words.size - overlapWithOthers);
+
+          const score = actionability * 100 + uniqueness;
           if (score > bestScore) {
             bestScore = score;
-            bestResponse = resp;
+            bestResponse = validResponses[i];
           }
         }
         lines.push('## Best Agent Output');
@@ -82,25 +108,26 @@ export class MarkdownFormatter implements IOutputFormatter {
       }
     }
 
-    lines.push('## Concerns Raised');
-    if (result.concerns && result.concerns.length > 0) {
-      result.concerns.forEach(c => {
-        lines.push(`- ${c}`);
-      });
-    } else {
-      lines.push('- None identified.');
+    // Only show Concerns and Dissenting Views when cross-exam or verdict occurred
+    if (result.completedRounds >= 3) {
+      lines.push('## Concerns Raised');
+      if (result.concerns && result.concerns.length > 0) {
+        result.concerns.forEach(c => {
+          lines.push(`- ${c}`);
+        });
+      } else {
+        lines.push('- None identified.');
+      }
+      lines.push('');
     }
-    lines.push('');
 
-    lines.push('## Dissenting Views');
-    if (result.dissent && result.dissent.length > 0) {
+    if (result.completedRounds >= 2 && result.dissent && result.dissent.length > 0) {
+      lines.push('## Dissenting Views');
       result.dissent.forEach(d => {
         lines.push(`- **${d.agent}** (${d.severity}): ${d.concern}`);
       });
-    } else {
-      lines.push('- None identified.');
+      lines.push('');
     }
-    lines.push('');
 
     lines.push('---');
     const costUsd = result.cost.usd.toFixed(4);

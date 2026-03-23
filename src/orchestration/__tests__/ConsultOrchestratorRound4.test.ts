@@ -132,6 +132,9 @@ describe('ConsultOrchestrator Round 4: Verdict', () => {
       .mockResolvedValueOnce(r3JudgeResponse)
       .mockRejectedValueOnce(new Error("Verdict Failed"));
 
-      await expect(orchestrator.consult("Test")).rejects.toThrow("Verdict Failed");
+      // Returns partial results with R1+R2+R3 data instead of throwing (graceful degradation)
+      const result = await orchestrator.consult("Test");
+      expect(result.status).toBe('partial');
+      expect(result.abortReason).toContain("Verdict Failed");
   });
 });

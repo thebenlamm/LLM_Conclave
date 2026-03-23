@@ -31,7 +31,8 @@ export function createConsultCommand(): Command {
     .option('-m, --mode <mode>', 'Reasoning mode: explore (divergent) or converge (decisive)', 'converge')
     .option('--confidence-threshold <threshold>', 'Confidence threshold for early termination (0.0-1.0)', parseFloat, 0.90)
     .option('-y, --yes', 'Automatically approve cost and early termination (non-interactive mode)', false)
-    .option('-q, --quick', 'Single round consultation (faster)', false)
+    .option('-q, --quick', 'Quick consultation (2 rounds: positions + synthesis)', false)
+    .option('-r, --rounds <n>', 'Number of rounds 1-4 (1=opinions, 2=+synthesis, 3=+cross-exam, 4=full)', parseInt)
     .option('-v, --verbose', 'Show full agent conversation', false)
     .option('--greenfield', 'Ignore brownfield detection and use greenfield mode', false)
     .option('-w, --with <personas>', 'Expert panel (e.g., "creative,architect,pragmatic" or "@design")')
@@ -182,7 +183,7 @@ export function createConsultCommand(): Command {
 
         // Initialize orchestrator with strategy and resolved agents
         const orchestrator = new ConsultOrchestrator({
-          maxRounds: options.quick ? 1 : 4,
+          maxRounds: options.rounds ? Math.min(4, Math.max(1, options.rounds)) : (options.quick ? 2 : 4),
           verbose: options.verbose,
           strategy,
           confidenceThreshold: threshold,
@@ -200,6 +201,14 @@ export function createConsultCommand(): Command {
           scrubbingReport,
           allowCostOverruns: options.yes
         });
+
+        // Warn about partial results
+        if (result.status === 'partial') {
+          console.log(chalk.yellow(`\n⚠️  Partial results (${result.completedRounds}/${result.rounds} rounds completed)`));
+          if (result.abortReason) {
+            console.log(chalk.yellow(`   Reason: ${result.abortReason.split('\n')[0]}`));
+          }
+        }
 
         // Persist consultation for analytics (handles transformation to snake_case internally)
         result.outputFormat = outputFormat;

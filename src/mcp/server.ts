@@ -72,7 +72,7 @@ export function createServer(): Server {
 const TOOLS: Tool[] = [
   {
     name: 'llm_conclave_consult',
-    description: 'Run a structured 4-phase consultation (positions, synthesis, debate, resolution). Default expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini). Panel is configurable via CLI --with flag; MCP persona support coming soon.',
+    description: 'Run a structured multi-round consultation (positions, synthesis, debate, resolution). Default expert panel: Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini). Panel is configurable via personas parameter.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -84,9 +84,18 @@ const TOOLS: Tool[] = [
           type: 'string',
           description: 'File paths (comma-separated) or project directory path',
         },
+        personas: {
+          type: 'string',
+          description: 'Expert panel (comma-separated). Built-in: security, performance, architect, creative, skeptic, pragmatic, qa, devops, accessibility, documentation. Sets: @design, @backend. Example: "creative,architect,pragmatic"',
+        },
+        rounds: {
+          type: 'number',
+          description: 'Number of rounds 1-4. 1=independent opinions, 2=positions+synthesis, 3=adds cross-exam, 4=full with verdict. Default: 4.',
+          default: 4,
+        },
         quick: {
           type: 'boolean',
-          description: 'Single round, faster but less thorough',
+          description: 'Quick mode (2 rounds: positions + synthesis)',
           default: false,
         },
         format: {
@@ -287,11 +296,13 @@ function registerHandlers(server: Server) {
 async function handleConsult(args: {
   question: string;
   context?: string;
+  personas?: string;
+  rounds?: number;
   quick?: boolean;
   format?: string;
 }, server: Server) {
-  const { question, context: contextPath, quick = false, format = 'markdown' } = args;
-  const maxRounds = quick ? 1 : 4;
+  const { question, context: contextPath, personas, rounds, quick = false, format = 'markdown' } = args;
+  const maxRounds = rounds ? Math.min(4, Math.max(1, rounds)) : (quick ? 2 : 4);
 
   // Progress heartbeat covers context loading AND consultation execution.
   // Starts before loadContextFromPath to prevent idle gaps on large contexts.
@@ -319,10 +330,20 @@ async function handleConsult(args: {
     }
     phase = 'consulting';
 
+    // Resolve persona panel if provided
+    let agents: import('../types').Agent[] | undefined;
+    if (personas) {
+      agents = PersonaSystem.resolveConsultPanelFromOptions({
+        withPersonas: personas,
+        question,
+      });
+    }
+
     // Initialize orchestrator
     const orchestrator = new ConsultOrchestrator({
       maxRounds,
       verbose: false,
+      agents,
     });
 
     // Execute consultation (this is asynchronous and may take time)
