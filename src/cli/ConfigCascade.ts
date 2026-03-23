@@ -48,8 +48,8 @@ export class ConfigCascade {
         mistral: { enabled: true }
       },
       judge: {
-        model: 'gpt-4o',
-        provider: 'openai',
+        model: 'gemini-2.5-flash',
+        provider: 'google',
         prompt: 'You are a wise and impartial judge who synthesizes diverse perspectives to reach well-reasoned conclusions. You evaluate arguments fairly, identify common ground, and guide discussions toward consensus.'
       },
       // Built-in default agents (zero-config)

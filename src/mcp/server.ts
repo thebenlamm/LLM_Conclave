@@ -1038,10 +1038,31 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   }
 
   // Final solution/recommendation (the key output)
+  const isJudgeFailed = !solution || solution.includes('judge unavailable') || solution.includes('Best-effort') || solution.includes('judge was unable');
   if (solution) {
     output += `## Summary\n\n${solution}\n\n`;
   } else {
     output += `*No final solution reached*\n\n`;
+  }
+
+  // When judge failed, surface last-round agent positions so discussion content isn't lost
+  if (isJudgeFailed && conversationHistory?.length > 0) {
+    const agentEntries = conversationHistory.filter(
+      (e: any) => e.role === 'assistant' && e.speaker !== 'Judge' && !e.error
+    );
+    // Get last N entries (one per agent)
+    const agentCount = Math.max(3, new Set(agentEntries.map((e: any) => e.speaker)).size);
+    const lastRoundEntries = agentEntries.slice(-agentCount);
+    if (lastRoundEntries.length > 0) {
+      output += `## Agent Positions (Last Round)\n\n`;
+      output += `> *Judge evaluation failed. Full agent responses from the final round:*\n\n`;
+      for (const entry of lastRoundEntries) {
+        const preview = entry.content.length > 800
+          ? entry.content.substring(0, 800) + '...'
+          : entry.content;
+        output += `### ${entry.speaker}\n\n${preview}\n\n`;
+      }
+    }
   }
 
   // Post-solution note if agents were missing

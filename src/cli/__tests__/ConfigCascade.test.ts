@@ -48,7 +48,7 @@ describe('ConfigCascade', () => {
       expect(config.mode).toBe('consensus');
       expect(config.stream).toBe(true);
       expect(config.judge).toBeDefined();
-      expect(config.judge.model).toBe('gpt-4o');
+      expect(config.judge.model).toBe('gemini-2.5-flash');
     });
 
     it('should include default agents', () => {

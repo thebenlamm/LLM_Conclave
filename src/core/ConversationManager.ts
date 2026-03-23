@@ -1678,14 +1678,19 @@ Your guidance should FORCE new insights, not just encourage more discussion.`;
       const errorMsg = error.message || '';
       console.error(`Error with judge evaluation: ${errorMsg}`);
 
-      // If context overflow, retry with a larger-context model
-      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large/i.test(errorMsg);
-      if (isContextOverflow && !judge.model.includes('claude')) {
-        console.log(`[Judge ${judge.model} context overflow, retrying with claude-sonnet-4-5 (200K context)]`);
+      // If context overflow or TPM rate limit, retry with a cross-provider fallback model
+      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM|tokens?\s*per\s*min|Request too large/i.test(errorMsg);
+      const isRateOverflow = error?.status === 429 && /token|TPM/i.test(errorMsg);
+      if (isContextOverflow || isRateOverflow) {
+        // Cross provider boundaries to avoid correlated failures
+        const fallbackModel = judge.model.includes('gemini') ? 'claude-sonnet-4-5' :
+                              judge.model.includes('claude') ? 'gemini-2.5-flash' :
+                              'gemini-2.5-flash'; // OpenAI/Grok → Gemini (1M context)
+        console.log(`[Judge ${judge.model} context/TPM overflow, retrying with ${fallbackModel}]`);
         try {
-          const fallbackProvider = ProviderFactory.createProvider('claude-sonnet-4-5');
+          const fallbackProvider = ProviderFactory.createProvider(fallbackModel);
           const fittedDiscussion = this.prepareJudgeContext(
-            { model: 'claude-sonnet-4-5' },
+            { model: fallbackModel },
             this.cachedRecentDiscussion
           );
           const fallbackPrompt = `Full discussion:\n${fittedDiscussion}\n\nProvide brief guidance for the next round of discussion.`;
@@ -1826,26 +1831,61 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
       const errorMsg = error.message || '';
       console.error(`Error conducting final vote: ${errorMsg}`);
 
-      // If context overflow, try best-effort heuristic summary
-      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large/i.test(errorMsg);
-      if (isContextOverflow) {
-        console.log(`[Final vote: judge context overflow, using best-effort summary]`);
-        const bestEffort = this.bestEffortJudgeResult();
-        return {
-          solution: bestEffort.solution,
-          keyDecisions: bestEffort.keyDecisions,
-          actionItems: bestEffort.actionItems,
-          dissent: bestEffort.dissent,
-          confidence: bestEffort.confidence
-        };
+      // Detect context overflow or TPM rate limit
+      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM|tokens?\s*per\s*min|Request too large/i.test(errorMsg);
+      const isRateOverflow = error?.status === 429 && /token|TPM/i.test(errorMsg);
+
+      if (isContextOverflow || isRateOverflow) {
+        // Cross provider boundaries to avoid correlated failures
+        const fallbackModel = judge.model.includes('gemini') ? 'claude-sonnet-4-5' :
+                              judge.model.includes('claude') ? 'gemini-2.5-flash' :
+                              'gemini-2.5-flash'; // OpenAI/Grok → Gemini (1M context)
+        console.log(`[Final vote: ${judge.model} overflow, retrying with ${fallbackModel}]`);
+        try {
+          const fallbackProvider = ProviderFactory.createProvider(fallbackModel);
+          const rawDiscussion = this.conversationHistory
+            .map(entry => `${entry.speaker}: ${entry.content}`)
+            .join('\n\n');
+          const fittedDiscussion = this.prepareJudgeContext({ model: fallbackModel }, rawDiscussion);
+          const fallbackPrompt = `${fittedDiscussion}\n\nThe agents haven't reached full consensus. Analyze the discussion trajectory and determine the DIRECTION the agents were heading.\n\nRespond with EXACTLY this format:\n\nSUMMARY:\n[2-3 sentence summary]\n\nKEY_DECISIONS:\n- [Decision 1]\n\nACTION_ITEMS:\n- [Action 1]\n\nDISSENT:\n- [Minority opinions]\n\nCONFIDENCE: [HIGH/MEDIUM/LOW]`;
+          const { controller: fbController, cleanup: fbCleanup } = this.createCallAbortController(60_000);
+          let fbResponse;
+          try {
+            const fbOpts = { ...this.getChatOptions('Judge'), signal: fbController.signal };
+            fbResponse = await fallbackProvider.chat(
+              [{ role: 'user', content: fallbackPrompt }],
+              judge.systemPrompt,
+              fbOpts
+            );
+          } finally {
+            fbCleanup();
+          }
+          const fbText = typeof fbResponse === 'string' ? fbResponse : (fbResponse.text ?? '');
+          if (fbText && fbText.length > 0) {
+            const structured = this.parseStructuredOutput(fbText);
+            console.log(`\nJudge's Final Decision (via ${fallbackModel}):\n${structured.summary}\n`);
+            return {
+              solution: structured.summary,
+              keyDecisions: structured.keyDecisions,
+              actionItems: structured.actionItems,
+              dissent: structured.dissent,
+              confidence: structured.confidence
+            };
+          }
+        } catch (fallbackError: any) {
+          console.error(`[Final vote fallback ${fallbackModel} also failed: ${fallbackError.message}]`);
+        }
       }
 
+      // Ultimate fallback: heuristic summary from discussion content (never lose the discussion)
+      console.log(`[Final vote: all judge models failed, using best-effort summary from discussion]`);
+      const bestEffort = this.bestEffortJudgeResult();
       return {
-        solution: 'Unable to reach a final decision due to an error.',
-        keyDecisions: [],
-        actionItems: [],
-        dissent: [],
-        confidence: 'LOW'
+        solution: bestEffort.solution,
+        keyDecisions: bestEffort.keyDecisions,
+        actionItems: bestEffort.actionItems,
+        dissent: [...bestEffort.dissent, `Judge error: ${errorMsg.substring(0, 200)}`],
+        confidence: bestEffort.confidence
       };
     }
   }
