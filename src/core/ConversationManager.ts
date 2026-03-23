@@ -1596,7 +1596,7 @@ export default class ConversationManager {
         .filter(e => this.getRoundForEntry(e) === this.currentRound && e.role === 'assistant' && e.speaker !== 'Judge' && !e.error);
       let isRubberStamped = false;
       if (currentRoundEntries.length >= 2) {
-        const challengePatterns = /\?|however|but |risk|concern|downside|problem|what if|what about|trade.?off|cost of|challenge|disagree|alternative/gi;
+        const challengePatterns = /\?|however|\bbut\b|\brisk\b|concern|downside|problem|what if|what about|trade.?off|cost of|\bchallenge\b|disagree|alternative/i;
         const entriesWithChallenge = currentRoundEntries.filter(e => challengePatterns.test(e.content));
         isRubberStamped = entriesWithChallenge.length < Math.ceil(currentRoundEntries.length / 2);
       }
