@@ -54,7 +54,7 @@ llm-conclave "Review my authentication code"
 # Uses smart defaults:
 # - Auto-detects best mode (consensus/orchestrated/iterative)
 # - 3 expert agents (Claude Sonnet 4.5, GPT-4o, Gemini Pro)
-# - Judge: GPT-4o
+# - Judge: Gemini 2.5 Flash (1M context)
 ```
 
 **Or use expert personas:**
@@ -268,7 +268,7 @@ llm-conclave continue <id> "Another question"
 ```bash
 llm-conclave init                   # Interactive setup
 llm-conclave config show            # View current config
-llm-conclave config set judge.model gpt-4o
+llm-conclave config set judge.model gemini-2.5-flash
 ```
 
 #### Web UI

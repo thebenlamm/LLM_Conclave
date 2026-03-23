@@ -9,6 +9,10 @@ import { DEFAULT_SELECTOR_MODEL } from '../constants';
 /**
  * Manages the multi-agent conversation
  */
+// Detects context overflow and TPM rate limit errors from any provider.
+// Regex-only because providers strip .status when re-throwing errors.
+const CONTEXT_OVERFLOW_PATTERN = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM:\s*Limit|tokens?\s*per\s*min|Request too large for \w/i;
+
 export default class ConversationManager {
   config: any;
   agents: { [key: string]: any };
@@ -1693,7 +1697,7 @@ Your guidance should FORCE new insights, not just encourage more discussion.`;
 
       // If context overflow or TPM rate limit, retry with a cross-provider fallback model.
       // Detection is regex-only because providers strip .status when re-throwing errors.
-      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM:\s*Limit|tokens?\s*per\s*min|Request too large for \w/i.test(errorMsg);
+      const isContextOverflow = CONTEXT_OVERFLOW_PATTERN.test(errorMsg);
       if (isContextOverflow) {
         // Cross provider boundaries to avoid correlated failures
         const fallbackModel = judge.model.includes('gemini') ? 'claude-sonnet-4-5' :
@@ -1846,7 +1850,7 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
 
       // Detect context overflow or TPM rate limit.
       // Detection is regex-only because providers strip .status when re-throwing errors.
-      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM:\s*Limit|tokens?\s*per\s*min|Request too large for \w/i.test(errorMsg);
+      const isContextOverflow = CONTEXT_OVERFLOW_PATTERN.test(errorMsg);
 
       if (isContextOverflow) {
         // Cross provider boundaries to avoid correlated failures
