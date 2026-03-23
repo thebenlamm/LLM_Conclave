@@ -521,7 +521,7 @@ Provider is auto-inferred from model name, or specify explicitly with `"provider
 ### "Consultation taking too long"
 
 **Options:**
-1. Use `quick: true` for single-round consultations (5-10s instead of 15-20s)
+1. Use `quick: true` for 2-round consultations (positions + synthesis, faster than full 4-round)
 2. Use `llm_conclave_discuss` with fewer rounds
 3. Check your internet connection
 

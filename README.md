@@ -112,6 +112,9 @@ llm-conclave discuss "Design a payment system"
 # Dynamic speaker selection (LLM chooses who speaks next)
 llm-conclave discuss --dynamic "Complex architecture debate"
 
+# Custom judge model (default: gemini-2.5-flash with 1M context)
+llm-conclave discuss --judge-model claude-sonnet-4-5 "Deep architecture review"
+
 # Structured review (orchestrated mode)
 llm-conclave review -p ./src/auth "Audit security"
 
@@ -136,8 +139,11 @@ llm-conclave consult --with sec,perf "Review this API for production readiness"
 # Use persona sets (defined in ~/.llm-conclave/config.json)
 llm-conclave consult --with @startup "Evaluate our MVP strategy"
 
-# Quick mode (single round, faster)
+# Quick mode (2 rounds: positions + synthesis)
 llm-conclave consult --quick "What's the time complexity of this algorithm?"
+
+# Explicit round control (1=opinions, 2=+synthesis, 3=+cross-exam, 4=full)
+llm-conclave consult --rounds 2 "Quick architecture review"
 
 # With file context
 llm-conclave consult -c src/auth.ts,src/db.ts "Review security of these files"
@@ -284,11 +290,13 @@ llm-conclave server -p 8080         # Custom port
 -p, --project <path>        # Project context (file or directory)
 -c, --config <path>         # Custom config file
 --with <personas>           # Comma-separated expert personas
---quick                     # Quick mode (fewer rounds)
+--quick                     # Quick mode (2 rounds: positions + synthesis)
+--rounds <n>                # Explicit round control 1-4 (consult mode)
 --deep                      # Deep mode (more thorough)
 --thorough                  # Maximum thoroughness
 --stream / --no-stream      # Enable/disable streaming
 --dynamic                   # Dynamic speaker selection (discuss mode)
+--judge-model <model>       # Judge model override (discuss mode, default: gemini-2.5-flash)
 --gemini-cache              # Enable Gemini explicit caching (consult mode)
 -h, --help                  # Show help
 ```
