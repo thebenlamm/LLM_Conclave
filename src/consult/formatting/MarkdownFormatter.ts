@@ -17,7 +17,10 @@ export class MarkdownFormatter implements IOutputFormatter {
     if (result.status === 'partial') {
       lines.push(`> **Partial Results** — Consultation interrupted after ${result.completedRounds} of ${result.rounds} rounds.`);
       if (result.abortReason) {
-        lines.push(`> ${result.abortReason.split('\n')[0]}`);
+        // Show full abort reason including remediation guidance
+        for (const line of result.abortReason.split('\n')) {
+          lines.push(`> ${line}`);
+        }
       }
       lines.push('');
     }
@@ -79,8 +82,11 @@ export class MarkdownFormatter implements IOutputFormatter {
           const numberedLists = (content.match(/^\s*\d+\.\s/gm) || []).length;
           const bulletPoints = (content.match(/^\s*[-*]\s/gm) || []).length;
           const codeBlocks = Math.floor((content.match(/```/g) || []).length / 2);
-          const namedTech = (content.match(/\b[A-Z][a-zA-Z]*(?:\.js|DB|SQL|MQ)?\b/g) || [])
-            .filter(w => w.length >= 4).length;
+          // Match technology names: known suffixes (.js, .ts, .py, DB, SQL, API, SDK, CLI, MQ)
+          // and all-caps acronyms (4+ chars), but NOT generic capitalized English words
+          const techSuffixes = (content.match(/\b\w+(?:\.js|\.ts|\.py|DB|SQL|API|SDK|CLI|MQ)\b/gi) || []).length;
+          const acronyms = (content.match(/\b[A-Z]{3,}\b/g) || []).length; // AWS, JWT, REST, HTTPS
+          const namedTech = techSuffixes + acronyms;
           const quantified = (content.match(/\$[\d,.]+|\d+\s*(?:ms|MB|GB|hours?|days?|weeks?|minutes?|%)/gi) || []).length;
           const actionability = numberedLists * 3 + bulletPoints * 2 + codeBlocks * 5 + namedTech * 2 + quantified * 2;
 

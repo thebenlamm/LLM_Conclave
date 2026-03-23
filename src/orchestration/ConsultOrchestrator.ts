@@ -1562,7 +1562,13 @@ export default class ConsultOrchestrator {
         agentResponses,
         state: ConsultState.Complete,
         rounds: this.maxRounds,
-        completedRounds: earlyTermination ? 2 : (verdictArtifact ? 4 : (crossExamArtifact ? 3 : 2)),
+        // Determine actual completed rounds based on real artifacts (not synthesized verdicts)
+        // Round gates create synthesized verdicts as fallbacks, so verdictArtifact alone doesn't prove R4 ran
+        completedRounds: earlyTermination ? 2 :
+          this.maxRounds < 2 ? 1 :
+          this.maxRounds < 3 ? 2 :
+          this.maxRounds < 4 ? 3 :
+          (verdictArtifact ? 4 : (crossExamArtifact ? 3 : (synthesisArtifact ? 2 : 1))),
         responses: {
           round1: successfulArtifacts,
           round2: synthesisArtifact || undefined,
