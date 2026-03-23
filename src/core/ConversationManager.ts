@@ -1691,10 +1691,10 @@ Your guidance should FORCE new insights, not just encourage more discussion.`;
       const errorMsg = error.message || '';
       console.error(`Error with judge evaluation: ${errorMsg}`);
 
-      // If context overflow or TPM rate limit, retry with a cross-provider fallback model
-      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM|tokens?\s*per\s*min|Request too large/i.test(errorMsg);
-      const isRateOverflow = error?.status === 429 && /token|TPM/i.test(errorMsg);
-      if (isContextOverflow || isRateOverflow) {
+      // If context overflow or TPM rate limit, retry with a cross-provider fallback model.
+      // Detection is regex-only because providers strip .status when re-throwing errors.
+      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM:\s*Limit|tokens?\s*per\s*min|Request too large for \w/i.test(errorMsg);
+      if (isContextOverflow) {
         // Cross provider boundaries to avoid correlated failures
         const fallbackModel = judge.model.includes('gemini') ? 'claude-sonnet-4-5' :
                               judge.model.includes('claude') ? 'gemini-2.5-flash' :
@@ -1844,11 +1844,11 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
       const errorMsg = error.message || '';
       console.error(`Error conducting final vote: ${errorMsg}`);
 
-      // Detect context overflow or TPM rate limit
-      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM|tokens?\s*per\s*min|Request too large/i.test(errorMsg);
-      const isRateOverflow = error?.status === 429 && /token|TPM/i.test(errorMsg);
+      // Detect context overflow or TPM rate limit.
+      // Detection is regex-only because providers strip .status when re-throwing errors.
+      const isContextOverflow = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM:\s*Limit|tokens?\s*per\s*min|Request too large for \w/i.test(errorMsg);
 
-      if (isContextOverflow || isRateOverflow) {
+      if (isContextOverflow) {
         // Cross provider boundaries to avoid correlated failures
         const fallbackModel = judge.model.includes('gemini') ? 'claude-sonnet-4-5' :
                               judge.model.includes('claude') ? 'gemini-2.5-flash' :
@@ -1860,7 +1860,33 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
             .map(entry => `${entry.speaker}: ${entry.content}`)
             .join('\n\n');
           const fittedDiscussion = this.prepareJudgeContext({ model: fallbackModel }, rawDiscussion);
-          const fallbackPrompt = `${fittedDiscussion}\n\nThe agents haven't reached full consensus. Analyze the discussion trajectory and determine the DIRECTION the agents were heading.\n\nRespond with EXACTLY this format:\n\nSUMMARY:\n[2-3 sentence summary]\n\nKEY_DECISIONS:\n- [Decision 1]\n\nACTION_ITEMS:\n- [Action 1]\n\nDISSENT:\n- [Minority opinions]\n\nCONFIDENCE: [HIGH/MEDIUM/LOW]`;
+          const fallbackPrompt = `${fittedDiscussion}
+
+The agents haven't reached full consensus within the allowed rounds. Given the case file and discussion above, analyze the discussion trajectory and determine the DIRECTION the agents were heading.
+
+CRITICAL: Your summary must reflect where the discussion CONVERGED, not a "balanced synthesis" of all options mentioned.
+
+Respond with EXACTLY this format:
+
+SUMMARY:
+[2-3 sentence summary of the direction the discussion was heading]
+
+CRITICAL SUMMARY RULES:
+- Identify which position gained the most support by the END of the discussion
+- Do NOT include proposals that were mentioned but later REJECTED or SUPERSEDED
+- Do NOT create a "fair compromise" that includes options agents moved away from
+- The summary must reflect the ACTUAL TRAJECTORY, not an average of all positions
+
+KEY_DECISIONS:
+- [Decision 1 - based on where discussion was heading]
+
+ACTION_ITEMS:
+- [Action 1]
+
+DISSENT:
+- [Minority opinions or unresolved concerns from specific agents]
+
+CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
           const { controller: fbController, cleanup: fbCleanup } = this.createCallAbortController(60_000);
           let fbResponse;
           try {
