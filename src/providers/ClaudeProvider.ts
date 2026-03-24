@@ -15,7 +15,7 @@ export default class ClaudeProvider extends LLMProvider {
     this.client = new Anthropic({
       apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
       maxRetries: 3,
-      timeout: 60_000,
+      timeout: 300_000,
     });
     this.contextEditingEnabled = options?.contextEditing ?? (process.env.CONCLAVE_ANTHROPIC_CONTEXT_EDITING === '1');
   }

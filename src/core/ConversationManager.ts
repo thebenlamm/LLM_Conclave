@@ -647,7 +647,7 @@ export default class ConversationManager {
 
       // Connection-error retry: detect stale connections (common in long-running launchd processes)
       // and retry once before falling through to model-fallback logic.
-      const isConnectionError = /connection.?error|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket.?hang.?up|fetch.?failed|network/i.test(errorMsg);
+      const isConnectionError = /connection.?error|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket.?hang.?up|fetch.?failed|network|aborted|per-call timeout/i.test(errorMsg);
       const isClientError = /4\d{2}|unauthorized|forbidden|bad.?request/i.test(errorMsg);
       if (isConnectionError && !isClientError) {
         console.log(`[${agentName}: Connection error detected, retrying once after 2s...]`);

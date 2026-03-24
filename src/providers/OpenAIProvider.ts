@@ -14,7 +14,7 @@ export default class OpenAIProvider extends LLMProvider {
     this.client = new OpenAI({
       apiKey: apiKey || process.env.OPENAI_API_KEY,
       maxRetries: 3,
-      timeout: 60_000,
+      timeout: 300_000,
     });
   }
 
