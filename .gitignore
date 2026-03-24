@@ -52,3 +52,4 @@ _bmad-output/
 # Test workflows (user-specific)
 testWorkflows/
 Eybeschutz/
+.planning/
