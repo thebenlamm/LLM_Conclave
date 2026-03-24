@@ -393,6 +393,418 @@ describe('MCP Server Handlers', () => {
       expect(text).not.toContain('(API errors)');
     });
 
+    // ================================================================
+    // Format parameter tests
+    // ================================================================
+
+    it('handleDiscuss format=json returns valid JSON with expected keys', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      ConversationManager.mockImplementation(() => ({
+        conversationHistory: [],
+        currentRound: 1,
+        abortSignal: undefined,
+        startConversation: jest.fn().mockResolvedValue({
+          task: 'test task',
+          rounds: 2,
+          maxRounds: 4,
+          minRounds: 2,
+          consensusReached: true,
+          solution: 'The panel agreed on approach X.',
+          conversationHistory: [
+            { role: 'assistant', content: 'response 1', speaker: 'Analyst', model: 'gpt-4o' },
+            { role: 'assistant', content: 'response 2', speaker: 'Reviewer', model: 'claude-sonnet-4-5' },
+          ],
+          failedAgents: [],
+          failedAgentDetails: {},
+          agentSubstitutions: {},
+          keyDecisions: ['Use approach X'],
+          actionItems: ['Implement X'],
+          dissent: ['Minor concern about Y'],
+          confidence: 'HIGH',
+        }),
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test task', format: 'json' },
+        },
+      });
+
+      expect(result.isError).toBeUndefined();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.task).toBe('test task');
+      expect(parsed.summary).toBe('The panel agreed on approach X.');
+      expect(parsed.key_decisions).toEqual(['Use approach X']);
+      expect(parsed.action_items).toEqual(['Implement X']);
+      expect(parsed.dissent).toEqual(['Minor concern about Y']);
+      expect(parsed.confidence).toBe('high'); // lowercase
+      expect(parsed.consensus_reached).toBe(true);
+      expect(parsed.rounds).toEqual({ completed: 2, max: 4 });
+      expect(parsed.agents).toEqual([
+        { name: 'Analyst', model: 'gpt-4o' },
+        { name: 'Reviewer', model: 'claude-sonnet-4-5' },
+      ]);
+      expect(parsed.session_id).toBe('session-test');
+      expect(parsed.log_file).toBeDefined();
+    });
+
+    it('handleDiscuss format=both returns JSON with markdown_summary field', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      ConversationManager.mockImplementation(() => ({
+        conversationHistory: [],
+        currentRound: 1,
+        abortSignal: undefined,
+        startConversation: jest.fn().mockResolvedValue({
+          task: 'test task',
+          rounds: 1,
+          maxRounds: 4,
+          minRounds: 0,
+          consensusReached: false,
+          solution: 'test solution',
+          conversationHistory: [],
+          failedAgents: [],
+          failedAgentDetails: {},
+          agentSubstitutions: {},
+          keyDecisions: [],
+          actionItems: [],
+          dissent: [],
+          confidence: 'MEDIUM',
+        }),
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test task', format: 'both' },
+        },
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.summary).toBe('test solution');
+      expect(parsed.markdown_summary).toBeDefined();
+      expect(parsed.markdown_summary).toContain('Discussion Summary');
+    });
+
+    it('handleDiscuss default format returns markdown (not JSON)', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      ConversationManager.mockImplementation(() => ({
+        conversationHistory: [],
+        currentRound: 1,
+        abortSignal: undefined,
+        startConversation: jest.fn().mockResolvedValue({
+          task: 'test task',
+          rounds: 1,
+          maxRounds: 4,
+          minRounds: 0,
+          consensusReached: false,
+          solution: 'test solution',
+          conversationHistory: [],
+          failedAgents: [],
+          failedAgentDetails: {},
+          agentSubstitutions: {},
+          keyDecisions: [],
+          actionItems: [],
+          dissent: [],
+          confidence: 'MEDIUM',
+        }),
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test task' },
+        },
+      });
+
+      const text = result.content[0].text;
+      expect(text).toContain('# Discussion Summary');
+      // Should NOT be valid JSON
+      expect(() => JSON.parse(text)).toThrow();
+    });
+
+    it('handleDiscuss format=json omits empty optional fields', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      ConversationManager.mockImplementation(() => ({
+        conversationHistory: [],
+        currentRound: 1,
+        abortSignal: undefined,
+        startConversation: jest.fn().mockResolvedValue({
+          task: 'test',
+          rounds: 1,
+          maxRounds: 4,
+          minRounds: 0,
+          consensusReached: false,
+          solution: 'test',
+          conversationHistory: [],
+          failedAgents: [],
+          failedAgentDetails: {},
+          agentSubstitutions: {},
+          keyDecisions: [],
+          actionItems: [],
+          dissent: [],
+          confidence: 'MEDIUM',
+        }),
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test', format: 'json' },
+        },
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.failed_agents).toBeUndefined();
+      expect(parsed.substitutions).toBeUndefined();
+      expect(parsed.timed_out).toBeUndefined();
+      expect(parsed.degraded).toBeUndefined();
+    });
+
+    // ================================================================
+    // judge_instructions parameter tests
+    // ================================================================
+
+    it('handleDiscuss passes judge_instructions to ConversationManager', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      let capturedOptions: any;
+      ConversationManager.mockImplementation((_config: any, _mem: any, _stream: any, _bus: any, _dyn: any, _sel: any, opts: any) => {
+        capturedOptions = opts;
+        return {
+          conversationHistory: [],
+          currentRound: 1,
+          abortSignal: undefined,
+          startConversation: jest.fn().mockResolvedValue({
+            task: 'test',
+            rounds: 1,
+            maxRounds: 4,
+            minRounds: 0,
+            consensusReached: false,
+            solution: 'test',
+            conversationHistory: [],
+            failedAgents: [],
+            failedAgentDetails: {},
+            agentSubstitutions: {},
+            keyDecisions: [],
+            actionItems: [],
+            dissent: [],
+            confidence: 'MEDIUM',
+          }),
+        };
+      });
+
+      await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test', judge_instructions: 'Focus on cost analysis' },
+        },
+      });
+
+      expect(capturedOptions).toEqual({ judgeInstructions: 'Focus on cost analysis' });
+    });
+
+    it('handleDiscuss without judge_instructions passes undefined', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      let capturedOptions: any;
+      ConversationManager.mockImplementation((_config: any, _mem: any, _stream: any, _bus: any, _dyn: any, _sel: any, opts: any) => {
+        capturedOptions = opts;
+        return {
+          conversationHistory: [],
+          currentRound: 1,
+          abortSignal: undefined,
+          startConversation: jest.fn().mockResolvedValue({
+            task: 'test',
+            rounds: 1,
+            maxRounds: 4,
+            minRounds: 0,
+            consensusReached: false,
+            solution: 'test',
+            conversationHistory: [],
+            failedAgents: [],
+            failedAgentDetails: {},
+            agentSubstitutions: {},
+            keyDecisions: [],
+            actionItems: [],
+            dissent: [],
+            confidence: 'MEDIUM',
+          }),
+        };
+      });
+
+      await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test' },
+        },
+      });
+
+      expect(capturedOptions).toEqual({ judgeInstructions: undefined });
+    });
+
+    // ================================================================
+    // Transcript inclusion on timeout tests
+    // ================================================================
+
+    it('handleDiscuss includes transcript in markdown on timeout', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      ConversationManager.mockImplementation(() => ({
+        conversationHistory: [],
+        currentRound: 1,
+        abortSignal: undefined,
+        startConversation: jest.fn().mockResolvedValue({
+          task: 'timeout test',
+          rounds: 1,
+          maxRounds: 4,
+          minRounds: 0,
+          consensusReached: false,
+          solution: 'partial summary',
+          conversationHistory: [
+            { role: 'assistant', content: 'My analysis shows...', speaker: 'Analyst', model: 'gpt-4o' },
+            { role: 'assistant', content: 'I disagree because...', speaker: 'Critic', model: 'claude-sonnet-4-5' },
+          ],
+          failedAgents: [],
+          failedAgentDetails: {},
+          agentSubstitutions: {},
+          keyDecisions: [],
+          actionItems: [],
+          dissent: [],
+          confidence: 'LOW',
+          timedOut: true,
+        }),
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'timeout test' },
+        },
+      });
+
+      const text = result.content[0].text;
+      expect(text).toContain('Discussion Transcript');
+      expect(text).toContain('Analyst');
+      expect(text).toContain('My analysis shows...');
+      expect(text).toContain('Critic');
+      expect(text).toContain('I disagree because...');
+    });
+
+    it('handleDiscuss omits transcript in markdown when not timed out', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-test' }),
+        saveSession: jest.fn().mockResolvedValue('session-test'),
+      }));
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+      ConversationManager.mockImplementation(() => ({
+        conversationHistory: [],
+        currentRound: 1,
+        abortSignal: undefined,
+        startConversation: jest.fn().mockResolvedValue({
+          task: 'normal test',
+          rounds: 2,
+          maxRounds: 4,
+          minRounds: 0,
+          consensusReached: true,
+          solution: 'full summary',
+          conversationHistory: [
+            { role: 'assistant', content: 'response 1', speaker: 'Agent1', model: 'gpt-4o' },
+          ],
+          failedAgents: [],
+          failedAgentDetails: {},
+          agentSubstitutions: {},
+          keyDecisions: [],
+          actionItems: [],
+          dissent: [],
+          confidence: 'HIGH',
+        }),
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'normal test' },
+        },
+      });
+
+      const text = result.content[0].text;
+      expect(text).not.toContain('Discussion Transcript');
+    });
+
     it('handleDiscuss shows degraded abort message', async () => {
       const ConversationManager = require('../../core/ConversationManager').default;
       const SessionManager = require('../../core/SessionManager').default;

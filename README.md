@@ -115,6 +115,8 @@ Democratic consensus discussion where agents contribute equally.
 | `dynamic` | No | Enable LLM-based speaker selection |
 | `selector_model` | No | Model for speaker selection (default: gpt-4o-mini) |
 | `judge_model` | No | Judge model (default: gemini-2.5-flash) |
+| `format` | No | `markdown` (default), `json`, or `both`. JSON returns structured output for programmatic consumers |
+| `judge_instructions` | No | Custom instructions appended to the judge's synthesis prompt |
 
 ### `llm_conclave_continue`
 
@@ -239,6 +241,33 @@ src/
 - [Planned Features](docs/PLANNED_FEATURES.md) - Roadmap and future plans
 - [Resume Feature Design](docs/RESUME_FEATURE_DESIGN.md) - Session continuation architecture
 - [Context Tax Optimization](docs/plans/2026-02-12-context-tax-optimization.md) - Cost optimization design
+
+## REST API
+
+When running as an SSE server, a REST endpoint is available alongside the MCP protocol for programmatic consumers that don't need the full MCP SDK.
+
+```bash
+curl -X POST http://localhost:3100/api/discuss \
+  -H 'Content-Type: application/json' \
+  -d '{"task": "Review this architecture decision", "rounds": 2}'
+```
+
+**Response:** JSON with `summary`, `key_decisions`, `action_items`, `dissent`, `confidence`, `agents`, `session_id`, etc.
+
+**Authentication:** Set `CONCLAVE_API_KEY` env var to require `Authorization: Bearer <key>` header. If unset, no auth is required (localhost default).
+
+Accepts all `llm_conclave_discuss` parameters in the JSON body. Response is always JSON (the `format` parameter is ignored; use the MCP tool for markdown output).
+
+## Programmatic Usage (Python)
+
+### Suppress httpx logging noise
+
+The MCP Python SDK uses httpx internally, which logs every HTTP request at INFO level. Add before calling:
+
+```python
+import logging
+logging.getLogger("httpx").setLevel(logging.WARNING)
+```
 
 ## Troubleshooting
 

@@ -200,6 +200,16 @@ Example inline JSON:
           description: 'Max time in seconds. Do NOT set this parameter — discussions need time to complete. Only set if the user explicitly requests a timeout. 0 = no timeout (default: 0)',
           default: 0,
         },
+        format: {
+          type: 'string',
+          enum: ['markdown', 'json', 'both'],
+          description: 'Output format. markdown (default): human-readable summary. json: structured JSON for programmatic consumption. both: JSON object with markdown_summary field included.',
+          default: 'markdown',
+        },
+        judge_instructions: {
+          type: 'string',
+          description: "Custom instructions appended to the judge's synthesis prompt. Use to guide focus areas, output structure, or evaluation criteria. The judge still produces structured output (SUMMARY/KEY_DECISIONS/etc.) unless you override the format.",
+        },
       },
       required: ['task'],
     },
@@ -384,6 +394,8 @@ async function handleDiscuss(args: {
   selector_model?: string;
   judge_model?: string;
   timeout?: number;
+  format?: string;
+  judge_instructions?: string;
 }, server: Server) {
   const {
     task,
@@ -394,7 +406,9 @@ async function handleDiscuss(args: {
     min_rounds = 2,
     dynamic = false,
     selector_model = DEFAULT_SELECTOR_MODEL,
-    timeout = 0
+    timeout = 0,
+    format = 'markdown',
+    judge_instructions,
   } = args;
 
   // Resolve configuration with optional custom config path
@@ -497,7 +511,8 @@ async function handleDiscuss(args: {
     false, // no streaming for MCP
     scopedEventBus,
     dynamic,
-    selector_model
+    selector_model,
+    { judgeInstructions: judge_instructions }
   );
 
   // Set up timeout with abort signal
@@ -571,21 +586,44 @@ async function handleDiscuss(args: {
   );
   const sessionId = await sessionManager.saveSession(session);
 
-  // Format brief summary for MCP response (keeps context small)
-  let summary = '';
-  if (result.degraded) {
-    summary += `**❌ Discussion aborted:** ${result.degradedReason}\nCheck MCP server logs at ~/.llm-conclave/mcp-server.log\n\n`;
+  // Format output based on requested format
+  let outputText: string;
+
+  if (format === 'json' || format === 'both') {
+    const jsonResult = formatDiscussionResultJson(result, logFilePath, sessionId);
+
+    if (format === 'both') {
+      // Include markdown summary as a field inside the JSON
+      let markdown = '';
+      if (result.degraded) {
+        markdown += `**Discussion aborted:** ${result.degradedReason}\n\n`;
+      }
+      if (result.timedOut) {
+        markdown += `**Discussion timed out after ${effectiveTimeout}s** (${result.rounds} rounds completed)\n\n`;
+      }
+      markdown += formatDiscussionResult(result, logFilePath, sessionId, { includeTranscript: !!result.timedOut });
+      outputText = JSON.stringify({ ...jsonResult, markdown_summary: markdown }, null, 2);
+    } else {
+      outputText = JSON.stringify(jsonResult, null, 2);
+    }
+  } else {
+    // Default: markdown
+    let summary = '';
+    if (result.degraded) {
+      summary += `**❌ Discussion aborted:** ${result.degradedReason}\nCheck MCP server logs at ~/.llm-conclave/mcp-server.log\n\n`;
+    }
+    if (result.timedOut) {
+      summary += `**⏱️ Discussion timed out after ${effectiveTimeout}s** (${result.rounds} rounds completed)\n\n`;
+    }
+    summary += formatDiscussionResult(result, logFilePath, sessionId, { includeTranscript: !!result.timedOut });
+    outputText = summary;
   }
-  if (result.timedOut) {
-    summary += `**⏱️ Discussion timed out after ${effectiveTimeout}s** (${result.rounds} rounds completed)\n\n`;
-  }
-  summary += formatDiscussionResult(result, logFilePath, sessionId);
 
   return {
     content: [
       {
         type: 'text',
-        text: summary,
+        text: outputText,
       },
     ],
   };
@@ -888,6 +926,41 @@ export async function loadContextFromPath(contextPath: string): Promise<string> 
 }
 
 /**
+ * Render conversation history as markdown transcript grouped by round.
+ * Shared by saveFullDiscussion (disk log) and formatDiscussionResult (MCP response on timeout).
+ */
+function renderTranscriptMarkdown(conversationHistory: any[]): string {
+  let output = '';
+  let currentRound = 0;
+  let emittedFirstRound = false;
+
+  for (const msg of conversationHistory) {
+    const speaker = msg.speaker || msg.name || 'Unknown';
+    if (speaker === 'System') continue;
+    if (msg.error) continue;
+
+    // Emit Round 1 header before the first agent response
+    if (!emittedFirstRound && speaker !== 'Judge') {
+      currentRound = 1;
+      output += `### Round ${currentRound}\n\n`;
+      emittedFirstRound = true;
+    }
+
+    // Use Judge guidance entries as round boundary markers for subsequent rounds
+    if (speaker === 'Judge') {
+      currentRound++;
+      output += `### Round ${currentRound}\n\n`;
+      output += `> **Judge:** ${msg.content}\n\n`;
+      continue;
+    }
+
+    output += `**${speaker}** _(${msg.model || 'unknown'})_:\n\n${msg.content}\n\n---\n\n`;
+  }
+
+  return output;
+}
+
+/**
  * Save full discussion to log file and return the file path
  */
 function saveFullDiscussion(result: any): string {
@@ -943,31 +1016,7 @@ function saveFullDiscussion(result: any): string {
 
   if (conversationHistory && conversationHistory.length > 0) {
     fullLog += `## Full Discussion\n\n`;
-
-    let currentRound = 0;
-    let emittedFirstRound = false;
-    for (const msg of conversationHistory) {
-      const speaker = msg.speaker || msg.name || 'Unknown';
-      if (speaker === 'System') continue;
-      if (msg.error) continue;  // Skip error entries — reported in header
-
-      // Emit Round 1 header before the first agent response
-      if (!emittedFirstRound && speaker !== 'Judge') {
-        currentRound = 1;
-        fullLog += `### Round ${currentRound}\n\n`;
-        emittedFirstRound = true;
-      }
-
-      // Use Judge guidance entries as round boundary markers for subsequent rounds
-      if (speaker === 'Judge') {
-        currentRound++;
-        fullLog += `### Round ${currentRound}\n\n`;
-        fullLog += `> **Judge:** ${msg.content}\n\n`;
-        continue;
-      }
-
-      fullLog += `**${speaker}** _(${msg.model || 'unknown'})_:\n\n${msg.content}\n\n---\n\n`;
-    }
+    fullLog += renderTranscriptMarkdown(conversationHistory);
   }
 
   if (solution) {
@@ -981,7 +1030,7 @@ function saveFullDiscussion(result: any): string {
 /**
  * Format a brief summary for MCP response (keeps context small)
  */
-function formatDiscussionResult(result: any, logFilePath: string, sessionId?: string): string {
+function formatDiscussionResult(result: any, logFilePath: string, sessionId?: string, options?: { includeTranscript?: boolean }): string {
   const {
     task,
     conversationHistory,
@@ -1103,6 +1152,12 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
     output += `\n`;
   }
 
+  // Include per-round transcript (e.g., on timeout so partial results aren't lost)
+  if (options?.includeTranscript && conversationHistory?.length > 0) {
+    output += `## Discussion Transcript\n\n`;
+    output += renderTranscriptMarkdown(conversationHistory);
+  }
+
   // Estimate cost based on conversation length (rough heuristic)
   // ~750 tokens per message average, $0.003/1k input, $0.015/1k output
   const msgCount = conversationHistory?.length || 0;
@@ -1118,6 +1173,85 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   }
 
   return output;
+}
+
+/**
+ * Format discussion result as a structured JSON-serializable object (snake_case keys).
+ * Used by format='json' and the REST API endpoint.
+ */
+function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?: string): Record<string, any> {
+  const {
+    task,
+    conversationHistory,
+    solution,
+    consensusReached,
+    rounds,
+    maxRounds,
+    failedAgents = [],
+    agentSubstitutions = {},
+    keyDecisions = [],
+    actionItems = [],
+    dissent = [],
+    confidence = 'MEDIUM',
+    timedOut = false,
+    degraded = false,
+    degradedReason,
+  } = result;
+
+  // Extract participating agents (excluding failed, system, judge)
+  const agents: Array<{ name: string; model?: string }> = [];
+  if (conversationHistory?.length > 0) {
+    const seen = new Set<string>();
+    for (const msg of conversationHistory) {
+      const speaker = msg.speaker || msg.name;
+      if (speaker && speaker !== 'System' && speaker !== 'Judge' && !msg.error && !seen.has(speaker)) {
+        seen.add(speaker);
+        agents.push({ name: speaker, model: msg.model });
+      }
+    }
+  }
+
+  // Cost estimate (same heuristic as markdown formatter)
+  const msgCount = conversationHistory?.length || 0;
+  const estimatedTokens = msgCount * 750;
+  const estimatedCost = (estimatedTokens * 0.003 / 1000) + (estimatedTokens * 0.015 / 1000);
+
+  // Failed agent details
+  const failedDetails = result.failedAgentDetails || {};
+  const failedAgentsList = failedAgents.map((name: string) => ({
+    name,
+    model: failedDetails[name]?.model,
+    error: failedDetails[name]?.error,
+  }));
+
+  // Substitutions
+  const substitutionsList = Object.entries(agentSubstitutions).map(([agent, sub]: [string, any]) => ({
+    agent,
+    original_model: sub.original,
+    fallback_model: sub.fallback,
+    reason: sub.reason,
+  }));
+
+  return {
+    task,
+    summary: solution || null,
+    key_decisions: keyDecisions,
+    action_items: actionItems,
+    dissent,
+    confidence: confidence.toLowerCase(),
+    consensus_reached: consensusReached,
+    rounds: { completed: rounds, max: maxRounds || rounds },
+    agents,
+    failed_agents: failedAgentsList.length > 0 ? failedAgentsList : undefined,
+    substitutions: substitutionsList.length > 0 ? substitutionsList : undefined,
+    timed_out: timedOut || undefined,
+    degraded: degraded || undefined,
+    degraded_reason: degradedReason || undefined,
+    estimated_tokens: estimatedTokens,
+    estimated_cost: parseFloat(estimatedCost.toFixed(3)),
+    session_id: sessionId || undefined,
+    log_file: logFilePath,
+  };
 }
 
 // ============================================================================
@@ -1201,6 +1335,185 @@ export async function startSSE(port: number) {
     await server.connect(transport);
   });
 
+  // REST API endpoint — direct HTTP request/response, no MCP protocol overhead
+  app.post('/api/discuss', async (req, res) => {
+    // Optional API key auth via CONCLAVE_API_KEY env var
+    const apiKey = process.env.CONCLAVE_API_KEY;
+    if (apiKey) {
+      const match = req.headers.authorization?.match(/^Bearer\s+(.+)$/);
+      const provided = match?.[1];
+      if (provided !== apiKey) {
+        res.status(401).json({ success: false, error: 'Invalid or missing API key' });
+        return;
+      }
+    }
+
+    const args = req.body;
+    if (!args || !args.task) {
+      res.status(400).json({ success: false, error: 'Missing required field: task' });
+      return;
+    }
+
+    // Disable Express default timeouts — discussions take 2-5 minutes
+    req.setTimeout(0);
+    res.setTimeout(0);
+
+    // Validate numeric parameters (MCP tool schema does this automatically, REST does not)
+    for (const field of ['rounds', 'min_rounds', 'timeout'] as const) {
+      if (args[field] !== undefined && (typeof args[field] !== 'number' || !Number.isFinite(args[field]))) {
+        res.status(400).json({ success: false, error: `${field} must be a finite number` });
+        return;
+      }
+    }
+
+    try {
+      // Config resolution (same as handleDiscuss)
+      const {
+        task,
+        project: projectPath,
+        personas,
+        config: configPath,
+        rounds = 4,
+        min_rounds = 2,
+        dynamic = false,
+        selector_model = DEFAULT_SELECTOR_MODEL,
+        timeout = 0,
+        judge_instructions,
+      } = args;
+
+      // For REST API, config must be inline JSON (not file paths) to prevent path traversal
+      if (configPath && typeof configPath === 'string' && !configPath.trimStart().startsWith('{')) {
+        res.status(400).json({ success: false, error: 'REST API only accepts inline JSON for config parameter, not file paths' });
+        return;
+      }
+
+      const config = ConfigCascade.resolve({ config: configPath });
+
+      if (personas) {
+        const personaList = PersonaSystem.getPersonas(personas);
+        const personaAgents = PersonaSystem.personasToAgents(personaList);
+        config.agents = {};
+        for (const [name, agent] of Object.entries(personaAgents) as [string, any][]) {
+          config.agents[name] = { model: agent.model, prompt: agent.systemPrompt };
+        }
+      }
+
+      config.max_rounds = rounds;
+
+      const validatedMinRounds = Math.max(0, Math.floor(min_rounds || 0));
+      if (validatedMinRounds > rounds) {
+        res.status(400).json({ success: false, error: `min_rounds (${validatedMinRounds}) cannot exceed rounds (${rounds})` });
+        return;
+      }
+      config.min_rounds = validatedMinRounds;
+
+      let projectContext = null;
+      if (projectPath) {
+        const validatedProjectPath = validatePath(projectPath, process.cwd());
+        const stats = await fsPromises.lstat(validatedProjectPath);
+        if (stats.isSymbolicLink()) {
+          res.status(400).json({ success: false, error: `Symlinks are not allowed for project path: ${projectPath}` });
+          return;
+        }
+        projectContext = new ProjectContext(validatedProjectPath);
+        await projectContext.load();
+      }
+
+      const judgeModel = args.judge_model || config.judge.model;
+      const judge = {
+        model: judgeModel,
+        provider: ProviderFactory.createProvider(judgeModel),
+        systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.',
+      };
+
+      // Create scoped EventBus (log progress to stderr, no MCP server needed)
+      const scopedEventBus = EventBus.createInstance();
+      scopedEventBus.on('round:start', (event: any) => {
+        console.error(`[REST] Round ${event?.payload?.round ?? '?'}/${rounds} starting...`);
+      });
+      scopedEventBus.on('agent:thinking', (event: any) => {
+        console.error(`[REST] ${event?.payload?.agent ?? 'Agent'} is responding...`);
+      });
+      scopedEventBus.on('error', (event: any) => {
+        console.error(`[REST] Agent error: ${event?.payload?.message ?? 'Unknown'}`);
+      });
+
+      const conversationManager = new ConversationManager(
+        config, null, false, scopedEventBus, dynamic, selector_model,
+        { judgeInstructions: judge_instructions }
+      );
+
+      // Timeout with abort controller
+      let effectiveTimeout = timeout;
+      if (timeout < 0) {
+        res.status(400).json({ success: false, error: 'timeout must be >= 0' });
+        return;
+      }
+      if (timeout > 0) {
+        effectiveTimeout = Math.max(timeout, 600);
+      }
+
+      const abortController = new AbortController();
+      conversationManager.abortSignal = abortController.signal;
+
+      // Abort discussion if client disconnects (don't waste LLM API calls)
+      req.on('close', () => {
+        if (!res.writableFinished) {
+          abortController.abort('client-disconnected');
+          console.error('[REST] Client disconnected, aborting discussion');
+        }
+      });
+
+      let timeoutId: NodeJS.Timeout | undefined;
+      if (effectiveTimeout > 0) {
+        timeoutId = setTimeout(() => {
+          abortController.abort('timeout');
+          console.error(`[REST] Timeout: ${effectiveTimeout}s exceeded`);
+        }, effectiveTimeout * 1000);
+      }
+
+      let result: any;
+      try {
+        result = await conversationManager.startConversation(
+          task, judge, projectContext
+        );
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+        scopedEventBus.removeAllListeners();
+      }
+
+      // Save log and session — failures here should not lose the discussion result
+      let logFilePath = '';
+      let sessionId: string | undefined;
+      try {
+        logFilePath = saveFullDiscussion(result);
+        const sessionManager = new SessionManager();
+        const agents = Object.entries(config.agents).map(([name, agentConfig]: [string, any]) => ({
+          name,
+          model: agentConfig.model,
+          systemPrompt: agentConfig.prompt || agentConfig.systemPrompt || '',
+          provider: ProviderFactory.createProvider(agentConfig.model),
+        }));
+        const session = sessionManager.createSessionManifest(
+          'consensus', task, agents, result.conversationHistory, result,
+          judge, projectContext?.formatContext()
+        );
+        sessionId = await sessionManager.saveSession(session);
+      } catch (saveErr: any) {
+        console.error(`[REST] Failed to save session/log (results still returned):`, saveErr.message);
+      }
+
+      const jsonResult = formatDiscussionResultJson(result, logFilePath, sessionId);
+      res.json({ success: true, ...jsonResult });
+    } catch (error: any) {
+      console.error(`[REST] Error in /api/discuss:`, error);
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal server error',
+      });
+    }
+  });
+
   // Message endpoint - client POSTs messages here
   app.post('/messages', async (req, res) => {
     const sessionId = req.query.sessionId as string;
@@ -1217,6 +1530,7 @@ export async function startSSE(port: number) {
     console.error(`LLM Conclave MCP Server running on http://localhost:${port}/sse`);
     console.error(`  SSE endpoint:     GET  http://localhost:${port}/sse`);
     console.error(`  Message endpoint: POST http://localhost:${port}/messages`);
+    console.error(`  REST API:         POST http://localhost:${port}/api/discuss`);
     console.error(`  Health check:     GET  http://localhost:${port}/health`);
   });
 

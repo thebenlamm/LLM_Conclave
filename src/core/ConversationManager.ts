@@ -48,6 +48,9 @@ export default class ConversationManager {
   // Model routing for subtasks (summarization)
   private taskRouter: TaskRouter | null;
 
+  // Custom instructions appended to judge prompts (from caller)
+  private judgeInstructions: string | null = null;
+
   constructor(
     config: any,
     memoryManager: any = null,
@@ -55,7 +58,7 @@ export default class ConversationManager {
     eventBus?: EventBus,
     dynamicSelection: boolean = false,
     selectorModel: string = DEFAULT_SELECTOR_MODEL,
-    options?: { disableRouting?: boolean }
+    options?: { disableRouting?: boolean; judgeInstructions?: string }
   ) {
     this.config = config;
     this.agents = {};
@@ -76,6 +79,7 @@ export default class ConversationManager {
       || process.env.CONCLAVE_DISABLE_ROUTING === '1'
       || process.env.CONCLAVE_DISABLE_ROUTING === 'true';
     this.taskRouter = routingDisabled ? null : new TaskRouter();
+    this.judgeInstructions = options?.judgeInstructions ?? null;
 
     this.initializeAgents();
   }
@@ -1676,10 +1680,14 @@ If NO (no genuine consensus), provide SPECIFIC, CHALLENGING guidance. Name agent
 
 Your guidance should FORCE new insights, not just encourage more discussion. Always name specific agents and give them specific tasks.`;
 
+      const finalJudgePrompt = this.judgeInstructions
+        ? `${judgePrompt}\n\nADDITIONAL INSTRUCTIONS FROM CALLER:\n${this.judgeInstructions}`
+        : judgePrompt;
+
       const messages = [
         {
           role: 'user',
-          content: judgePrompt
+          content: finalJudgePrompt
         }
       ];
 
@@ -1836,10 +1844,14 @@ DISSENT:
 
 CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
 
+      const finalVotePrompt = this.judgeInstructions
+        ? `${votePrompt}\n\nADDITIONAL INSTRUCTIONS FROM CALLER:\n${this.judgeInstructions}`
+        : votePrompt;
+
       const messages = [
         {
           role: 'user',
-          content: votePrompt
+          content: finalVotePrompt
         }
       ];
 
