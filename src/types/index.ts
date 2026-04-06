@@ -181,6 +181,7 @@ export interface Config {
   project_id?: string;
   turn_management: string;
   max_rounds: number;
+  min_rounds?: number;
   judge: {
     model: string;
     prompt: string;
@@ -189,6 +190,17 @@ export interface Config {
   created?: string;
   created_by?: string;
   contextOptimization?: ContextOptimizationConfig;
+}
+
+export interface DiscussionHistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+  speaker: string;
+  model?: string;
+  error?: true;
+  errorDetails?: string;
+  compressed?: true;
+  positionSummary?: string;
 }
 
 // ============================================================================
