@@ -24,26 +24,20 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import * as http from 'http';
 import express from 'express';
 import ConsultOrchestrator from '../orchestration/ConsultOrchestrator.js';
-import ConversationManager from '../core/ConversationManager.js';
-import { EventBus } from '../core/EventBus.js';
 import SessionManager from '../core/SessionManager.js';
 import ContinuationHandler from '../core/ContinuationHandler.js';
-import ProviderFactory from '../providers/ProviderFactory.js';
-import ProjectContext from '../utils/ProjectContext.js';
 import ConsultLogger from '../utils/ConsultLogger.js';
-import { ConfigCascade } from '../config/ConfigCascade.js';
 import { PersonaSystem } from '../config/PersonaSystem.js';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory.js';
 import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 import { ContextLoader } from '../consult/context/ContextLoader.js';
-import { DiscussionRunner, saveDiscussionLog } from './DiscussionRunner.js';
+import { DiscussionRunner } from './DiscussionRunner.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -489,7 +483,7 @@ async function handleContinue(args: {
   const sessionManager = new SessionManager();
   const continuationHandler = new ContinuationHandler();
 
-  // Load session (most recent if no ID provided)
+  // Session loading (continuation-specific pre-processing)
   let session;
   if (session_id) {
     session = await sessionManager.loadSession(session_id);
@@ -503,13 +497,13 @@ async function handleContinue(args: {
     }
   }
 
-  // Validate session is resumable
+  // Validation (continuation-specific pre-processing)
   const validation = continuationHandler.validateResumable(session);
   if (!validation.isValid) {
     throw new Error(`Cannot resume session: ${validation.warnings.join(', ')}`);
   }
 
-  // Prepare continuation context
+  // Prepare continuation context (continuation-specific pre-processing)
   const prepared = continuationHandler.prepareForContinuation(session, task, {
     resetDiscussion: reset,
     includeFullHistory: !reset,
@@ -523,8 +517,8 @@ async function handleContinue(args: {
     return model;
   };
 
-  // Rebuild config from session
-  const config: any = {
+  // Rebuild config from session (continuation-specific: bypasses ConfigCascade)
+  const resolvedConfig: any = {
     max_rounds: session.maxRounds || 4,
     min_rounds: session.minRounds ?? 0, // Legacy sessions didn't persist minRounds; preserve their original behavior
     agents: {},
@@ -536,132 +530,39 @@ async function handleContinue(args: {
 
   // Reconstruct agents from session
   for (const agent of session.agents) {
-    config.agents[agent.name] = {
+    resolvedConfig.agents[agent.name] = {
       model: fixLegacyModel(agent.model, 'gpt-4o'),
       prompt: agent.systemPrompt,
     };
   }
 
-  // Create judge
-  const judge = {
-    model: config.judge.model,
-    provider: ProviderFactory.createProvider(config.judge.model),
-    systemPrompt: config.judge.prompt,
-  };
-
-  // Run continuation conversation (no dynamic selection for continuation - preserves original style)
-  // Create a scoped EventBus to avoid cross-talk between concurrent MCP requests
-  const scopedEventBus = EventBus.createInstance();
-  const maxRounds = config.max_rounds || 4;
-
-  // Use named references so we can remove only these handlers in cleanup,
-  // preserving EventBus's default no-op error handler from the constructor.
-  const onRoundStart = (event: any) => {
-    const round = event?.payload?.round ?? '?';
+  // Build progress callback that forwards events to MCP logging
+  const onProgress = (event: { type: string; message: string }) => {
+    const level = event.type === 'error' ? 'warning' : 'info';
     server.sendLoggingMessage({
-      level: 'info',
+      level,
       logger: 'llm-conclave',
-      data: `Round ${round}/${maxRounds} starting...`
+      data: event.message,
     }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
-  const onAgentThinking = (event: any) => {
-    const agent = event?.payload?.agent ?? 'Agent';
-    server.sendLoggingMessage({
-      level: 'info',
-      logger: 'llm-conclave',
-      data: `${agent} is responding...`
-    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
-  };
-
-  const onError = (event: any) => {
-    const message = event?.payload?.message ?? 'Unknown error';
-    server.sendLoggingMessage({
-      level: 'warning',
-      logger: 'llm-conclave',
-      data: `Agent error (continuing): ${message}`
-    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
-  };
-
-  const onStatus = (event: any) => {
-    const message = event?.payload?.message ?? 'Status update';
-    server.sendLoggingMessage({
-      level: 'info',
-      logger: 'llm-conclave',
-      data: message
-    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
-  };
-
-  scopedEventBus.on('round:start', onRoundStart);
-  scopedEventBus.on('agent:thinking', onAgentThinking);
-  scopedEventBus.on('error', onError);
-  scopedEventBus.on('status', onStatus);
-
-  const conversationManager = new ConversationManager(config, null, false, scopedEventBus, false, DEFAULT_SELECTOR_MODEL);
-
-  // No default timeout for continuations (matches handleDiscuss behavior).
-  // Continuations inherit the same "let it run" philosophy.
-  const abortController = new AbortController();
-  let continueTimeoutId: ReturnType<typeof setTimeout> | undefined;
-  let timedOut = false;
-
-  // Inject previous history before starting
-  for (const msg of prepared.mergedHistory) {
-    conversationManager.conversationHistory.push({
-      role: msg.role as 'user' | 'assistant',
+  // Delegate execution to DiscussionRunner with pre-resolved config and prior history
+  const runner = new DiscussionRunner();
+  const { result, sessionId: newSessionId, logFilePath } = await runner.run({
+    task: prepared.newTask,
+    resolvedConfig,
+    rounds: resolvedConfig.max_rounds,
+    minRounds: resolvedConfig.min_rounds,
+    onProgress,
+    priorHistory: prepared.mergedHistory.map((msg: any) => ({
+      role: msg.role,
       content: msg.content,
       speaker: msg.speaker || (msg.role === 'user' ? 'System' : 'Assistant'),
-    });
-  }
+    })),
+    parentSessionId: session.id,
+  });
 
-  // Progress heartbeat during continuation
-  const progressHeartbeat = setInterval(() => {
-    const currentRound = conversationManager.currentRound ?? 0;
-    server.sendLoggingMessage({
-      level: 'info',
-      logger: 'llm-conclave',
-      data: `Continuation in progress — round ${currentRound + 1}/${maxRounds}...`
-    }).catch(() => {});
-  }, 30_000);
-
-  // Start continuation with the new task
-  let result;
-  try {
-    result = await conversationManager.startConversation(prepared.newTask, judge, null);
-  } finally {
-    clearInterval(progressHeartbeat);
-    if (continueTimeoutId) clearTimeout(continueTimeoutId);
-    // Remove only the MCP-registered handlers, preserving the EventBus
-    // constructor's default no-op error handler for any late async callbacks.
-    scopedEventBus.off('round:start', onRoundStart);
-    scopedEventBus.off('agent:thinking', onAgentThinking);
-    scopedEventBus.off('error', onError);
-    scopedEventBus.off('status', onStatus);
-  }
-
-  // Save as new session with parent reference
-  const agents = Object.entries(config.agents).map(([name, agentConfig]: [string, any]) => ({
-    name,
-    model: agentConfig.model,
-    systemPrompt: agentConfig.prompt || '',
-    provider: ProviderFactory.createProvider(agentConfig.model),
-  }));
-  const newSession = sessionManager.createSessionManifest(
-    'consensus',
-    task,
-    agents,
-    result.conversationHistory,
-    result,
-    judge
-  );
-  // Link to parent session
-  (newSession as any).parentSessionId = session.id;
-  const newSessionId = await sessionManager.saveSession(newSession);
-
-  // Save discussion log
-  const logFilePath = saveFullDiscussion(result);
-
-  // Format response
+  // Format response (continuation-specific format)
   let output = `# Continuation of Session ${session.id}\n\n`;
   output += `**Original Task:** ${session.task}\n\n`;
   output += `**Follow-up:** ${task}\n\n`;
@@ -775,7 +676,7 @@ export async function loadContextFromPath(contextPath: string): Promise<string> 
 
 /**
  * Render conversation history as markdown transcript grouped by round.
- * Shared by saveFullDiscussion (disk log) and formatDiscussionResult (MCP response on timeout).
+ * Used by formatDiscussionResult for MCP response on timeout.
  */
 function renderTranscriptMarkdown(conversationHistory: any[]): string {
   let output = '';
@@ -806,73 +707,6 @@ function renderTranscriptMarkdown(conversationHistory: any[]): string {
   }
 
   return output;
-}
-
-/**
- * Save full discussion to log file and return the file path
- */
-function saveFullDiscussion(result: any): string {
-  const { task, conversationHistory, solution, consensusReached, rounds, maxRounds, failedAgents = [], agentSubstitutions = {} } = result;
-
-  const logsDir = path.join(process.env.HOME || '', '.llm-conclave', 'discuss-logs');
-  if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
-  }
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const filename = `discuss-${timestamp}.md`;
-  const filePath = path.join(logsDir, filename);
-
-  // Build full discussion log
-  let fullLog = `# Discussion Log\n\n`;
-  fullLog += `**Task:** ${task}\n\n`;
-  fullLog += `**Timestamp:** ${new Date().toISOString()}\n\n`;
-
-  // Clearer rounds display
-  const roundsDisplay = consensusReached
-    ? `${rounds}/${maxRounds || rounds} (consensus reached early)`
-    : `${rounds}/${maxRounds || rounds}`;
-  fullLog += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'}\n\n`;
-
-  // Report failed agents with error details
-  const failedDetails = result.failedAgentDetails || {};
-  if (failedAgents.length > 0) {
-    fullLog += `**⚠️ Agent Errors:**\n`;
-    for (const agent of failedAgents) {
-      const detail = failedDetails[agent];
-      if (detail) {
-        fullLog += `- ${agent} (${detail.model}): ${detail.error}\n`;
-      } else {
-        fullLog += `- ${agent}: Unknown error\n`;
-      }
-    }
-    fullLog += `\n`;
-  }
-
-  // Report agent substitutions
-  const subEntries = Object.entries(agentSubstitutions);
-  if (subEntries.length > 0) {
-    fullLog += `**🔄 Model Substitutions:**\n`;
-    for (const [agent, sub] of subEntries) {
-      const s = sub as any;
-      fullLog += `- ${agent}: ${s.original} → ${s.fallback} (${s.reason})\n`;
-    }
-    fullLog += `\n`;
-  }
-
-  fullLog += `---\n\n`;
-
-  if (conversationHistory && conversationHistory.length > 0) {
-    fullLog += `## Full Discussion\n\n`;
-    fullLog += renderTranscriptMarkdown(conversationHistory);
-  }
-
-  if (solution) {
-    fullLog += `## Final Solution\n\n${solution}\n\n`;
-  }
-
-  fs.writeFileSync(filePath, fullLog, 'utf-8');
-  return filePath;
 }
 
 /**
