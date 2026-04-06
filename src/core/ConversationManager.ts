@@ -1,7 +1,7 @@
 import ProviderFactory from '../providers/ProviderFactory';
 import TokenCounter from '../utils/TokenCounter';
-import { ContextOptimizer } from '../utils/ContextOptimizer';
 import ConversationHistory from './ConversationHistory.js';
+import AgentTurnExecutor from './AgentTurnExecutor.js';
 import { EventBus } from './EventBus';
 import { SpeakerSelector, AgentInfo } from './SpeakerSelector';
 import { DiscussionStateExtractor } from './DiscussionStateExtractor';
@@ -39,10 +39,8 @@ export default class ConversationManager {
   private cachedRecentDiscussion: string = '';
   private lastJudgeCacheRound: number = 0;
 
-  // Agent failure tracking and fallback
-  private persistentlyFailedAgents: Set<string> = new Set();
-  private consecutiveAgentFailures: Map<string, number> = new Map();
-  private agentSubstitutions: Map<string, { original: string; fallback: string; reason: string }> = new Map();
+  // Agent turn executor — owns circuit breaker, retry, fallback, and failure tracking
+  private agentExecutor!: AgentTurnExecutor;
 
   // Abort signal for cancellation from MCP timeout
   abortSignal?: AbortSignal;
@@ -92,11 +90,28 @@ export default class ConversationManager {
 
     this.initializeAgents();
 
+    // agentExecutor must be created before history so getAgentSubstitutions()
+    // callback below can forward to agentExecutor (lazy via closure, safe).
+    // history is passed as a placeholder reference — assigned after history creation.
+    // We use a two-step init: agentExecutor first (no history ref needed at ctor time),
+    // then history (references agentExecutor via closure).
+    this.agentExecutor = new AgentTurnExecutor({
+      agents: this.agents,
+      config: this.config,
+      conversationHistory: this.conversationHistory,
+      history: null as any, // will be set after history is created
+      streamOutput: this.streamOutput,
+      eventBus: this.eventBus,
+      abortSignal: this.abortSignal,
+      taskRouter: this.taskRouter,
+      costTracker: this.costTracker,
+    });
+
     this.history = new ConversationHistory(
       this.conversationHistory,
       this.config,
       () => this.currentRound,
-      () => this.agentSubstitutions,
+      () => this.agentExecutor.getAgentSubstitutions(),
       () => this.agents,
       () => this.taskRouter,
       () => {
@@ -104,6 +119,9 @@ export default class ConversationManager {
         this.lastJudgeCacheRound = 0;
       }
     );
+
+    // Wire history back into agentExecutor now that it's created
+    (this.agentExecutor as any).deps.history = this.history;
   }
 
   /**
@@ -217,7 +235,7 @@ export default class ConversationManager {
         await this.runDynamicRound(task);
       } else {
         for (const agentName of this.agentOrder) {
-          await this.agentTurn(agentName);
+          await this.agentExecutor.agentTurn(agentName);
         }
       }
 
@@ -281,15 +299,15 @@ export default class ConversationManager {
           conversationHistory: this.conversationHistory,
           failedAgents: degradedFailedAgents,
           failedAgentDetails: degradedFailedDetails,
-          agentSubstitutions: Object.fromEntries(this.agentSubstitutions),
+          agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
           degraded: true,
           degradedReason,
         };
       }
 
       // Also check circuit breaker: if persistently failed agents leave only 1 alive, stop
-      if (this.persistentlyFailedAgents.size > 0) {
-        const aliveAgents = this.agentOrder.filter(a => !this.persistentlyFailedAgents.has(a));
+      if (this.agentExecutor.getPersistentlyFailedAgents().size > 0) {
+        const aliveAgents = this.agentOrder.filter(a => !this.agentExecutor.getPersistentlyFailedAgents().has(a));
         if (aliveAgents.length <= 1) {
           console.log(`\n[Discussion ending early: only ${aliveAgents.length} agent(s) remaining after failures]\n`);
           if (this.eventBus) {
@@ -315,7 +333,7 @@ export default class ConversationManager {
           contributingAgents.add(entry.speaker);
         }
       }
-      const activeAgents = this.agentOrder.filter(a => !this.persistentlyFailedAgents.has(a));
+      const activeAgents = this.agentOrder.filter(a => !this.agentExecutor.getPersistentlyFailedAgents().has(a));
       const allAgentsContributed = activeAgents.every(agent => contributingAgents.has(agent));
 
       // Override judge if not all active agents have contributed
@@ -455,7 +473,7 @@ export default class ConversationManager {
         conversationHistory: this.conversationHistory,
         failedAgents: [...new Set(failedAgentsList)],
         failedAgentDetails,
-        agentSubstitutions: Object.fromEntries(this.agentSubstitutions),
+        agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
         timedOut: true,
       };
     }
@@ -497,10 +515,10 @@ export default class ConversationManager {
     }
 
     // Report agent substitutions so user can debug provider issues
-    if (this.agentSubstitutions.size > 0) {
+    if (this.agentExecutor.getAgentSubstitutions().size > 0) {
       console.log(`\n${'─'.repeat(60)}`);
       console.log(`⚠️  Agent Model Substitutions (provider issues detected):`);
-      for (const [agent, sub] of this.agentSubstitutions) {
+      for (const [agent, sub] of this.agentExecutor.getAgentSubstitutions()) {
         console.log(`   ${agent}: ${sub.original} → ${sub.fallback} (reason: ${sub.reason})`);
       }
       console.log(`   💡 Action: Check provider credits/quotas for the original models.`);
@@ -521,7 +539,7 @@ export default class ConversationManager {
       conversationHistory: this.conversationHistory,
       failedAgents: uniqueFailedAgents,
       failedAgentDetails,
-      agentSubstitutions: Object.fromEntries(this.agentSubstitutions),
+      agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
     };
 
     if (this.eventBus) {
@@ -546,323 +564,9 @@ export default class ConversationManager {
     return result;
   }
 
-  /**
-   * Execute one agent's turn in the conversation
-   * @param {string} agentName - Name of the agent
-   */
-  async agentTurn(agentName: string) {
-    // Circuit breaker: skip agents that have failed repeatedly
-    if (this.persistentlyFailedAgents.has(agentName)) {
-      return;
-    }
-
-    const agent = this.agents[agentName];
-
-    console.log(`[${agentName} (${agent.model}) is thinking...]\n`);
-    if (this.streamOutput) {
-      console.log(`${agentName}:`);
-    }
-    
-    if (this.eventBus) {
-        this.eventBus.emitEvent('agent:thinking', { agent: agentName, model: agent.model });
-    }
-
-    try {
-      // Prepare messages with token budget check
-      const messages = this.history.prepareMessagesWithBudget(agentName);
-      if (!messages) {
-        // Agent's context window can't fit the conversation even after truncation
-        console.log(`[${agentName} skipped: conversation too large for ${agent.model} context window]\n`);
-        if (this.eventBus) {
-          this.eventBus.emitEvent('error', {
-            message: `${agentName} skipped: context exceeds ${agent.model} limits`,
-            context: 'token_budget_exceeded'
-          });
-        }
-        this.conversationHistory.push({
-          role: 'assistant',
-          content: `[${agentName} unavailable: conversation exceeds ${agent.model} context window]`,
-          speaker: agentName,
-          model: agent.model,
-          error: true,
-          errorDetails: 'token_budget_exceeded'
-        });
-        this.recordAgentFailure(agentName, 'context window exceeded');
-        return;
-      }
-
-      // Get agent's response (with one retry on empty response)
-      const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const prefixPattern = new RegExp(`^\\s*${escapeRegex(agentName)}\\s*:\\s*`, 'i');
-
-      let text = '';
-      for (let attempt = 0; attempt < 2; attempt++) {
-        // Clone messages per attempt — prepareMessagesForAgent() returns a cached array
-        // that some providers may mutate in place, corrupting future turns
-        const attemptMessages = messages.map(m => ({ ...m }));
-        const { controller: callController, cleanup: callCleanup } = this.createCallAbortController();
-        let response;
-        try {
-          const chatOpts = { ...this.getChatOptions(agentName), signal: callController.signal };
-          response = await agent.provider.chat(attemptMessages, agent.systemPrompt, chatOpts);
-        } finally {
-          callCleanup();
-        }
-        text = typeof response === 'string' ? response : (response.text ?? '');
-
-        // Strip leading speaker name prefix if LLM echoed it back (prevents compounding prefixes)
-        text = text.replace(prefixPattern, '').trim();
-
-        if (text && text.length > 0) break; // Got a valid response
-
-        if (attempt === 0) {
-          console.log(`[${agentName} returned empty response, retrying once...]`);
-        }
-      }
-
-      // Handle empty/whitespace-only responses after retry
-      if (!text || text.length === 0) {
-        console.log(`[${agentName} returned empty response after retry, skipping]\n`);
-        if (this.eventBus) {
-          this.eventBus.emitEvent('error', {
-            message: `${agentName} returned empty response after retry`,
-            context: 'empty_response'
-          });
-        }
-        // Record failure in history so consensus/summary can account for this agent
-        this.conversationHistory.push({
-          role: 'assistant',
-          content: `[${agentName} unavailable: returned empty response after retry]`,
-          speaker: agentName,
-          model: agent.model,
-          error: true,
-          errorDetails: 'empty_response_after_retry'
-        });
-        this.recordAgentFailure(agentName, 'empty_response');
-        return;
-      }
-
-      if (this.streamOutput) {
-        process.stdout.write('\n');
-      } else {
-        console.log(`${agentName}: ${text}\n`);
-      }
-
-      if (this.eventBus) {
-        this.eventBus.emitEvent('agent:response', { agent: agentName, content: text });
-      }
-
-      // Add to conversation history (with context optimization extraction if enabled)
-      this.pushAgentResponse(text, agentName, agent.model);
-
-      // Circuit breaker: reset failure count on success
-      this.recordAgentSuccess(agentName);
-
-    } catch (error: any) {
-      const errorMsg = error.message || 'Unknown error';
-      console.error(`Error with agent ${agentName}: ${errorMsg}`);
-
-      // Connection-error retry: detect stale connections (common in long-running launchd processes)
-      // and retry once before falling through to model-fallback logic.
-      const isConnectionError = /connection.?error|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket.?hang.?up|fetch.?failed|network|aborted|per-call timeout/i.test(errorMsg);
-      const isClientError = /4\d{2}|unauthorized|forbidden|bad.?request/i.test(errorMsg);
-      if (isConnectionError && !isClientError) {
-        console.log(`[${agentName}: Connection error detected, retrying once after 2s...]`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        try {
-          const retryMessages = this.history.prepareMessagesWithBudget(agentName);
-          if (retryMessages) {
-            const retryMsgs = retryMessages.map(m => ({ ...m }));
-            const { controller: retryController, cleanup: retryCleanup } = this.createCallAbortController(90_000);
-            let retryResponse;
-            try {
-              const retryOpts = { ...this.getChatOptions(agentName), signal: retryController.signal };
-              retryResponse = await agent.provider.chat(retryMsgs, agent.systemPrompt, retryOpts);
-            } finally {
-              retryCleanup();
-            }
-            let retryText = typeof retryResponse === 'string' ? retryResponse : (retryResponse.text ?? '');
-            const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const prefixPattern = new RegExp(`^\\s*${escapeRegex(agentName)}\\s*:\\s*`, 'i');
-            retryText = retryText.replace(prefixPattern, '').trim();
-
-            if (retryText && retryText.length > 0) {
-              console.log(`[${agentName}: Connection retry succeeded]`);
-              if (!this.streamOutput) {
-                console.log(`${agentName}: ${retryText}\n`);
-              }
-              if (this.eventBus) {
-                this.eventBus.emitEvent('agent:response', { agent: agentName, content: retryText });
-              }
-              this.pushAgentResponse(retryText, agentName, agent.model);
-              this.recordAgentSuccess(agentName);
-              return;
-            }
-          }
-        } catch (retryError: any) {
-          console.error(`[${agentName}: Connection retry also failed: ${retryError.message}]`);
-        }
-        // Fall through to existing fallback/failure logic
-      }
-
-      // Try fallback to a different provider on retryable errors (429, 502, 503)
-      // NOTE: Emit error event AFTER fallback attempt — if fallback succeeds, no error to report
-      const isRetryable = /429|rate.?limit|502|503|service.?error/i.test(errorMsg);
-      if (isRetryable && !this.agentSubstitutions.has(agentName)) {
-        const fallbackModel = this.getFallbackModel(agent.model);
-        if (fallbackModel) {
-          console.log(`[${agentName}: ${agent.model} failed, falling back to ${fallbackModel}]`);
-          try {
-            const fallbackProvider = ProviderFactory.createProvider(fallbackModel, { costTracker: this.costTracker });
-            // Use budget-aware message preparation against fallback model's limits
-            const rawMessages = this.history.prepareMessagesForAgent();
-            const fallbackLimits = TokenCounter.getModelLimits(fallbackModel);
-            const fallbackBudget = fallbackLimits.maxInput - 6000;
-            const fallbackTokens = TokenCounter.estimateMessagesTokens(rawMessages, agent.systemPrompt);
-            let messages = rawMessages;
-            if (fallbackTokens > fallbackBudget * 0.8) {
-              const { messages: truncated } = TokenCounter.truncateMessages(
-                rawMessages.map(m => ({ ...m })),
-                agent.systemPrompt,
-                Math.floor(fallbackBudget * 0.75)
-              );
-              messages = truncated;
-            }
-            const { controller: fbController, cleanup: fbCleanup } = this.createCallAbortController(60_000);
-            let fallbackResponse;
-            try {
-              const fbOpts = { ...this.getChatOptions(agentName), signal: fbController.signal };
-              fallbackResponse = await fallbackProvider.chat(messages, agent.systemPrompt, fbOpts);
-            } finally {
-              fbCleanup();
-            }
-            let fallbackText = typeof fallbackResponse === 'string' ? fallbackResponse : (fallbackResponse.text ?? '');
-
-            const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const prefixPattern = new RegExp(`^\\s*${escapeRegex(agentName)}\\s*:\\s*`, 'i');
-            fallbackText = fallbackText.replace(prefixPattern, '').trim();
-
-            if (fallbackText && fallbackText.length > 0) {
-              if (this.streamOutput) {
-                process.stdout.write('\n');
-              } else {
-                console.log(`${agentName}: ${fallbackText}\n`);
-              }
-              if (this.eventBus) {
-                this.eventBus.emitEvent('agent:response', { agent: agentName, content: fallbackText });
-              }
-
-              const originalModel = agent.model;
-              this.agentSubstitutions.set(agentName, {
-                original: originalModel,
-                fallback: fallbackModel,
-                reason: errorMsg
-              });
-              agent.provider = fallbackProvider;
-              agent.model = fallbackModel;
-              console.log(`[${agentName}: Switched from ${originalModel} to ${fallbackModel} for remainder of discussion]`);
-
-              this.pushAgentResponse(fallbackText, agentName, fallbackModel);
-              // Fallback counts as success — reset consecutive failure counter
-              this.recordAgentSuccess(agentName);
-              return; // Fallback succeeded
-            }
-          } catch (fallbackError: any) {
-            console.error(`[${agentName}: Fallback to ${fallbackModel} also failed: ${fallbackError.message}]`);
-            // Include fallback failure context for debugging
-            (error as any).fallbackError = fallbackError.message;
-          }
-        }
-      }
-
-      // Emit error event only after all recovery attempts have been exhausted
-      if (this.eventBus) {
-        this.eventBus.emitEvent('error', { message: `Error with agent ${agentName}: ${errorMsg}` });
-      }
-
-      // Extract provider and status from error message for cleaner display
-      const statusMatch = errorMsg.match(/\((\d{3})\)/);
-      const status = statusMatch ? statusMatch[1] : '';
-      const providerMatch = errorMsg.match(/^(\w+) API error/);
-      const provider = providerMatch ? providerMatch[1] : '';
-
-      // Create user-friendly error message
-      const friendlyError = status === '400' ? `${provider || 'Provider'} rejected request`
-        : status === '429' ? `${provider || 'Provider'} rate limited`
-        : status === '500' || status === '502' || status === '503' ? `${provider || 'Provider'} service error`
-        : errorMsg;
-
-      // Add error to history with cleaner message
-      const fallbackNote = (error as any).fallbackError
-        ? ` (fallback also failed: ${(error as any).fallbackError})`
-        : '';
-      this.conversationHistory.push({
-        role: 'assistant',
-        content: `[${agentName} unavailable: ${friendlyError}${fallbackNote}]`,
-        speaker: agentName,
-        model: agent.model,
-        error: true,
-        errorDetails: errorMsg + fallbackNote
-      });
-
-      // Circuit breaker: track consecutive failures
-      this.recordAgentFailure(agentName, friendlyError);
-    }
-  }
-
-  /**
-   * Track consecutive failures for an agent and trip the circuit breaker after 2.
-   */
-  private recordAgentFailure(agentName: string, reason: string): void {
-    // Timeouts/aborts are infrastructure failures, not agent failures — don't count them.
-    // Match specific patterns to avoid false positives from unrelated error messages.
-    if (/per-call timeout|main abort|^timeout$|request was aborted/i.test(reason)) {
-      return;
-    }
-    const count = (this.consecutiveAgentFailures.get(agentName) || 0) + 1;
-    this.consecutiveAgentFailures.set(agentName, count);
-
-    if (count >= 2) {
-      this.persistentlyFailedAgents.add(agentName);
-      console.log(`[Circuit breaker: ${agentName} disabled after ${count} consecutive failures (${reason})]`);
-      if (this.eventBus) {
-        this.eventBus.emitEvent('status', {
-          message: `Circuit breaker tripped for ${agentName}: ${reason}`
-        });
-      }
-      // Add system note to history so judge/summary can account for it
-      this.conversationHistory.push({
-        role: 'user',
-        content: `[System: ${agentName} has been removed from the discussion after ${count} consecutive failures (${reason}). Remaining agents should continue without them.]`,
-        speaker: 'System'
-      });
-    }
-  }
-
-  /**
-   * Push an agent response to conversation history, pre-extracting
-   * position summary when context optimization is enabled.
-   */
-  private pushAgentResponse(text: string, speaker: string, model: string): void {
-    const entry: any = {
-      role: 'assistant',
-      content: text,
-      speaker,
-      model
-    };
-    if (this.config.contextOptimization?.enabled) {
-      entry.positionSummary = ContextOptimizer.extractPosition(text);
-    }
-    this.conversationHistory.push(entry);
-  }
-
-  /**
-   * Reset consecutive failure count for an agent on success.
-   */
-
-  private recordAgentSuccess(agentName: string): void {
-    this.consecutiveAgentFailures.set(agentName, 0);
-  }
+  // agentTurn, recordAgentFailure, pushAgentResponse, recordAgentSuccess,
+  // createCallAbortController, and getFallbackModel have been extracted to AgentTurnExecutor.
+  // Access them via this.agentExecutor.*
 
   /**
    * Run a round with dynamic speaker selection.
@@ -880,7 +584,7 @@ export default class ConversationManager {
     if (this.abortSignal) {
       this.speakerSelector.abortSignal = this.abortSignal;
     }
-    const failedAgentsThisRound: Set<string> = new Set(this.persistentlyFailedAgents);
+    const failedAgentsThisRound: Set<string> = new Set(this.agentExecutor.getPersistentlyFailedAgents());
     const agentsWhoContributedThisRound: Set<string> = new Set();
 
     let lastSpeaker: string | null = null;
@@ -921,7 +625,7 @@ export default class ConversationManager {
           console.log(`[Forcing turn for ${forcedSpeaker}]`);
 
           const historyLengthBefore = this.conversationHistory.length;
-          await this.agentTurn(forcedSpeaker);
+          await this.agentExecutor.agentTurn(forcedSpeaker);
 
           if (this.conversationHistory.length > historyLengthBefore) {
             const latestEntry = this.conversationHistory[this.conversationHistory.length - 1];
@@ -970,7 +674,7 @@ export default class ConversationManager {
 
       // Execute agent turn and capture response
       const historyLengthBefore = this.conversationHistory.length;
-      await this.agentTurn(agentName);
+      await this.agentExecutor.agentTurn(agentName);
 
       // Get the response that was just added
       if (this.conversationHistory.length > historyLengthBefore) {
@@ -1051,16 +755,18 @@ export default class ConversationManager {
     return options;
   }
 
+  // createCallAbortController is still used by judge methods (judgeEvaluate, conductFinalVote).
+  // It will be moved to JudgeEvaluator in Plan 03 when those methods are extracted.
+
   /**
    * Create a per-call AbortController that respects the main abort signal.
-   * Each provider call gets its own timeout so one slow call doesn't kill the whole discussion.
-   * @param timeoutMs - Per-call timeout in milliseconds (default: 150s for primary, 60s for fallback)
+   * Used by judge methods. A copy also lives in AgentTurnExecutor for agent turns.
+   * @param timeoutMs - Per-call timeout in milliseconds (default: 150s)
    */
   private createCallAbortController(timeoutMs: number = 150_000): { controller: AbortController; cleanup: () => void } {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort('per-call timeout'), timeoutMs);
 
-    // Bridge main abort signal to per-call controller
     let onMainAbort: (() => void) | undefined;
     if (this.abortSignal) {
       if (this.abortSignal.aborted) {
@@ -1080,28 +786,6 @@ export default class ConversationManager {
     };
 
     return { controller, cleanup };
-  }
-
-  /**
-   * Get a fallback model from a different provider family to avoid hitting the same rate limit.
-   */
-  private getFallbackModel(currentModel: string): string | null {
-    const model = currentModel.toLowerCase();
-    if (model.includes('claude')) {
-      return 'gpt-4o-mini';
-    }
-    if (model.includes('gemini')) {
-      return 'gpt-4o-mini';
-    }
-    // OpenAI reasoning models (o1-*, o3-*) — match at word boundary to avoid date false positives
-    if (/\bo[13]-/.test(model) || /\bo[13]$/.test(model)) {
-      return 'claude-sonnet-4-5';
-    }
-    // For GPT, Grok, Mistral — fall back to Claude
-    if (model.includes('gpt') || model.includes('grok') || model.includes('mistral')) {
-      return 'claude-sonnet-4-5';
-    }
-    return 'gpt-4o-mini';
   }
 
   /**
@@ -1424,7 +1108,7 @@ export default class ConversationManager {
           contributingAgents.add(entry.speaker);
         }
       }
-      const activeAgents = this.agentOrder.filter(agent => !this.persistentlyFailedAgents.has(agent));
+      const activeAgents = this.agentOrder.filter(agent => !this.agentExecutor.getPersistentlyFailedAgents().has(agent));
       const allAgentsContributed = activeAgents.every(agent => contributingAgents.has(agent));
       const missingAgents = activeAgents.filter(agent => !contributingAgents.has(agent));
 

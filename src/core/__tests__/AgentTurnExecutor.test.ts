@@ -75,24 +75,25 @@ describe('AgentTurnExecutor', () => {
   // ─── Test 1: Circuit breaker skips agent ────────────────────────────────────
   it('skips agent that is in persistentlyFailedAgents set (circuit breaker)', async () => {
     const deps = makeDeps();
+    // Empty responses always trigger recordAgentFailure('empty_response')
+    deps.agents.Alice.provider.chat = jest.fn().mockResolvedValue('');
     const executor = new AgentTurnExecutor(deps);
 
-    // Trip the circuit breaker manually by failing 2+ times
-    await executor.agentTurn('Alice'); // First call - provider returns empty on first attempt
-    // Force it into persistently failed state by direct manipulation via failures
-    deps.agents.Alice.provider.chat = jest.fn().mockRejectedValue(new Error('rate limit 429'));
+    // First failure — counter = 1
+    await executor.agentTurn('Alice');
+    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(false);
 
-    // Trip circuit breaker (need 2 consecutive failures)
-    await executor.agentTurn('Alice'); // Failure 1
-    await executor.agentTurn('Alice'); // Failure 2 — should trip circuit breaker
+    // Second failure — counter = 2, circuit breaker trips
+    await executor.agentTurn('Alice');
+    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(true);
 
-    const failedBefore = deps.conversationHistory.length;
+    const historyLengthAfterTrip = deps.conversationHistory.length;
 
     // Now Alice is in persistentlyFailedAgents — this call should return immediately
     await executor.agentTurn('Alice');
 
     // No new entries added after circuit breaker tripped
-    expect(deps.conversationHistory.length).toBe(failedBefore);
+    expect(deps.conversationHistory.length).toBe(historyLengthAfterTrip);
   });
 
   // ─── Test 2: Successful agent call pushes response ───────────────────────────
@@ -247,25 +248,30 @@ describe('AgentTurnExecutor', () => {
   });
 
   // ─── Test 12: recordAgentSuccess resets failure counter ─────────────────────
-  it('recordAgentSuccess resets failure counter so next failure starts fresh', async () => {
+  it('recordAgentSuccess resets failure counter so circuit breaker does not trip after interleaved success', async () => {
     const deps = makeDeps();
-    // First call fails (empty), second succeeds, third fails
+    // Sequence: fail, succeed, fail — circuit breaker should NOT trip after 2nd failure
+    // because success in between resets the counter.
+    // Each "fail" turn calls chat twice (original attempt + retry) since we retry once on empty.
     deps.agents.Alice.provider.chat = jest.fn()
-      .mockResolvedValueOnce('') // failure
-      .mockResolvedValueOnce('') // failure (2nd attempt on retry)
-      .mockResolvedValueOnce('success response')
-      .mockResolvedValueOnce('') // failure again
-      .mockResolvedValueOnce(''); // 2nd attempt retry
+      .mockResolvedValueOnce('') // turn 1, attempt 1: empty
+      .mockResolvedValueOnce('') // turn 1, attempt 2 (retry): empty → recordAgentFailure
+      .mockResolvedValueOnce('success response') // turn 2: success → recordAgentSuccess
+      .mockResolvedValueOnce('') // turn 3, attempt 1: empty
+      .mockResolvedValueOnce(''); // turn 3, attempt 2 (retry): empty → recordAgentFailure
 
     const executor = new AgentTurnExecutor(deps);
 
-    // First turn: fails (2 consecutive failures — trips circuit breaker)
+    // Turn 1: fails — consecutive failures = 1
     await executor.agentTurn('Alice');
-    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(false); // only 1 failure so far
+    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(false);
 
-    // Manually reset for the test (since we can't reset between turns easily)
-    // Instead, test that circuit breaker trips on 2nd failure
+    // Turn 2: succeeds — resets consecutive failure counter to 0
     await executor.agentTurn('Alice');
-    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(true);
+    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(false);
+
+    // Turn 3: fails — consecutive failures = 1 (reset by success), NOT 2, so NO circuit breaker
+    await executor.agentTurn('Alice');
+    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(false);
   });
 });
