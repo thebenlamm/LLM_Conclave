@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import LLMProvider from './LLMProvider';
 import { Message, ProviderResponse, ChatOptions } from '../types';
+import { CostTracker } from '../core/CostTracker';
 
 /**
  * OpenAI provider implementation
@@ -9,8 +10,8 @@ import { Message, ProviderResponse, ChatOptions } from '../types';
 export default class OpenAIProvider extends LLMProvider {
   client: OpenAI;
 
-  constructor(modelName: string, apiKey?: string) {
-    super(modelName);
+  constructor(modelName: string, apiKey?: string, costTracker?: CostTracker) {
+    super(modelName, costTracker);
     this.client = new OpenAI({
       apiKey: apiKey || process.env.OPENAI_API_KEY,
       maxRetries: 3,

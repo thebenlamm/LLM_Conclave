@@ -3,6 +3,7 @@ import ClaudeProvider from './ClaudeProvider';
 import GrokProvider from './GrokProvider';
 import GeminiProvider from './GeminiProvider';
 import MistralProvider from './MistralProvider';
+import { CostTracker } from '../core/CostTracker';
 
 /**
  * Factory for creating LLM provider instances
@@ -13,12 +14,12 @@ export default class ProviderFactory {
    * @param {string} modelIdentifier - Model identifier (e.g., "gpt-4o", "claude-3-5-sonnet-20241022", "grok-beta")
    * @returns {any} - Instance of the appropriate provider
    */
-  static createProvider(modelIdentifier: string, options?: { contextEditing?: boolean }): any {
+  static createProvider(modelIdentifier: string, options?: { contextEditing?: boolean; costTracker?: CostTracker }): any {
     const modelLower = modelIdentifier.toLowerCase();
 
     // OpenAI models
     if (modelLower.includes('gpt')) {
-      return new OpenAIProvider(modelIdentifier);
+      return new OpenAIProvider(modelIdentifier, undefined, options?.costTracker);
     }
 
     // Claude models
@@ -33,12 +34,12 @@ export default class ProviderFactory {
       } else if (modelLower === 'haiku' || modelLower === 'haiku-4.5') {
         fullModelName = 'claude-haiku-4-5';
       }
-      return new ClaudeProvider(fullModelName, undefined, options);
+      return new ClaudeProvider(fullModelName, undefined, options, options?.costTracker);
     }
 
     // Grok models
     if (modelLower.includes('grok')) {
-      return new GrokProvider(modelIdentifier);
+      return new GrokProvider(modelIdentifier, undefined, options?.costTracker);
     }
 
     // Gemini models
@@ -50,12 +51,12 @@ export default class ProviderFactory {
       } else if (modelLower === 'gemini-flash') {
         fullModelName = 'gemini-2.0-flash';
       }
-      return new GeminiProvider(fullModelName);
+      return new GeminiProvider(fullModelName, undefined, options?.costTracker);
     }
 
     // Mistral models
     if (modelLower.includes('mistral') || modelLower.includes('codestral')) {
-      return new MistralProvider(modelIdentifier);
+      return new MistralProvider(modelIdentifier, undefined, options?.costTracker);
     }
 
     throw new Error(`Unknown model: ${modelIdentifier}. Supported models: GPT (OpenAI), Claude (Anthropic), Grok (xAI), Gemini (Google), Mistral (Mistral AI)`);

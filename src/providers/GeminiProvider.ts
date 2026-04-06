@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import LLMProvider from './LLMProvider';
 import { Message, ProviderResponse, ChatOptions, ToolDefinition } from '../types';
 import { GeminiCacheManager } from './GeminiCacheManager';
+import { CostTracker } from '../core/CostTracker';
 
 /**
  * Google Gemini provider implementation using new @google/genai package
@@ -11,8 +12,8 @@ export default class GeminiProvider extends LLMProvider {
   client: GoogleGenAI;
   private cacheManager: GeminiCacheManager | null = null;
 
-  constructor(modelName: string, apiKey?: string) {
-    super(modelName);
+  constructor(modelName: string, apiKey?: string, costTracker?: CostTracker) {
+    super(modelName, costTracker);
     const key = apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
     if (!key) {

@@ -72,7 +72,7 @@ export class CostTracker {
     'grok-3': { input: 0.003, output: 0.015 }, // xAI Grok 3: $3/$15 per 1M tokens (source: pricepertoken.com, multiple aggregators)
   };
 
-  private constructor() {}
+  constructor() {}
 
   public static getInstance(): CostTracker {
     if (!CostTracker.instance) {

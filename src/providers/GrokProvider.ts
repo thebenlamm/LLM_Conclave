@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import LLMProvider from './LLMProvider';
 import { Message, ProviderResponse, ChatOptions } from '../types';
+import { CostTracker } from '../core/CostTracker';
 
 /**
  * Grok (xAI) provider implementation
@@ -10,8 +11,8 @@ import { Message, ProviderResponse, ChatOptions } from '../types';
 export default class GrokProvider extends LLMProvider {
   client: OpenAI;
 
-  constructor(modelName: string, apiKey?: string) {
-    super(modelName);
+  constructor(modelName: string, apiKey?: string, costTracker?: CostTracker) {
+    super(modelName, costTracker);
     this.client = new OpenAI({
       apiKey: apiKey || process.env.XAI_API_KEY,
       baseURL: 'https://api.x.ai/v1'

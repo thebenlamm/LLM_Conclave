@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import LLMProvider from './LLMProvider';
 import { Message, ProviderResponse, ChatOptions } from '../types';
+import { CostTracker } from '../core/CostTracker';
 
 /**
  * Mistral AI provider implementation
@@ -10,8 +11,8 @@ import { Message, ProviderResponse, ChatOptions } from '../types';
 export default class MistralProvider extends LLMProvider {
   client: OpenAI;
 
-  constructor(modelName: string, apiKey?: string) {
-    super(modelName);
+  constructor(modelName: string, apiKey?: string, costTracker?: CostTracker) {
+    super(modelName, costTracker);
     const key = apiKey || process.env.MISTRAL_API_KEY;
 
     if (!key) {

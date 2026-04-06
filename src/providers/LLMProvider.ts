@@ -7,9 +7,11 @@ import { CostTracker } from '../core/CostTracker';
  */
 export default abstract class LLMProvider {
   modelName: string;
+  protected costTracker: CostTracker;
 
-  constructor(modelName: string) {
+  constructor(modelName: string, costTracker?: CostTracker) {
     this.modelName = modelName;
+    this.costTracker = costTracker ?? CostTracker.getInstance();
   }
 
   /**
@@ -72,7 +74,7 @@ export default abstract class LLMProvider {
 
         // Log successful call exactly once
         const endTime = Date.now();
-        CostTracker.getInstance().logCall({
+        this.costTracker.logCall({
           provider: this.getProviderName(),
           model: this.getModelName(),
           inputTokens: response.usage?.input_tokens || 0,
@@ -91,7 +93,7 @@ export default abstract class LLMProvider {
 
         // Log the failed call exactly once
         const endTime = Date.now();
-        CostTracker.getInstance().logCall({
+        this.costTracker.logCall({
           provider: this.getProviderName(),
           model: this.getModelName(),
           inputTokens: response?.usage?.input_tokens || 0,

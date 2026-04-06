@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import LLMProvider from './LLMProvider';
 import { Message, ProviderResponse, ChatOptions } from '../types';
+import { CostTracker } from '../core/CostTracker';
 
 /**
  * Claude (Anthropic) provider implementation
@@ -10,8 +11,8 @@ export default class ClaudeProvider extends LLMProvider {
   client: Anthropic;
   private contextEditingEnabled: boolean;
 
-  constructor(modelName: string, apiKey?: string, options?: { contextEditing?: boolean }) {
-    super(modelName);
+  constructor(modelName: string, apiKey?: string, options?: { contextEditing?: boolean }, costTracker?: CostTracker) {
+    super(modelName, costTracker);
     this.client = new Anthropic({
       apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
       maxRetries: 3,
