@@ -30,6 +30,11 @@ import { ArtifactStore } from '../core/ArtifactStore';
 import { getToolRestrictionInstruction } from '../tools/ToolPruningInstructions';
 
 /**
+ * @deprecated LEGACY — Not used in production. No MCP handler references this class.
+ * ConsultOrchestrator (for consult tool) and ConversationManager (for discuss/continue tools)
+ * are the active orchestration paths. Retained for reference and existing tests.
+ * Assessed: 2026-04-06 during Phase 03 refactoring.
+ *
  * Orchestrator - Manages structured multi-agent coordination
  *
  * Implements the inter-agent communication protocol:

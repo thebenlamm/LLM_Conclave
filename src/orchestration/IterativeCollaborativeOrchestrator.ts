@@ -8,6 +8,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
+ * @deprecated LEGACY — Not used in production. No MCP handler references this class.
+ * Was an alternative orchestration approach. ConsultOrchestrator and ConversationManager
+ * are the active orchestration paths. Retained for reference and existing tests.
+ * Assessed: 2026-04-06 during Phase 03 refactoring.
+ *
  * Iterative Collaborative Orchestrator
  *
  * Enables multi-turn discussions within chunks where agents can respond to each other.
