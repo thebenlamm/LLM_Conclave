@@ -7,7 +7,7 @@ Three phases of behavior-preserving refactoring. Phase 1 lays the type foundatio
 ## Phases
 
 - [x] **Phase 1: Foundation** - Type safety, quick wins, and CostTracker fixes (completed 2026-04-06)
-- [ ] **Phase 2: ConversationManager Decomposition** - Extract focused modules from the 2044-line god class
+- [x] **Phase 2: ConversationManager Decomposition** - Extract focused modules from the 2044-line god class (completed 2026-04-06)
 - [ ] **Phase 3: MCP Deduplication + Orchestrator Assessment** - Eliminate 3x handler duplication and audit legacy orchestrators
 
 ## Phase Details
@@ -44,7 +44,7 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md — Test safety net + ConversationHistory extraction
 - [x] 02-02-PLAN.md — AgentTurnExecutor extraction
-- [ ] 02-03-PLAN.md — JudgeEvaluator extraction
+- [x] 02-03-PLAN.md — JudgeEvaluator extraction
 
 ### Phase 3: MCP Deduplication + Orchestrator Assessment
 **Goal**: MCP handler logic exists in one place, and the active/legacy status of all three orchestrators is documented and acted on
@@ -66,5 +66,5 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-04-06 |
-| 2. ConversationManager Decomposition | 1/3 | In Progress|  |
+| 2. ConversationManager Decomposition | 3/3 | Complete   | 2026-04-06 |
 | 3. MCP Deduplication + Orchestrator Assessment | 0/? | Not started | - |

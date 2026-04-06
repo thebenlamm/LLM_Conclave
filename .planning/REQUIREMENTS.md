@@ -18,7 +18,7 @@ Requirements for this refactoring milestone. Each maps to roadmap phases.
 
 - [x] **CONV-01**: Extract `ConversationHistory` class owning `groupHistoryByRound()`, `prepareMessagesForAgent()`, `prepareMessagesWithBudget()`, `compressHistory()`, `formatEntryAsMessage()`, and round compression
 - [x] **CONV-02**: Extract `AgentTurnExecutor` class owning single-agent call cycle (retry, empty-response retry, connection-error retry, model fallback, circuit breaker, abort bridging)
-- [ ] **CONV-03**: Extract `JudgeEvaluator` class owning `judgeEvaluate()`, `conductFinalVote()`, `bestEffortJudgeResult()`, `buildCaseFile()`, `prepareJudgeContext()`, shallow-agreement/quoting/rubber-stamp detection, and judge model fallback
+- [x] **CONV-03**: Extract `JudgeEvaluator` class owning `judgeEvaluate()`, `conductFinalVote()`, `bestEffortJudgeResult()`, `buildCaseFile()`, `prepareJudgeContext()`, shallow-agreement/quoting/rubber-stamp detection, and judge model fallback
 
 ### MCP Server Deduplication
 
@@ -86,7 +86,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | TEST-01 | Phase 2 | Complete |
 | CONV-01 | Phase 2 | Complete |
 | CONV-02 | Phase 2 | Complete |
-| CONV-03 | Phase 2 | Pending |
+| CONV-03 | Phase 2 | Complete |
 | MCP-01 | Phase 3 | Pending |
 | MCP-02 | Phase 3 | Pending |
 | MCP-03 | Phase 3 | Pending |
