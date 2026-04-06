@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 01-foundation-01-PLAN.md
-last_updated: "2026-04-06T15:48:50.479Z"
+stopped_at: Completed 01-foundation-02-PLAN.md
+last_updated: "2026-04-06T15:49:27.162Z"
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-06)
 ## Current Position
 
 Phase: 01 (foundation) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Plan: 2 of 3
 
 *Updated after each plan completion*
 | Phase 01-foundation P01 | 8 | 2 tasks | 5 files |
+| Phase 01-foundation P02 | 4 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,9 @@ Recent decisions affecting current work:
 - Trust existing tests: Tests cover main paths well enough to refactor against
 - [Phase 01-foundation]: error and compressed typed as literal true: matches actual usage where entry.error === true is the check pattern
 - [Phase 01-foundation]: Cast SessionMessage.role in continue injection: intentional narrowing from persistence roles to runtime conversation roles
+- [Phase 01-foundation]: Remove finally block from LLMProvider.chat(): success logging in try, failure in catch — eliminates execution path ambiguity
+- [Phase 01-foundation]: CostTracker.pricing readonly: prevents compile-time accidental reassignment
+- [Phase 01-foundation]: Updated Gemini pricing: 2.5-pro .25/10.00, 2.5-flash /bin/zsh.30/2.50, 2.0-flash /bin/zsh.10/0.40; grok-3 /15 per 1M tokens (2026-04)
 
 ### Pending Todos
 
@@ -72,6 +76,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-06T15:48:50.477Z
-Stopped at: Completed 01-foundation-01-PLAN.md
+Last session: 2026-04-06T15:49:27.160Z
+Stopped at: Completed 01-foundation-02-PLAN.md
 Resume file: None
