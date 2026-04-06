@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 01-foundation-03-PLAN.md
-last_updated: "2026-04-06T15:57:41.731Z"
+stopped_at: Completed 02-conversationmanager-decomposition-01-PLAN.md
+last_updated: "2026-04-06T16:22:41.576Z"
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-06)
 
 **Core value:** Every refactoring must reduce ongoing friction for future changes without breaking existing behavior.
-**Current focus:** Phase 01 — foundation
+**Current focus:** Phase 02 — conversationmanager-decomposition
 
 ## Current Position
 
-Phase: 01 (foundation) — EXECUTING
-Plan: 3 of 3
+Phase: 02 (conversationmanager-decomposition) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Plan: 3 of 3
 | Phase 01-foundation P01 | 8 | 2 tasks | 5 files |
 | Phase 01-foundation P02 | 4 | 2 tasks | 4 files |
 | Phase 01-foundation P03 | 18 | 2 tasks | 12 files |
+| Phase 02-conversationmanager-decomposition P01 | 25 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,8 @@ Recent decisions affecting current work:
 - [Phase 01-foundation]: Updated Gemini pricing: 2.5-pro .25/10.00, 2.5-flash /bin/zsh.30/2.50, 2.0-flash /bin/zsh.10/0.40; grok-3 /15 per 1M tokens (2026-04)
 - [Phase 01-foundation]: All ProviderFactory.createProvider() calls updated with costTracker: 6 in ConsultOrchestrator, 4 in ConversationManager — full injection chain complete
 - [Phase 01-foundation]: CostTracker DI pattern: optional constructor param with ?? CostTracker.getInstance() fallback for backward compat
+- [Phase 02-conversationmanager-decomposition]: compressHistory mutates shared array in-place (splice) to keep CM reference valid after compression
+- [Phase 02-conversationmanager-decomposition]: ConversationHistory uses callbacks for cross-object state (onCacheInvalidated, getAgents) instead of holding direct references
 
 ### Pending Todos
 
@@ -79,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-06T15:57:41.729Z
-Stopped at: Completed 01-foundation-03-PLAN.md
+Last session: 2026-04-06T16:22:41.574Z
+Stopped at: Completed 02-conversationmanager-decomposition-01-PLAN.md
 Resume file: None

@@ -42,7 +42,7 @@ Plans:
   6. All existing tests pass; free-form discussions via `llm_conclave_discuss` produce identical results
 **Plans**: 3 plans
 Plans:
-- [ ] 02-01-PLAN.md — Test safety net + ConversationHistory extraction
+- [x] 02-01-PLAN.md — Test safety net + ConversationHistory extraction
 - [ ] 02-02-PLAN.md — AgentTurnExecutor extraction
 - [ ] 02-03-PLAN.md — JudgeEvaluator extraction
 
@@ -66,5 +66,5 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-04-06 |
-| 2. ConversationManager Decomposition | 0/3 | Planned | - |
+| 2. ConversationManager Decomposition | 1/3 | In Progress|  |
 | 3. MCP Deduplication + Orchestrator Assessment | 0/? | Not started | - |
