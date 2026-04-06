@@ -57,7 +57,7 @@ Plans:
   4. All three MCP tools (`llm_conclave_discuss`, `llm_conclave_consult`, `llm_conclave_continue`) respond identically to callers as before
 **Plans**: 2 plans
 Plans:
-- [ ] 03-01-PLAN.md — DiscussionRunner extraction + orchestrator legacy assessment
+- [x] 03-01-PLAN.md — DiscussionRunner extraction + orchestrator legacy assessment
 - [ ] 03-02-PLAN.md — Rewrite all 3 handlers to delegate to DiscussionRunner
 
 ## Progress

@@ -43,6 +43,7 @@ import { FormatterFactory } from '../consult/formatting/FormatterFactory.js';
 import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 import { ContextLoader } from '../consult/context/ContextLoader.js';
+import { DiscussionRunner, saveDiscussionLog } from './DiscussionRunner.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -403,202 +404,37 @@ async function handleDiscuss(args: {
   judge_instructions?: string;
   context_optimization?: boolean;
 }, server: Server) {
-  const {
-    task,
-    project: projectPath,
-    personas,
-    config: configPath,
-    rounds = 4,
-    min_rounds = 2,
-    dynamic = false,
-    selector_model = DEFAULT_SELECTOR_MODEL,
-    timeout = 0,
-    format = 'markdown',
-    judge_instructions,
-    context_optimization = false,
-  } = args;
+  const format = args.format ?? 'markdown';
 
-  // Resolve configuration with optional custom config path
-  const config = ConfigCascade.resolve({ config: configPath });
-
-  // Apply context optimization if requested
-  if (context_optimization) {
-    config.contextOptimization = { enabled: true };
-  }
-
-  // Apply personas if specified (supports built-in, custom, and persona sets)
-  if (personas) {
-    const personaList = PersonaSystem.getPersonas(personas);
-    const personaAgents = PersonaSystem.personasToAgents(personaList, config.contextOptimization);
-
-    config.agents = {};
-    for (const [name, agent] of Object.entries(personaAgents) as [string, any][]) {
-      config.agents[name] = {
-        model: agent.model,
-        prompt: agent.systemPrompt,
-      };
-    }
-  }
-
-  config.max_rounds = rounds;
-
-  // Validate min_rounds: must be non-negative integer and <= max_rounds
-  const validatedMinRounds = Math.max(0, Math.floor(min_rounds || 0));
-  if (validatedMinRounds > rounds) {
-    throw new Error(`min_rounds (${validatedMinRounds}) cannot exceed rounds (${rounds})`);
-  }
-  config.min_rounds = validatedMinRounds;
-
-  // Load project context if specified
-  let projectContext = null;
-  if (projectPath) {
-    const validatedProjectPath = validatePath(projectPath, process.cwd());
-    const stats = await fsPromises.lstat(validatedProjectPath);
-    if (stats.isSymbolicLink()) {
-      throw new Error(`Symlinks are not allowed for project path: ${projectPath}`);
-    }
-    projectContext = new ProjectContext(validatedProjectPath);
-    await projectContext.load();
-  }
-
-  // Create judge (judge_model param overrides config)
-  const judgeModel = args.judge_model || config.judge.model;
-  const judge = {
-    model: judgeModel,
-    provider: ProviderFactory.createProvider(judgeModel),
-    systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.',
-  };
-
-  // Run conversation (no streaming for MCP, with optional dynamic speaker selection)
-  // Create a scoped EventBus to avoid cross-talk between concurrent MCP requests
-  const scopedEventBus = EventBus.createInstance();
-
-  // Send progress updates via MCP logging (fire-and-forget with error handling)
-  // Use named references so we can remove only these handlers in cleanup,
-  // preserving EventBus's default no-op error handler from the constructor.
-  const onRoundStart = (event: any) => {
-    const round = event?.payload?.round ?? '?';
+  // Build progress callback that forwards events to MCP logging
+  const onProgress = (event: { type: string; message: string }) => {
+    const level = event.type === 'error' ? 'warning' : 'info';
     server.sendLoggingMessage({
-      level: 'info',
+      level,
       logger: 'llm-conclave',
-      data: `Round ${round}/${rounds} starting...`
+      data: event.message,
     }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
   };
 
-  const onAgentThinking = (event: any) => {
-    const agent = event?.payload?.agent ?? 'Agent';
-    server.sendLoggingMessage({
-      level: 'info',
-      logger: 'llm-conclave',
-      data: `${agent} is responding...`
-    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
-  };
+  const runner = new DiscussionRunner();
+  const { result, sessionId, logFilePath, timedOut, effectiveTimeout } = await runner.run({
+    task: args.task,
+    config: args.config,
+    projectPath: args.project,
+    personas: args.personas,
+    rounds: args.rounds ?? 4,
+    minRounds: args.min_rounds ?? 2,
+    dynamic: args.dynamic ?? false,
+    selectorModel: args.selector_model ?? DEFAULT_SELECTOR_MODEL,
+    judgeModel: args.judge_model,
+    judgeInstructions: args.judge_instructions,
+    timeout: args.timeout ?? 0,
+    contextOptimization: args.context_optimization ?? false,
+    onProgress,
+    validateProjectPath: (p) => validatePath(p, process.cwd()),
+  });
 
-  const onError = (event: any) => {
-    const message = event?.payload?.message ?? 'Unknown error';
-    server.sendLoggingMessage({
-      level: 'warning',
-      logger: 'llm-conclave',
-      data: `Agent error (continuing): ${message}`
-    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
-  };
-
-  const onStatus = (event: any) => {
-    const message = event?.payload?.message ?? 'Status update';
-    server.sendLoggingMessage({
-      level: 'info',
-      logger: 'llm-conclave',
-      data: message
-    }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
-  };
-
-  scopedEventBus.on('round:start', onRoundStart);
-  scopedEventBus.on('agent:thinking', onAgentThinking);
-  scopedEventBus.on('error', onError);
-  scopedEventBus.on('status', onStatus);
-
-  const conversationManager = new ConversationManager(
-    config,
-    null,  // memoryManager
-    false, // no streaming for MCP
-    scopedEventBus,
-    dynamic,
-    selector_model,
-    { judgeInstructions: judge_instructions }
-  );
-
-  // Set up timeout with abort signal
-  // Reject negative values; if timeout is set, enforce a minimum of 600s to prevent premature cutoffs
-  if (timeout < 0) {
-    throw new Error('timeout must be >= 0 (0 = no timeout)');
-  }
-  const effectiveTimeout = timeout === 0 ? 0 : Math.max(timeout, 600);
-  const abortController = new AbortController();
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  let timedOut = false;
-
-  if (effectiveTimeout > 0) {
-    conversationManager.abortSignal = abortController.signal;
-    timeoutId = setTimeout(() => {
-      timedOut = true;
-      abortController.abort('timeout');
-      console.log(`[MCP timeout: ${effectiveTimeout}s exceeded, aborting discussion]`);
-    }, effectiveTimeout * 1000);
-  }
-
-  // Progress heartbeat: send periodic logging messages during long discussions.
-  // This supplements the SSE-level :ping by sending real MCP messages that keep
-  // the transport actively writing, preventing higher-level timeouts.
-  let lastRound = 0;
-  const progressHeartbeat = setInterval(() => {
-    const currentRound = conversationManager.currentRound ?? lastRound;
-    lastRound = currentRound;
-    server.sendLoggingMessage({
-      level: 'info',
-      logger: 'llm-conclave',
-      data: `Discussion in progress — round ${currentRound + 1}/${rounds}...`
-    }).catch(() => {});
-  }, 30_000);
-
-  let result: any;
-  try {
-    // startConversation() returns normally even on timeout — it checks abortSignal
-    // internally and returns a result with timedOut: true if aborted.
-    result = await conversationManager.startConversation(task, judge, projectContext);
-  } finally {
-    clearInterval(progressHeartbeat);
-    if (timeoutId) clearTimeout(timeoutId);
-    // Remove only the MCP-registered handlers, preserving the EventBus
-    // constructor's default no-op error handler for any late async callbacks.
-    scopedEventBus.off('round:start', onRoundStart);
-    scopedEventBus.off('agent:thinking', onAgentThinking);
-    scopedEventBus.off('error', onError);
-    scopedEventBus.off('status', onStatus);
-  }
-
-  // Save full discussion to file (preserves all agent contributions)
-  const logFilePath = saveFullDiscussion(result);
-
-  // Save session for potential continuation
-  const sessionManager = new SessionManager();
-  const agents = Object.entries(config.agents).map(([name, agentConfig]: [string, any]) => ({
-    name,
-    model: agentConfig.model,
-    systemPrompt: agentConfig.prompt || agentConfig.systemPrompt || '',
-    provider: ProviderFactory.createProvider(agentConfig.model),
-  }));
-  const session = sessionManager.createSessionManifest(
-    'consensus',
-    task,
-    agents,
-    result.conversationHistory,
-    result,
-    judge,
-    projectContext?.formatContext()
-  );
-  const sessionId = await sessionManager.saveSession(session);
-
-  // Format output based on requested format
+  // Format output based on requested format (handler-specific formatting, not orchestration)
   let outputText: string;
 
   if (format === 'json' || format === 'both') {
@@ -610,10 +446,10 @@ async function handleDiscuss(args: {
       if (result.degraded) {
         markdown += `**Discussion aborted:** ${result.degradedReason}\n\n`;
       }
-      if (result.timedOut) {
+      if (timedOut) {
         markdown += `**Discussion timed out after ${effectiveTimeout}s** (${result.rounds} rounds completed)\n\n`;
       }
-      markdown += formatDiscussionResult(result, logFilePath, sessionId, { includeTranscript: !!result.timedOut });
+      markdown += formatDiscussionResult(result, logFilePath, sessionId, { includeTranscript: timedOut });
       outputText = JSON.stringify({ ...jsonResult, markdown_summary: markdown }, null, 2);
     } else {
       outputText = JSON.stringify(jsonResult, null, 2);
@@ -624,10 +460,10 @@ async function handleDiscuss(args: {
     if (result.degraded) {
       summary += `**❌ Discussion aborted:** ${result.degradedReason}\nCheck MCP server logs at ~/.llm-conclave/mcp-server.log\n\n`;
     }
-    if (result.timedOut) {
+    if (timedOut) {
       summary += `**⏱️ Discussion timed out after ${effectiveTimeout}s** (${result.rounds} rounds completed)\n\n`;
     }
-    summary += formatDiscussionResult(result, logFilePath, sessionId, { includeTranscript: !!result.timedOut });
+    summary += formatDiscussionResult(result, logFilePath, sessionId, { includeTranscript: timedOut });
     outputText = summary;
   }
 
@@ -1378,147 +1214,54 @@ export async function startSSE(port: number) {
       }
     }
 
+    // For REST API, config must be inline JSON (not file paths) to prevent path traversal
+    const configPath = args.config;
+    if (configPath && typeof configPath === 'string' && !configPath.trimStart().startsWith('{')) {
+      res.status(400).json({ success: false, error: 'REST API only accepts inline JSON for config parameter, not file paths' });
+      return;
+    }
+
+    // Validate timeout sign before delegation (REST returns HTTP 400, not thrown error)
+    if (args.timeout !== undefined && args.timeout < 0) {
+      res.status(400).json({ success: false, error: 'timeout must be >= 0' });
+      return;
+    }
+
     try {
-      // Config resolution (same as handleDiscuss)
-      const {
-        task,
-        project: projectPath,
-        personas,
-        config: configPath,
-        rounds = 4,
-        min_rounds = 2,
-        dynamic = false,
-        selector_model = DEFAULT_SELECTOR_MODEL,
-        timeout = 0,
-        judge_instructions,
-        context_optimization = false,
-      } = args;
+      const runner = new DiscussionRunner();
 
-      // For REST API, config must be inline JSON (not file paths) to prevent path traversal
-      if (configPath && typeof configPath === 'string' && !configPath.trimStart().startsWith('{')) {
-        res.status(400).json({ success: false, error: 'REST API only accepts inline JSON for config parameter, not file paths' });
-        return;
-      }
-
-      const config = ConfigCascade.resolve({ config: configPath });
-
-      if (context_optimization) {
-        config.contextOptimization = { enabled: true };
-      }
-
-      if (personas) {
-        const personaList = PersonaSystem.getPersonas(personas);
-        const personaAgents = PersonaSystem.personasToAgents(personaList, config.contextOptimization);
-        config.agents = {};
-        for (const [name, agent] of Object.entries(personaAgents) as [string, any][]) {
-          config.agents[name] = { model: agent.model, prompt: agent.systemPrompt };
-        }
-      }
-
-      config.max_rounds = rounds;
-
-      const validatedMinRounds = Math.max(0, Math.floor(min_rounds || 0));
-      if (validatedMinRounds > rounds) {
-        res.status(400).json({ success: false, error: `min_rounds (${validatedMinRounds}) cannot exceed rounds (${rounds})` });
-        return;
-      }
-      config.min_rounds = validatedMinRounds;
-
-      let projectContext = null;
-      if (projectPath) {
-        const validatedProjectPath = validatePath(projectPath, process.cwd());
-        const stats = await fsPromises.lstat(validatedProjectPath);
-        if (stats.isSymbolicLink()) {
-          res.status(400).json({ success: false, error: `Symlinks are not allowed for project path: ${projectPath}` });
-          return;
-        }
-        projectContext = new ProjectContext(validatedProjectPath);
-        await projectContext.load();
-      }
-
-      const judgeModel = args.judge_model || config.judge.model;
-      const judge = {
-        model: judgeModel,
-        provider: ProviderFactory.createProvider(judgeModel),
-        systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.',
-      };
-
-      // Create scoped EventBus (log progress to stderr, no MCP server needed)
-      const scopedEventBus = EventBus.createInstance();
-      scopedEventBus.on('round:start', (event: any) => {
-        console.error(`[REST] Round ${event?.payload?.round ?? '?'}/${rounds} starting...`);
-      });
-      scopedEventBus.on('agent:thinking', (event: any) => {
-        console.error(`[REST] ${event?.payload?.agent ?? 'Agent'} is responding...`);
-      });
-      scopedEventBus.on('error', (event: any) => {
-        console.error(`[REST] Agent error: ${event?.payload?.message ?? 'Unknown'}`);
-      });
-
-      const conversationManager = new ConversationManager(
-        config, null, false, scopedEventBus, dynamic, selector_model,
-        { judgeInstructions: judge_instructions }
-      );
-
-      // Timeout with abort controller
-      let effectiveTimeout = timeout;
-      if (timeout < 0) {
-        res.status(400).json({ success: false, error: 'timeout must be >= 0' });
-        return;
-      }
-      if (timeout > 0) {
-        effectiveTimeout = Math.max(timeout, 600);
-      }
-
-      const abortController = new AbortController();
-      conversationManager.abortSignal = abortController.signal;
-
-      // Abort discussion if client disconnects (don't waste LLM API calls)
+      // REST-specific: abort discussion if client disconnects (don't waste LLM API calls)
+      // DiscussionRunner uses its own internal AbortController for timeout; client disconnect
+      // is wired via a separate signal that DiscussionRunner merges.
+      const clientAbort = new AbortController();
       req.on('close', () => {
         if (!res.writableFinished) {
-          abortController.abort('client-disconnected');
+          clientAbort.abort('client-disconnected');
           console.error('[REST] Client disconnected, aborting discussion');
         }
       });
 
-      let timeoutId: NodeJS.Timeout | undefined;
-      if (effectiveTimeout > 0) {
-        timeoutId = setTimeout(() => {
-          abortController.abort('timeout');
-          console.error(`[REST] Timeout: ${effectiveTimeout}s exceeded`);
-        }, effectiveTimeout * 1000);
-      }
+      const onProgress = (event: { type: string; message: string }) => {
+        console.error(`[REST] ${event.message}`);
+      };
 
-      let result: any;
-      try {
-        result = await conversationManager.startConversation(
-          task, judge, projectContext
-        );
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-        scopedEventBus.removeAllListeners();
-      }
-
-      // Save log and session — failures here should not lose the discussion result
-      let logFilePath = '';
-      let sessionId: string | undefined;
-      try {
-        logFilePath = saveFullDiscussion(result);
-        const sessionManager = new SessionManager();
-        const agents = Object.entries(config.agents).map(([name, agentConfig]: [string, any]) => ({
-          name,
-          model: agentConfig.model,
-          systemPrompt: agentConfig.prompt || agentConfig.systemPrompt || '',
-          provider: ProviderFactory.createProvider(agentConfig.model),
-        }));
-        const session = sessionManager.createSessionManifest(
-          'consensus', task, agents, result.conversationHistory, result,
-          judge, projectContext?.formatContext()
-        );
-        sessionId = await sessionManager.saveSession(session);
-      } catch (saveErr: any) {
-        console.error(`[REST] Failed to save session/log (results still returned):`, saveErr.message);
-      }
+      const { result, sessionId, logFilePath } = await runner.run({
+        task: args.task,
+        config: args.config,
+        projectPath: args.project,
+        personas: args.personas,
+        rounds: args.rounds ?? 4,
+        minRounds: args.min_rounds ?? 2,
+        dynamic: args.dynamic ?? false,
+        selectorModel: args.selector_model ?? DEFAULT_SELECTOR_MODEL,
+        judgeModel: args.judge_model,
+        judgeInstructions: args.judge_instructions,
+        timeout: args.timeout ?? 0,
+        contextOptimization: args.context_optimization ?? false,
+        onProgress,
+        validateProjectPath: (p) => validatePath(p, process.cwd()),
+        clientAbortSignal: clientAbort.signal,
+      });
 
       const jsonResult = formatDiscussionResultJson(result, logFilePath, sessionId);
       res.json({ success: true, ...jsonResult });

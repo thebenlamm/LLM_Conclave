@@ -39,6 +39,9 @@ export interface DiscussionRunnerOptions {
   priorHistory?: Array<{ role: string; content: string; speaker?: string }>;  // for continuation
   onProgress?: (event: { type: string; message: string }) => void;  // progress callback
   validateProjectPath?: (path: string) => string;  // path validator (REST uses different validation)
+  clientAbortSignal?: AbortSignal;  // external abort signal (e.g., REST client disconnect)
+  resolvedConfig?: any;            // pre-resolved config (for continuation, bypasses ConfigCascade)
+  parentSessionId?: string;        // link new session to parent (for continuation)
 }
 
 /**
@@ -194,10 +197,13 @@ export class DiscussionRunner {
       priorHistory,
       onProgress,
       validateProjectPath,
+      clientAbortSignal,
+      resolvedConfig: preResolvedConfig,
+      parentSessionId,
     } = options;
 
-    // 1. Config resolution
-    const config = ConfigCascade.resolve({ config: configPath });
+    // 1. Config resolution (use pre-resolved config for continuation to bypass ConfigCascade)
+    const config = preResolvedConfig ?? ConfigCascade.resolve({ config: configPath });
 
     // 2. Context optimization
     if (contextOptimization) {
@@ -222,7 +228,7 @@ export class DiscussionRunner {
     config.max_rounds = rounds;
     const validatedMinRounds = Math.max(0, Math.floor(minRounds || 0));
     if (validatedMinRounds > rounds) {
-      throw new Error(`minRounds (${validatedMinRounds}) cannot exceed rounds (${rounds})`);
+      throw new Error(`min_rounds (${validatedMinRounds}) cannot exceed rounds (${rounds})`);
     }
     config.min_rounds = validatedMinRounds;
 
@@ -305,8 +311,21 @@ export class DiscussionRunner {
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
 
-    if (effectiveTimeout > 0) {
+    // Wire external abort signal (e.g., REST client disconnect) into our internal controller
+    if (clientAbortSignal) {
+      if (clientAbortSignal.aborted) {
+        abortController.abort(clientAbortSignal.reason);
+      } else {
+        clientAbortSignal.addEventListener('abort', () => {
+          abortController.abort(clientAbortSignal.reason);
+        }, { once: true });
+      }
+    }
+
+    if (effectiveTimeout > 0 || clientAbortSignal) {
       conversationManager.abortSignal = abortController.signal;
+    }
+    if (effectiveTimeout > 0) {
       timeoutId = setTimeout(() => {
         timedOut = true;
         abortController.abort('timeout');
@@ -373,6 +392,10 @@ export class DiscussionRunner {
       judge,
       projectContext?.formatContext()
     );
+    // Link to parent session if this is a continuation
+    if (parentSessionId) {
+      (session as any).parentSessionId = parentSessionId;
+    }
     const sessionId = await sessionManager.saveSession(session);
 
     return {
