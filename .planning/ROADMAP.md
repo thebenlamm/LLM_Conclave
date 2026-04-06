@@ -55,11 +55,10 @@ Plans:
   2. `handleDiscuss`, `handleContinue`, and REST `/api/discuss` contain no direct references to EventBus construction, AbortController setup, SessionManager saving, or ConversationManager construction — all delegated to `DiscussionRunner`
   3. The active/legacy status of `Orchestrator` and `IterativeCollaborativeOrchestrator` is recorded in code comments or a decision doc — no more uncertainty
   4. All three MCP tools (`llm_conclave_discuss`, `llm_conclave_consult`, `llm_conclave_continue`) respond identically to callers as before
-**Plans**: 3 plans
+**Plans**: 2 plans
 Plans:
-- [x] 01-01-PLAN.md — Type safety: DiscussionHistoryEntry, Config typing, dead code removal
-- [ ] 01-02-PLAN.md — CostTracker fixes: double-logging bug, pricing updates, readonly
-- [ ] 01-03-PLAN.md — CostTracker injection: per-consultation instances through provider chain
+- [ ] 03-01-PLAN.md — DiscussionRunner extraction + orchestrator legacy assessment
+- [ ] 03-02-PLAN.md — Rewrite all 3 handlers to delegate to DiscussionRunner
 
 ## Progress
 
@@ -67,4 +66,4 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-04-06 |
 | 2. ConversationManager Decomposition | 3/3 | Complete   | 2026-04-06 |
-| 3. MCP Deduplication + Orchestrator Assessment | 0/? | Not started | - |
+| 3. MCP Deduplication + Orchestrator Assessment | 0/2 | Not started | - |
