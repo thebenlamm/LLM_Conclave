@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 02-conversationmanager-decomposition-01-PLAN.md
-last_updated: "2026-04-06T16:22:41.576Z"
+stopped_at: Completed 02-conversationmanager-decomposition-02-PLAN.md
+last_updated: "2026-04-06T16:32:04.964Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-04-06)
 ## Current Position
 
 Phase: 02 (conversationmanager-decomposition) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Plan: 2 of 3
 | Phase 01-foundation P02 | 4 | 2 tasks | 4 files |
 | Phase 01-foundation P03 | 18 | 2 tasks | 12 files |
 | Phase 02-conversationmanager-decomposition P01 | 25 | 2 tasks | 4 files |
+| Phase 02-conversationmanager-decomposition P02 | 7 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,8 @@ Recent decisions affecting current work:
 - [Phase 01-foundation]: CostTracker DI pattern: optional constructor param with ?? CostTracker.getInstance() fallback for backward compat
 - [Phase 02-conversationmanager-decomposition]: compressHistory mutates shared array in-place (splice) to keep CM reference valid after compression
 - [Phase 02-conversationmanager-decomposition]: ConversationHistory uses callbacks for cross-object state (onCacheInvalidated, getAgents) instead of holding direct references
+- [Phase 02-conversationmanager-decomposition]: createCallAbortController retained in CM: judge methods still call it; Plan 03 moves it to JudgeEvaluator
+- [Phase 02-conversationmanager-decomposition]: AgentTurnExecutor two-phase init: executor first (null history), history second, then wire back via deps.history assignment
 
 ### Pending Todos
 
@@ -82,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-06T16:22:41.574Z
-Stopped at: Completed 02-conversationmanager-decomposition-01-PLAN.md
+Last session: 2026-04-06T16:32:04.962Z
+Stopped at: Completed 02-conversationmanager-decomposition-02-PLAN.md
 Resume file: None

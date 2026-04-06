@@ -16,8 +16,8 @@ Requirements for this refactoring milestone. Each maps to roadmap phases.
 
 ### ConversationManager Decomposition
 
-- [ ] **CONV-01**: Extract `ConversationHistory` class owning `groupHistoryByRound()`, `prepareMessagesForAgent()`, `prepareMessagesWithBudget()`, `compressHistory()`, `formatEntryAsMessage()`, and round compression
-- [ ] **CONV-02**: Extract `AgentTurnExecutor` class owning single-agent call cycle (retry, empty-response retry, connection-error retry, model fallback, circuit breaker, abort bridging)
+- [x] **CONV-01**: Extract `ConversationHistory` class owning `groupHistoryByRound()`, `prepareMessagesForAgent()`, `prepareMessagesWithBudget()`, `compressHistory()`, `formatEntryAsMessage()`, and round compression
+- [x] **CONV-02**: Extract `AgentTurnExecutor` class owning single-agent call cycle (retry, empty-response retry, connection-error retry, model fallback, circuit breaker, abort bridging)
 - [ ] **CONV-03**: Extract `JudgeEvaluator` class owning `judgeEvaluate()`, `conductFinalVote()`, `bestEffortJudgeResult()`, `buildCaseFile()`, `prepareJudgeContext()`, shallow-agreement/quoting/rubber-stamp detection, and judge model fallback
 
 ### MCP Server Deduplication
@@ -38,11 +38,11 @@ Requirements for this refactoring milestone. Each maps to roadmap phases.
 - [x] **COST-01**: Fix double-logging bug in `LLMProvider.chat()` (catch + finally both log to CostTracker)
 - [x] **COST-02**: Update stale pricing data (models with $0 pricing: gemini-3-pro, grok-3, gemini-exp-1206)
 - [x] **COST-03**: Add `readonly` modifier to `CostTracker.pricing` to prevent runtime mutation
-- [ ] **COST-04**: Scope CostTracker per consultation instead of global singleton (pass via constructor/options)
+- [x] **COST-04**: Scope CostTracker per consultation instead of global singleton (pass via constructor/options)
 
 ### Test Safety Net
 
-- [ ] **TEST-01**: Add integration tests for judge evaluation path with context compression (prerequisite for CONV-03 extraction)
+- [x] **TEST-01**: Add integration tests for judge evaluation path with context compression (prerequisite for CONV-03 extraction)
 
 ## v2 Requirements
 
@@ -82,10 +82,10 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | COST-01 | Phase 1 | Complete |
 | COST-02 | Phase 1 | Complete |
 | COST-03 | Phase 1 | Complete |
-| COST-04 | Phase 1 | Pending |
-| TEST-01 | Phase 2 | Pending |
-| CONV-01 | Phase 2 | Pending |
-| CONV-02 | Phase 2 | Pending |
+| COST-04 | Phase 1 | Complete |
+| TEST-01 | Phase 2 | Complete |
+| CONV-01 | Phase 2 | Complete |
+| CONV-02 | Phase 2 | Complete |
 | CONV-03 | Phase 2 | Pending |
 | MCP-01 | Phase 3 | Pending |
 | MCP-02 | Phase 3 | Pending |

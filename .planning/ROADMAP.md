@@ -43,7 +43,7 @@ Plans:
 **Plans**: 3 plans
 Plans:
 - [x] 02-01-PLAN.md — Test safety net + ConversationHistory extraction
-- [ ] 02-02-PLAN.md — AgentTurnExecutor extraction
+- [x] 02-02-PLAN.md — AgentTurnExecutor extraction
 - [ ] 02-03-PLAN.md — JudgeEvaluator extraction
 
 ### Phase 3: MCP Deduplication + Orchestrator Assessment
