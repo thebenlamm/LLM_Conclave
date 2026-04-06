@@ -6,7 +6,7 @@ Three phases of behavior-preserving refactoring. Phase 1 lays the type foundatio
 
 ## Phases
 
-- [ ] **Phase 1: Foundation** - Type safety, quick wins, and CostTracker fixes
+- [x] **Phase 1: Foundation** - Type safety, quick wins, and CostTracker fixes (completed 2026-04-06)
 - [ ] **Phase 2: ConversationManager Decomposition** - Extract focused modules from the 2044-line god class
 - [ ] **Phase 3: MCP Deduplication + Orchestrator Assessment** - Eliminate 3x handler duplication and audit legacy orchestrators
 
@@ -27,7 +27,7 @@ Three phases of behavior-preserving refactoring. Phase 1 lays the type foundatio
 Plans:
 - [x] 01-01-PLAN.md — Type safety: DiscussionHistoryEntry, Config typing, dead code removal
 - [x] 01-02-PLAN.md — CostTracker fixes: double-logging bug, pricing updates, readonly
-- [ ] 01-03-PLAN.md — CostTracker injection: per-consultation instances through provider chain
+- [x] 01-03-PLAN.md — CostTracker injection: per-consultation instances through provider chain
 
 ### Phase 2: ConversationManager Decomposition
 **Goal**: ConversationManager delegates to focused single-responsibility modules — history management, agent turn execution, and judge evaluation each live in their own class
@@ -43,7 +43,7 @@ Plans:
 **Plans**: 3 plans
 Plans:
 - [x] 01-01-PLAN.md — Type safety: DiscussionHistoryEntry, Config typing, dead code removal
-- [ ] 01-02-PLAN.md — CostTracker fixes: double-logging bug, pricing updates, readonly
+- [x] 01-02-PLAN.md — CostTracker fixes: double-logging bug, pricing updates, readonly
 - [ ] 01-03-PLAN.md — CostTracker injection: per-consultation instances through provider chain
 
 ### Phase 3: MCP Deduplication + Orchestrator Assessment
@@ -57,7 +57,7 @@ Plans:
   4. All three MCP tools (`llm_conclave_discuss`, `llm_conclave_consult`, `llm_conclave_continue`) respond identically to callers as before
 **Plans**: 3 plans
 Plans:
-- [ ] 01-01-PLAN.md — Type safety: DiscussionHistoryEntry, Config typing, dead code removal
+- [x] 01-01-PLAN.md — Type safety: DiscussionHistoryEntry, Config typing, dead code removal
 - [ ] 01-02-PLAN.md — CostTracker fixes: double-logging bug, pricing updates, readonly
 - [ ] 01-03-PLAN.md — CostTracker injection: per-consultation instances through provider chain
 
@@ -65,6 +65,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 2/3 | In Progress|  |
+| 1. Foundation | 3/3 | Complete   | 2026-04-06 |
 | 2. ConversationManager Decomposition | 0/? | Not started | - |
 | 3. MCP Deduplication + Orchestrator Assessment | 0/? | Not started | - |
