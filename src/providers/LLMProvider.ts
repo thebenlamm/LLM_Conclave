@@ -65,32 +65,42 @@ export default abstract class LLMProvider {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const startTime = Date.now();
-      let success = false;
       let response: ProviderResponse | undefined;
 
       try {
         response = await this.performChat(messages, systemPrompt, options);
-        success = true;
+
+        // Log successful call exactly once
+        const endTime = Date.now();
+        CostTracker.getInstance().logCall({
+          provider: this.getProviderName(),
+          model: this.getModelName(),
+          inputTokens: response.usage?.input_tokens || 0,
+          outputTokens: response.usage?.output_tokens || 0,
+          cachedReadTokens: (response.usage as any)?.cache_read_input_tokens  // Anthropic
+            || (response.usage as any)?.prompt_tokens_details?.cached_tokens   // OpenAI/Grok
+            || 0,
+          cachedWriteTokens: (response.usage as any)?.cache_creation_input_tokens || 0, // Anthropic only
+          latency: endTime - startTime,
+          success: true,
+        });
+
         return response;
       } catch (error: any) {
         lastError = error;
 
-        // Log the call with failure
+        // Log the failed call exactly once
         const endTime = Date.now();
-        const latency = endTime - startTime;
-        const inputTokens = response?.usage?.input_tokens || 0;
-        const outputTokens = response?.usage?.output_tokens || 0;
-
         CostTracker.getInstance().logCall({
           provider: this.getProviderName(),
           model: this.getModelName(),
-          inputTokens,
-          outputTokens,
+          inputTokens: response?.usage?.input_tokens || 0,
+          outputTokens: response?.usage?.output_tokens || 0,
           cachedReadTokens: (response?.usage as any)?.cache_read_input_tokens  // Anthropic
             || (response?.usage as any)?.prompt_tokens_details?.cached_tokens   // OpenAI/Grok
             || 0,
           cachedWriteTokens: (response?.usage as any)?.cache_creation_input_tokens || 0, // Anthropic only
-          latency,
+          latency: endTime - startTime,
           success: false,
         });
 
@@ -105,27 +115,6 @@ export default abstract class LLMProvider {
 
         // Non-retryable error or max retries reached
         throw error;
-      } finally {
-        // Only log successful calls here (failures logged above)
-        if (response) {
-          const endTime = Date.now();
-          const latency = endTime - startTime;
-          const inputTokens = response.usage?.input_tokens || 0;
-          const outputTokens = response.usage?.output_tokens || 0;
-
-          CostTracker.getInstance().logCall({
-            provider: this.getProviderName(),
-            model: this.getModelName(),
-            inputTokens,
-            outputTokens,
-            cachedReadTokens: (response.usage as any)?.cache_read_input_tokens  // Anthropic
-              || (response.usage as any)?.prompt_tokens_details?.cached_tokens   // OpenAI/Grok
-              || 0,
-            cachedWriteTokens: (response.usage as any)?.cache_creation_input_tokens || 0, // Anthropic only
-            latency,
-            success: true,
-          });
-        }
       }
     }
 

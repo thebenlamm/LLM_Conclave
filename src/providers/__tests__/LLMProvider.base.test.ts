@@ -1,11 +1,13 @@
 import LLMProvider from '../LLMProvider';
+import { CostTracker } from '../../core/CostTracker';
 import { Message, ProviderResponse, ChatOptions } from '../../types';
 
 // Mock CostTracker to avoid side effects
+const mockLogCall = jest.fn();
 jest.mock('../../core/CostTracker', () => ({
   CostTracker: {
     getInstance: () => ({
-      logCall: jest.fn(),
+      logCall: mockLogCall,
     }),
   },
 }));
@@ -38,6 +40,7 @@ describe('LLMProvider', () => {
     provider = new TestProvider();
     // Mock sleep to make retries instant in tests
     jest.spyOn(provider as any, 'sleep').mockResolvedValue(undefined);
+    mockLogCall.mockClear();
   });
 
   afterEach(() => {
@@ -157,6 +160,46 @@ describe('LLMProvider', () => {
       const result = await provider.healthCheck();
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe('CostTracker.logCall invocation count (COST-01)', () => {
+    it('successful chat() call invokes logCall exactly once with success: true', async () => {
+      const mockResponse: ProviderResponse = {
+        text: 'Hello',
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+      provider.performChatFn.mockResolvedValue(mockResponse);
+
+      await provider.chat([{ role: 'user', content: 'Hi' }]);
+
+      expect(mockLogCall).toHaveBeenCalledTimes(1);
+      expect(mockLogCall).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    });
+
+    it('failed non-retryable chat() call invokes logCall exactly once with success: false', async () => {
+      provider.performChatFn.mockRejectedValue(new Error('Invalid API key'));
+
+      await expect(provider.chat([{ role: 'user', content: 'Hi' }])).rejects.toThrow();
+
+      expect(mockLogCall).toHaveBeenCalledTimes(1);
+      expect(mockLogCall).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
+    });
+
+    it('fail-then-succeed chat() (1 retry) invokes logCall twice: once failure, once success', async () => {
+      const mockResponse: ProviderResponse = {
+        text: 'Retry worked',
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+      provider.performChatFn
+        .mockRejectedValueOnce(new Error('fetch failed'))
+        .mockResolvedValueOnce(mockResponse);
+
+      await provider.chat([{ role: 'user', content: 'Hi' }]);
+
+      expect(mockLogCall).toHaveBeenCalledTimes(2);
+      expect(mockLogCall).toHaveBeenNthCalledWith(1, expect.objectContaining({ success: false }));
+      expect(mockLogCall).toHaveBeenNthCalledWith(2, expect.objectContaining({ success: true }));
     });
   });
 });
