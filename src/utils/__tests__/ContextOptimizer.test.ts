@@ -182,7 +182,6 @@ Use PostgreSQL.`;
         speaker: 'Security Expert',
         content: '<reasoning>Long analysis...</reasoning>\n<position>Use JWT.</position>',
         positionSummary: 'Use JWT.',
-        hasStructuredOutput: true,
       };
 
       const result = ContextOptimizer.compressEntryForAgent(entry);

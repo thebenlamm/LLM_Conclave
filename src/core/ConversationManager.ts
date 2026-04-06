@@ -819,11 +819,8 @@ export default class ConversationManager {
   }
 
   /**
-   * Reset consecutive failure count for an agent on success.
-   */
-  /**
    * Push an agent response to conversation history, pre-extracting
-   * structured output fields when context optimization is enabled.
+   * position summary when context optimization is enabled.
    */
   private pushAgentResponse(text: string, speaker: string, model: string): void {
     const entry: any = {
@@ -834,10 +831,13 @@ export default class ConversationManager {
     };
     if (this.config.contextOptimization?.enabled) {
       entry.positionSummary = ContextOptimizer.extractPosition(text);
-      entry.hasStructuredOutput = ContextOptimizer.hasStructuredOutput(text);
     }
     this.conversationHistory.push(entry);
   }
+
+  /**
+   * Reset consecutive failure count for an agent on success.
+   */
 
   private recordAgentSuccess(agentName: string): void {
     this.consecutiveAgentFailures.set(agentName, 0);
@@ -1123,16 +1123,29 @@ export default class ConversationManager {
    * consecutive same-role messages (required by Claude's alternation rule).
    * @returns {Array} - Array of messages in OpenAI format
    */
+  /**
+   * Format a history entry as a message for agent consumption.
+   * When compress=true, agent responses use position-only summaries.
+   */
+  private formatEntryAsMessage(entry: any, compress: boolean): { role: string; content: string } {
+    const isAgentResponse = entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge';
+    const content = (compress && isAgentResponse)
+      ? `${entry.speaker}: ${ContextOptimizer.compressEntryForAgent(entry)}`
+      : (entry.speaker !== 'System'
+        ? `${entry.speaker}: ${entry.content}`
+        : entry.content);
+    return {
+      role: entry.role === 'user' ? 'user' : 'assistant',
+      content
+    };
+  }
+
   prepareMessagesForAgent() {
     // Rebuild from scratch every time — merging consecutive same-role messages
     // requires a full pass (incremental append can't merge with previous tail).
     const contextOptEnabled = this.config.contextOptimization?.enabled;
 
-    // When context optimization is enabled, use round-aware progressive compression:
-    //   Round 1 + last 2: position-only summaries
-    //   Round N-2: one-sentence per agent
-    //   Older rounds: ~20-word bullet per agent
-    // When disabled: pass full content as before.
+    // Use progressive round compression when context optimization is enabled.
     let rawMessages: { role: string; content: string }[];
 
     if (contextOptEnabled && this.currentRound > 1) {
@@ -1140,18 +1153,7 @@ export default class ConversationManager {
     } else {
       rawMessages = this.conversationHistory
         .filter(entry => !entry.error)
-        .map(entry => {
-          const isAgentResponse = entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge';
-          const content = (contextOptEnabled && isAgentResponse)
-            ? `${entry.speaker}: ${ContextOptimizer.compressEntryForAgent(entry)}`
-            : (entry.speaker !== 'System'
-              ? `${entry.speaker}: ${entry.content}`
-              : entry.content);
-          return {
-            role: entry.role === 'user' ? 'user' : 'assistant',
-            content
-          };
-        });
+        .map(entry => this.formatEntryAsMessage(entry, !!contextOptEnabled));
     }
 
     // Merge consecutive same-role messages to avoid Claude's
@@ -1190,23 +1192,13 @@ export default class ConversationManager {
       const tier = ContextOptimizer.getCompressionTier(group.round, totalRounds);
 
       if (tier === 'position') {
-        // Position tier: pass each entry individually with position-only compression
         for (const entry of group.entries) {
           if (entry.error) continue;
-          const isAgentResponse = entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge';
-          const content = isAgentResponse
-            ? `${entry.speaker}: ${ContextOptimizer.compressEntryForAgent(entry)}`
-            : (entry.speaker !== 'System'
-              ? `${entry.speaker}: ${entry.content}`
-              : entry.content);
-          messages.push({
-            role: entry.role === 'user' ? 'user' : 'assistant',
-            content
-          });
+          messages.push(this.formatEntryAsMessage(entry, true));
         }
       } else {
-        // oneSentence or bullet tier: emit entries in chronological order,
-        // replacing agent entries with a single summary at the first agent's position.
+        // oneSentence or bullet tier: replace agent entries with a single summary
+        // at the first agent's chronological position.
         const compressed = ContextOptimizer.compressRound(group.entries, tier);
         let summaryEmitted = false;
 
@@ -1215,7 +1207,6 @@ export default class ConversationManager {
           const isAgentResponse = entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge';
 
           if (isAgentResponse) {
-            // Insert summary once at the position of the first agent entry
             if (!summaryEmitted && compressed) {
               messages.push({
                 role: 'assistant',
@@ -1223,18 +1214,10 @@ export default class ConversationManager {
               });
               summaryEmitted = true;
             }
-            // Skip individual agent entries (already in summary)
             continue;
           }
 
-          // Non-agent entries pass through in their original position
-          const content = entry.speaker !== 'System'
-            ? `${entry.speaker}: ${entry.content}`
-            : entry.content;
-          messages.push({
-            role: entry.role === 'user' ? 'user' : 'assistant',
-            content
-          });
+          messages.push(this.formatEntryAsMessage(entry, false));
         }
       }
     }

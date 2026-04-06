@@ -81,7 +81,6 @@ export class ContextOptimizer {
     speaker: string;
     content: string;
     positionSummary?: string;
-    hasStructuredOutput?: boolean;
   }): string {
     // Use pre-extracted position if available
     if (entry.positionSummary) {

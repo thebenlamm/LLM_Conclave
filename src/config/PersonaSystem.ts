@@ -562,15 +562,17 @@ Provide recommendations for improving documentation quality and coverage.`,
     return suggestions;
   }
 
+  private static buildPromptSuffix(contextOptimization?: ContextOptimizationConfig): string {
+    return PARTICIPATION_REQUIREMENT +
+      (contextOptimization?.enabled ? STRUCTURED_OUTPUT_INSTRUCTION : '');
+  }
+
   /**
-   * Convert personas to agent configuration
-   * Appends participation requirement to ensure all personas respond in every round.
-   * When contextOptimization is enabled, also appends structured output instructions.
+   * Convert personas to agent configuration.
    */
   static personasToAgents(personas: Persona[], contextOptimization?: ContextOptimizationConfig): Record<string, any> {
     const agents: Record<string, any> = {};
-    const suffix = PARTICIPATION_REQUIREMENT +
-      (contextOptimization?.enabled ? STRUCTURED_OUTPUT_INSTRUCTION : '');
+    const suffix = this.buildPromptSuffix(contextOptimization);
 
     for (const persona of personas) {
       agents[persona.name] = {
@@ -585,12 +587,9 @@ Provide recommendations for improving documentation quality and coverage.`,
 
   /**
    * Convert Persona[] to Agent[] with live provider instances.
-   * Appends PARTICIPATION_REQUIREMENT to each system prompt.
-   * When contextOptimization is enabled, also appends structured output instructions.
    */
   static resolveConsultPanel(personas: Persona[], contextOptimization?: ContextOptimizationConfig): Agent[] {
-    const suffix = PARTICIPATION_REQUIREMENT +
-      (contextOptimization?.enabled ? STRUCTURED_OUTPUT_INSTRUCTION : '');
+    const suffix = this.buildPromptSuffix(contextOptimization);
     return personas.map(persona => ({
       name: persona.name,
       model: persona.model,
