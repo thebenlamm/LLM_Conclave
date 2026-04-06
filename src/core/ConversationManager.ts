@@ -1185,7 +1185,10 @@ export default class ConversationManager {
    */
   private prepareMessagesWithRoundCompression(): { role: string; content: string }[] {
     const roundGroups = this.groupHistoryByRound();
-    const totalRounds = roundGroups.length;
+    // Use currentRound as totalRounds since we're preparing context for the current
+    // round which may not have entries in history yet. This ensures older rounds
+    // get compressed relative to where we actually are, not just what's in history.
+    const totalRounds = Math.max(roundGroups.length, this.currentRound);
     const messages: { role: string; content: string }[] = [];
 
     for (const group of roundGroups) {
