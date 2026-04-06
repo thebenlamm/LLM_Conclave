@@ -210,6 +210,11 @@ Example inline JSON:
           type: 'string',
           description: "Custom instructions appended to the judge's synthesis prompt. Use to guide focus areas, output structure, or evaluation criteria. The judge still produces structured output (SUMMARY/KEY_DECISIONS/etc.) unless you override the format.",
         },
+        context_optimization: {
+          type: 'boolean',
+          description: 'Enable context optimization: agents produce structured <reasoning>/<position> output. Other agents see only positions (50-70% token reduction). Judge sees everything. Default: false.',
+          default: false,
+        },
       },
       required: ['task'],
     },
@@ -396,6 +401,7 @@ async function handleDiscuss(args: {
   timeout?: number;
   format?: string;
   judge_instructions?: string;
+  context_optimization?: boolean;
 }, server: Server) {
   const {
     task,
@@ -409,15 +415,21 @@ async function handleDiscuss(args: {
     timeout = 0,
     format = 'markdown',
     judge_instructions,
+    context_optimization = false,
   } = args;
 
   // Resolve configuration with optional custom config path
   const config = ConfigCascade.resolve({ config: configPath });
 
+  // Apply context optimization if requested
+  if (context_optimization) {
+    config.contextOptimization = { enabled: true };
+  }
+
   // Apply personas if specified (supports built-in, custom, and persona sets)
   if (personas) {
     const personaList = PersonaSystem.getPersonas(personas);
-    const personaAgents = PersonaSystem.personasToAgents(personaList);
+    const personaAgents = PersonaSystem.personasToAgents(personaList, config.contextOptimization);
 
     config.agents = {};
     for (const [name, agent] of Object.entries(personaAgents) as [string, any][]) {
@@ -1379,6 +1391,7 @@ export async function startSSE(port: number) {
         selector_model = DEFAULT_SELECTOR_MODEL,
         timeout = 0,
         judge_instructions,
+        context_optimization = false,
       } = args;
 
       // For REST API, config must be inline JSON (not file paths) to prevent path traversal
@@ -1389,9 +1402,13 @@ export async function startSSE(port: number) {
 
       const config = ConfigCascade.resolve({ config: configPath });
 
+      if (context_optimization) {
+        config.contextOptimization = { enabled: true };
+      }
+
       if (personas) {
         const personaList = PersonaSystem.getPersonas(personas);
-        const personaAgents = PersonaSystem.personasToAgents(personaList);
+        const personaAgents = PersonaSystem.personasToAgents(personaList, config.contextOptimization);
         config.agents = {};
         for (const [name, agent] of Object.entries(personaAgents) as [string, any][]) {
           config.agents[name] = { model: agent.model, prompt: agent.systemPrompt };

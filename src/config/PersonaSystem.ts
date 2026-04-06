@@ -30,7 +30,7 @@
 import * as fs from 'fs';
 import { ConfigPaths } from '../utils/ConfigPaths';
 import ProviderFactory from '../providers/ProviderFactory';
-import { Agent } from '../types';
+import { Agent, ContextOptimizationConfig } from '../types';
 
 export interface Persona {
   name: string;
@@ -81,6 +81,29 @@ IMPORTANT PARTICIPATION RULES:
 9. Keep responses focused and concise. Long responses that restate the discussion are less valuable than short responses that advance it.
 
 Your unique perspective is why you're here. Don't waste it on empty agreement or verbose repetition.`;
+
+/**
+ * Instruction appended when contextOptimization is enabled.
+ * Asks agents to separate reasoning from their position summary,
+ * enabling the system to pass only positions to other agents.
+ */
+const STRUCTURED_OUTPUT_INSTRUCTION = `
+
+RESPONSE FORMAT (overrides **My position:** format above):
+Structure every response with these two sections:
+
+<reasoning>
+Your full analysis, counterarguments, edge cases, and thinking process.
+</reasoning>
+
+<position>
+Your current stance in 2-4 sentences. Include: what you advocate, key trade-offs you accept,
+and any changes from your previous position. This is what other agents will read.
+</position>
+
+CRITICAL: Always include both sections. Use <position> tags instead of **My position:** bold format.
+Your <reasoning> informs the judge but other agents will only see your <position>.
+Make the position self-contained and precise.`;
 
 /**
  * Alias map for common persona name variations.
@@ -541,16 +564,19 @@ Provide recommendations for improving documentation quality and coverage.`,
 
   /**
    * Convert personas to agent configuration
-   * Appends participation requirement to ensure all personas respond in every round
+   * Appends participation requirement to ensure all personas respond in every round.
+   * When contextOptimization is enabled, also appends structured output instructions.
    */
-  static personasToAgents(personas: Persona[]): Record<string, any> {
+  static personasToAgents(personas: Persona[], contextOptimization?: ContextOptimizationConfig): Record<string, any> {
     const agents: Record<string, any> = {};
+    const suffix = PARTICIPATION_REQUIREMENT +
+      (contextOptimization?.enabled ? STRUCTURED_OUTPUT_INSTRUCTION : '');
 
     for (const persona of personas) {
       agents[persona.name] = {
         model: persona.model,
         provider: persona.provider,
-        systemPrompt: persona.systemPrompt + PARTICIPATION_REQUIREMENT
+        systemPrompt: persona.systemPrompt + suffix
       };
     }
 
@@ -560,13 +586,16 @@ Provide recommendations for improving documentation quality and coverage.`,
   /**
    * Convert Persona[] to Agent[] with live provider instances.
    * Appends PARTICIPATION_REQUIREMENT to each system prompt.
+   * When contextOptimization is enabled, also appends structured output instructions.
    */
-  static resolveConsultPanel(personas: Persona[]): Agent[] {
+  static resolveConsultPanel(personas: Persona[], contextOptimization?: ContextOptimizationConfig): Agent[] {
+    const suffix = PARTICIPATION_REQUIREMENT +
+      (contextOptimization?.enabled ? STRUCTURED_OUTPUT_INSTRUCTION : '');
     return personas.map(persona => ({
       name: persona.name,
       model: persona.model,
       provider: ProviderFactory.createProvider(persona.model),
-      systemPrompt: persona.systemPrompt + PARTICIPATION_REQUIREMENT
+      systemPrompt: persona.systemPrompt + suffix
     }));
   }
 

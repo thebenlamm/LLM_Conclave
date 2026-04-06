@@ -173,6 +173,10 @@ export interface AgentRole {
 // Configuration Types
 // ============================================================================
 
+export interface ContextOptimizationConfig {
+  enabled: boolean;
+}
+
 export interface Config {
   project_id?: string;
   turn_management: string;
@@ -184,6 +188,7 @@ export interface Config {
   agents: Record<string, AgentConfig>;
   created?: string;
   created_by?: string;
+  contextOptimization?: ContextOptimizationConfig;
 }
 
 // ============================================================================
@@ -229,6 +234,7 @@ export interface ConversationHistoryEntry {
   role: string;
   status?: string;
 }
+
 
 export interface OrchestratorOptions {
   quiet?: boolean;

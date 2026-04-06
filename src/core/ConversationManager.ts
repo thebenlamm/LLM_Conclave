@@ -1,5 +1,6 @@
 import ProviderFactory from '../providers/ProviderFactory';
 import TokenCounter from '../utils/TokenCounter';
+import { ContextOptimizer } from '../utils/ContextOptimizer';
 import { EventBus } from './EventBus';
 import { SpeakerSelector, AgentInfo } from './SpeakerSelector';
 import { DiscussionStateExtractor } from './DiscussionStateExtractor';
@@ -630,13 +631,8 @@ export default class ConversationManager {
         this.eventBus.emitEvent('agent:response', { agent: agentName, content: text });
       }
 
-      // Add to conversation history
-      this.conversationHistory.push({
-        role: 'assistant',
-        content: text,
-        speaker: agentName,
-        model: agent.model
-      });
+      // Add to conversation history (with context optimization extraction if enabled)
+      this.pushAgentResponse(text, agentName, agent.model);
 
       // Circuit breaker: reset failure count on success
       this.recordAgentSuccess(agentName);
@@ -677,12 +673,7 @@ export default class ConversationManager {
               if (this.eventBus) {
                 this.eventBus.emitEvent('agent:response', { agent: agentName, content: retryText });
               }
-              this.conversationHistory.push({
-                role: 'assistant',
-                content: retryText,
-                speaker: agentName,
-                model: agent.model
-              });
+              this.pushAgentResponse(retryText, agentName, agent.model);
               this.recordAgentSuccess(agentName);
               return;
             }
@@ -750,12 +741,7 @@ export default class ConversationManager {
               agent.model = fallbackModel;
               console.log(`[${agentName}: Switched from ${originalModel} to ${fallbackModel} for remainder of discussion]`);
 
-              this.conversationHistory.push({
-                role: 'assistant',
-                content: fallbackText,
-                speaker: agentName,
-                model: fallbackModel
-              });
+              this.pushAgentResponse(fallbackText, agentName, fallbackModel);
               // Fallback counts as success — reset consecutive failure counter
               this.recordAgentSuccess(agentName);
               return; // Fallback succeeded
@@ -835,6 +821,24 @@ export default class ConversationManager {
   /**
    * Reset consecutive failure count for an agent on success.
    */
+  /**
+   * Push an agent response to conversation history, pre-extracting
+   * structured output fields when context optimization is enabled.
+   */
+  private pushAgentResponse(text: string, speaker: string, model: string): void {
+    const entry: any = {
+      role: 'assistant',
+      content: text,
+      speaker,
+      model
+    };
+    if (this.config.contextOptimization?.enabled) {
+      entry.positionSummary = ContextOptimizer.extractPosition(text);
+      entry.hasStructuredOutput = ContextOptimizer.hasStructuredOutput(text);
+    }
+    this.conversationHistory.push(entry);
+  }
+
   private recordAgentSuccess(agentName: string): void {
     this.consecutiveAgentFailures.set(agentName, 0);
   }
@@ -1122,16 +1126,27 @@ export default class ConversationManager {
   prepareMessagesForAgent() {
     // Rebuild from scratch every time — merging consecutive same-role messages
     // requires a full pass (incremental append can't merge with previous tail).
+    const contextOptEnabled = this.config.contextOptimization?.enabled;
     const rawMessages = this.conversationHistory
       // Filter out error entries — they have role 'assistant' and cause
       // consecutive same-role sequences that Claude rejects.
       .filter(entry => !entry.error)
-      .map(entry => ({
-        role: entry.role === 'user' ? 'user' : 'assistant',
-        content: entry.speaker !== 'System'
-          ? `${entry.speaker}: ${entry.content}`
-          : entry.content
-      }));
+      .map(entry => {
+        // When context optimization is enabled, compress assistant entries
+        // to position-only summaries. Judge path (judgeEvaluate) reads
+        // entry.content directly and is NOT affected by this.
+        const isAgentResponse = entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge';
+        const content = (contextOptEnabled && isAgentResponse)
+          ? `${entry.speaker}: ${ContextOptimizer.compressEntryForAgent(entry)}`
+          : (entry.speaker !== 'System'
+            ? `${entry.speaker}: ${entry.content}`
+            : entry.content);
+
+        return {
+          role: entry.role === 'user' ? 'user' : 'assistant',
+          content
+        };
+      });
 
     // Merge consecutive same-role messages to avoid Claude's
     // "must alternate user/assistant" rejection.
