@@ -110,6 +110,7 @@ export default class ConsultOrchestrator {
   private _stableContext: string = '';
   private geminiCacheManager: GeminiCacheManager | null = null;
   private _externalAgents?: Agent[];
+  private costTracker: CostTracker;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     // Core configuration
@@ -124,6 +125,7 @@ export default class ConsultOrchestrator {
     this.greenfieldOverride = options.greenfield ?? false;
     this.loadedContext = options.loadedContext;
     this._externalAgents = options.agents;
+    this.costTracker = options.costTracker ?? CostTracker.getInstance();
 
     // Initialize component groups
     this.initializeCoreComponents();
@@ -174,7 +176,7 @@ export default class ConsultOrchestrator {
     this.interactivePulse = new InteractivePulse();
     this.partialResultManager = new PartialResultManager();
     this.contextAugmenter = new ContextAugmenter();
-    this.debateValueAnalyzer = new DebateValueAnalyzer(CostTracker.getInstance());
+    this.debateValueAnalyzer = new DebateValueAnalyzer(this.costTracker);
   }
 
   /**
@@ -270,19 +272,19 @@ export default class ConsultOrchestrator {
       {
         name: 'Security Expert',
         model: 'claude-sonnet-4-5',
-        provider: ProviderFactory.createProvider('claude-sonnet-4-5'),
+        provider: ProviderFactory.createProvider('claude-sonnet-4-5', { costTracker: this.costTracker }),
         systemPrompt: this.getSecurityExpertPrompt()
       },
       {
         name: 'Architect',
         model: 'gpt-4o',
-        provider: ProviderFactory.createProvider('gpt-4o'),
+        provider: ProviderFactory.createProvider('gpt-4o', { costTracker: this.costTracker }),
         systemPrompt: this.getArchitectPrompt()
       },
       {
         name: 'Pragmatist',
         model: 'gemini-2.5-pro',
-        provider: ProviderFactory.createProvider('gemini-2.5-pro'),
+        provider: ProviderFactory.createProvider('gemini-2.5-pro', { costTracker: this.costTracker }),
         systemPrompt: this.getPragmatistPrompt()
       }
     ];
@@ -829,7 +831,7 @@ export default class ConsultOrchestrator {
     const judgeAgent = {
       name: 'Judge (Synthesis)',
       model: 'gpt-4o',
-      provider: ProviderFactory.createProvider('gpt-4o'),
+      provider: ProviderFactory.createProvider('gpt-4o', { costTracker: this.costTracker }),
       systemPrompt: this.strategy.getSynthesisPrompt(artifacts)
     };
 
@@ -930,7 +932,7 @@ export default class ConsultOrchestrator {
     const judgeAgent = {
       name: 'Judge (Verdict)',
       model: 'gpt-4o',
-      provider: ProviderFactory.createProvider('gpt-4o'),
+      provider: ProviderFactory.createProvider('gpt-4o', { costTracker: this.costTracker }),
       systemPrompt: this.strategy.getVerdictPrompt({
         round1: round1Artifacts,
         round2: filteredSynthesis,
@@ -1186,7 +1188,7 @@ export default class ConsultOrchestrator {
     const judgeAgent = {
       name: 'Judge (Cross-Exam)',
       model: 'gpt-4o',
-      provider: ProviderFactory.createProvider('gpt-4o'),
+      provider: ProviderFactory.createProvider('gpt-4o', { costTracker: this.costTracker }),
       systemPrompt: this.strategy.getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact)
     };
 

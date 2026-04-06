@@ -9,6 +9,7 @@
 import type { ModeStrategy } from '../consult/strategies/ModeStrategy';
 import type { BrownfieldAnalysis } from '../consult/context/BrownfieldDetector';
 import type { Agent } from './index';
+import type { CostTracker } from '../core/CostTracker';
 
 // ============================================================================
 // State Machine Types
@@ -587,4 +588,5 @@ export interface ConsultOrchestratorOptions {
   interactive?: boolean;
   geminiCaching?: boolean;
   agents?: Agent[];
+  costTracker?: CostTracker;
 }

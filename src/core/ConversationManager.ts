@@ -7,6 +7,7 @@ import { DiscussionStateExtractor } from './DiscussionStateExtractor';
 import { TaskRouter } from './TaskRouter';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
 import { DiscussionHistoryEntry, Config } from '../types/index.js';
+import { CostTracker } from './CostTracker';
 
 /**
  * Manages the multi-agent conversation
@@ -53,6 +54,9 @@ export default class ConversationManager {
   // Custom instructions appended to judge prompts (from caller)
   private judgeInstructions: string | null = null;
 
+  // Injected or singleton CostTracker for cost isolation per conversation
+  private costTracker: CostTracker;
+
   constructor(
     config: Config,
     memoryManager: any = null,
@@ -60,7 +64,7 @@ export default class ConversationManager {
     eventBus?: EventBus,
     dynamicSelection: boolean = false,
     selectorModel: string = DEFAULT_SELECTOR_MODEL,
-    options?: { disableRouting?: boolean; judgeInstructions?: string }
+    options?: { disableRouting?: boolean; judgeInstructions?: string; costTracker?: CostTracker }
   ) {
     this.config = config;
     this.agents = {};
@@ -82,6 +86,7 @@ export default class ConversationManager {
       || process.env.CONCLAVE_DISABLE_ROUTING === 'true';
     this.taskRouter = routingDisabled ? null : new TaskRouter();
     this.judgeInstructions = options?.judgeInstructions ?? null;
+    this.costTracker = options?.costTracker ?? CostTracker.getInstance();
 
     this.initializeAgents();
   }
@@ -97,7 +102,7 @@ export default class ConversationManager {
       const systemPrompt = agentConfig.prompt || agentConfig.systemPrompt || '';
       this.agents[name] = {
         name: name,
-        provider: ProviderFactory.createProvider(agentConfig.model),
+        provider: ProviderFactory.createProvider(agentConfig.model, { costTracker: this.costTracker }),
         systemPrompt: systemPrompt,
         model: agentConfig.model
       };
@@ -693,7 +698,7 @@ export default class ConversationManager {
         if (fallbackModel) {
           console.log(`[${agentName}: ${agent.model} failed, falling back to ${fallbackModel}]`);
           try {
-            const fallbackProvider = ProviderFactory.createProvider(fallbackModel);
+            const fallbackProvider = ProviderFactory.createProvider(fallbackModel, { costTracker: this.costTracker });
             // Use budget-aware message preparation against fallback model's limits
             const rawMessages = this.prepareMessagesForAgent();
             const fallbackLimits = TokenCounter.getModelLimits(fallbackModel);
