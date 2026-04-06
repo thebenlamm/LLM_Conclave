@@ -1127,26 +1127,32 @@ export default class ConversationManager {
     // Rebuild from scratch every time — merging consecutive same-role messages
     // requires a full pass (incremental append can't merge with previous tail).
     const contextOptEnabled = this.config.contextOptimization?.enabled;
-    const rawMessages = this.conversationHistory
-      // Filter out error entries — they have role 'assistant' and cause
-      // consecutive same-role sequences that Claude rejects.
-      .filter(entry => !entry.error)
-      .map(entry => {
-        // When context optimization is enabled, compress assistant entries
-        // to position-only summaries. Judge path (judgeEvaluate) reads
-        // entry.content directly and is NOT affected by this.
-        const isAgentResponse = entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge';
-        const content = (contextOptEnabled && isAgentResponse)
-          ? `${entry.speaker}: ${ContextOptimizer.compressEntryForAgent(entry)}`
-          : (entry.speaker !== 'System'
-            ? `${entry.speaker}: ${entry.content}`
-            : entry.content);
 
-        return {
-          role: entry.role === 'user' ? 'user' : 'assistant',
-          content
-        };
-      });
+    // When context optimization is enabled, use round-aware progressive compression:
+    //   Round 1 + last 2: position-only summaries
+    //   Round N-2: one-sentence per agent
+    //   Older rounds: ~20-word bullet per agent
+    // When disabled: pass full content as before.
+    let rawMessages: { role: string; content: string }[];
+
+    if (contextOptEnabled && this.currentRound > 1) {
+      rawMessages = this.prepareMessagesWithRoundCompression();
+    } else {
+      rawMessages = this.conversationHistory
+        .filter(entry => !entry.error)
+        .map(entry => {
+          const isAgentResponse = entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge';
+          const content = (contextOptEnabled && isAgentResponse)
+            ? `${entry.speaker}: ${ContextOptimizer.compressEntryForAgent(entry)}`
+            : (entry.speaker !== 'System'
+              ? `${entry.speaker}: ${entry.content}`
+              : entry.content);
+          return {
+            role: entry.role === 'user' ? 'user' : 'assistant',
+            content
+          };
+        });
+    }
 
     // Merge consecutive same-role messages to avoid Claude's
     // "must alternate user/assistant" rejection.
@@ -1168,6 +1174,61 @@ export default class ConversationManager {
     }
 
     return merged;
+  }
+
+  /**
+   * Build messages with progressive round compression.
+   * Groups history by round, applies tiered compression based on round age,
+   * then flattens back into a message array.
+   */
+  private prepareMessagesWithRoundCompression(): { role: string; content: string }[] {
+    const roundGroups = this.groupHistoryByRound();
+    const totalRounds = roundGroups.length;
+    const messages: { role: string; content: string }[] = [];
+
+    for (const group of roundGroups) {
+      const tier = ContextOptimizer.getCompressionTier(group.round, totalRounds);
+
+      if (tier === 'position') {
+        // Position tier: pass each entry individually with position-only compression
+        for (const entry of group.entries) {
+          if (entry.error) continue;
+          const isAgentResponse = entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge';
+          const content = isAgentResponse
+            ? `${entry.speaker}: ${ContextOptimizer.compressEntryForAgent(entry)}`
+            : (entry.speaker !== 'System'
+              ? `${entry.speaker}: ${entry.content}`
+              : entry.content);
+          messages.push({
+            role: entry.role === 'user' ? 'user' : 'assistant',
+            content
+          });
+        }
+      } else {
+        // oneSentence or bullet tier: compress entire round into a single summary message
+        const compressed = ContextOptimizer.compressRound(group.entries, tier);
+        if (compressed) {
+          messages.push({
+            role: 'assistant',
+            content: `[Round ${group.round} summary]\n${compressed}`
+          });
+        }
+        // Still include non-agent entries (System messages, Judge guidance) individually
+        for (const entry of group.entries) {
+          if (entry.error) continue;
+          if (entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge') continue; // already compressed
+          const content = entry.speaker !== 'System'
+            ? `${entry.speaker}: ${entry.content}`
+            : entry.content;
+          messages.push({
+            role: entry.role === 'user' ? 'user' : 'assistant',
+            content
+          });
+        }
+      }
+    }
+
+    return messages;
   }
 
   /**

@@ -100,6 +100,63 @@ export class ContextOptimizer {
     return this.twoSentenceFallback(entry.content);
   }
 
+  // ── Progressive Round Compression ───────────────────────────────────
+
+  /**
+   * Compression tiers for progressive round aging:
+   *   - 'position': position-only (last round + round 1)
+   *   - 'oneSentence': single sentence per agent (round N-2)
+   *   - 'bullet': ~20 word bullet per agent (older rounds)
+   */
+  static compressRound(
+    entries: { speaker: string; content: string; role: string; positionSummary?: string }[],
+    tier: 'position' | 'oneSentence' | 'bullet'
+  ): string {
+    const agentEntries = entries.filter(e => e.role === 'assistant' && e.speaker !== 'Judge' && e.speaker !== 'System');
+    if (agentEntries.length === 0) return '';
+
+    switch (tier) {
+      case 'position':
+        return agentEntries
+          .map(e => `${e.speaker}: ${this.compressEntryForAgent(e)}`)
+          .join('\n\n');
+
+      case 'oneSentence':
+        return agentEntries.map(e => {
+          const position = e.positionSummary || this.extractPosition(e.content);
+          const text = position || e.content;
+          const firstSentence = text.match(/[^.!?]*[.!?]/);
+          const summary = firstSentence ? firstSentence[0].trim() : text.substring(0, 100).trim();
+          return `- ${e.speaker}: ${summary}`;
+        }).join('\n');
+
+      case 'bullet':
+        return agentEntries.map(e => {
+          const position = e.positionSummary || this.extractPosition(e.content);
+          const text = position || e.content;
+          // ~20 words
+          const words = text.split(/\s+/).slice(0, 20);
+          const summary = words.join(' ') + (text.split(/\s+/).length > 20 ? '...' : '');
+          return `- ${e.speaker}: ${summary}`;
+        }).join('\n');
+    }
+  }
+
+  /**
+   * Determine compression tier for a round based on its age relative to the current round.
+   *   - Round 1: position (establishing positions always matter)
+   *   - Last round (currentRound): position
+   *   - Round N-1: position
+   *   - Round N-2: oneSentence
+   *   - Older: bullet
+   */
+  static getCompressionTier(round: number, totalRounds: number): 'position' | 'oneSentence' | 'bullet' {
+    if (round === 1) return 'position';
+    if (round >= totalRounds - 1) return 'position'; // last 2 rounds
+    if (round === totalRounds - 2) return 'oneSentence';
+    return 'bullet';
+  }
+
   // ── Private helpers ────────────────────────────────────────────────────
 
   /**

@@ -231,4 +231,97 @@ Use PostgreSQL.`;
       expect(result).toBe('');
     });
   });
+
+  describe('compressRound()', () => {
+    const sampleEntries = [
+      {
+        speaker: 'Security Expert',
+        content: 'We need strong authentication. JWT with RSA-256 provides stateless verification. The main risk is token theft.',
+        role: 'assistant',
+        positionSummary: 'JWT with RSA-256 provides stateless verification. The main risk is token theft.',
+      },
+      {
+        speaker: 'Architect',
+        content: 'Consider the scalability implications. Microservices with event-driven communication scales best for our case.',
+        role: 'assistant',
+        positionSummary: 'Microservices with event-driven communication scales best for our case.',
+      },
+      { speaker: 'Judge', content: 'Continue discussing.', role: 'user' },
+    ];
+
+    it('should produce position-tier compression', () => {
+      const result = ContextOptimizer.compressRound(sampleEntries, 'position');
+      expect(result).toContain('Security Expert:');
+      expect(result).toContain('Architect:');
+      expect(result).not.toContain('Judge');
+    });
+
+    it('should produce oneSentence-tier compression', () => {
+      const result = ContextOptimizer.compressRound(sampleEntries, 'oneSentence');
+      expect(result).toContain('- Security Expert:');
+      expect(result).toContain('- Architect:');
+      // Should be shorter than position tier
+      const positionResult = ContextOptimizer.compressRound(sampleEntries, 'position');
+      expect(result.length).toBeLessThan(positionResult.length);
+    });
+
+    it('should produce bullet-tier compression (~20 words)', () => {
+      const result = ContextOptimizer.compressRound(sampleEntries, 'bullet');
+      expect(result).toContain('- Security Expert:');
+      expect(result).toContain('- Architect:');
+      // Each bullet should be limited
+      const lines = result.split('\n');
+      for (const line of lines) {
+        const words = line.split(/\s+/);
+        expect(words.length).toBeLessThanOrEqual(25); // 20 words + speaker prefix
+      }
+    });
+
+    it('should return empty string for rounds with no agent entries', () => {
+      const entries = [
+        { speaker: 'System', content: 'Task description', role: 'user' },
+      ];
+      expect(ContextOptimizer.compressRound(entries, 'bullet')).toBe('');
+    });
+  });
+
+  describe('getCompressionTier()', () => {
+    it('should return position for round 1', () => {
+      expect(ContextOptimizer.getCompressionTier(1, 5)).toBe('position');
+    });
+
+    it('should return position for last round', () => {
+      expect(ContextOptimizer.getCompressionTier(5, 5)).toBe('position');
+    });
+
+    it('should return position for second-to-last round', () => {
+      expect(ContextOptimizer.getCompressionTier(4, 5)).toBe('position');
+    });
+
+    it('should return oneSentence for round N-2', () => {
+      expect(ContextOptimizer.getCompressionTier(3, 5)).toBe('oneSentence');
+    });
+
+    it('should return bullet for old rounds', () => {
+      expect(ContextOptimizer.getCompressionTier(2, 5)).toBe('bullet');
+    });
+
+    it('should handle 2-round discussions (all position)', () => {
+      expect(ContextOptimizer.getCompressionTier(1, 2)).toBe('position');
+      expect(ContextOptimizer.getCompressionTier(2, 2)).toBe('position');
+    });
+
+    it('should handle 3-round discussions', () => {
+      expect(ContextOptimizer.getCompressionTier(1, 3)).toBe('position');
+      expect(ContextOptimizer.getCompressionTier(2, 3)).toBe('position');
+      expect(ContextOptimizer.getCompressionTier(3, 3)).toBe('position');
+    });
+
+    it('should handle 4-round discussions', () => {
+      expect(ContextOptimizer.getCompressionTier(1, 4)).toBe('position');
+      expect(ContextOptimizer.getCompressionTier(2, 4)).toBe('oneSentence');
+      expect(ContextOptimizer.getCompressionTier(3, 4)).toBe('position');
+      expect(ContextOptimizer.getCompressionTier(4, 4)).toBe('position');
+    });
+  });
 });

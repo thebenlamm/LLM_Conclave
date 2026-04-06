@@ -223,10 +223,17 @@ export default class TokenCounter {
    * Summarize a group of conversation history entries into a compact bullet-point summary.
    * Extracts the first 2 sentences from each agent's response.
    */
-  static summarizeRoundEntries(entries: { speaker: string; content: string; role: string }[]): string {
+  static summarizeRoundEntries(entries: { speaker: string; content: string; role: string; positionSummary?: string }[]): string {
     const lines: string[] = [];
     for (const entry of entries) {
       if (entry.role !== 'assistant' || !entry.content) continue;
+      // Prefer pre-extracted position summary when available (context optimization)
+      if (entry.positionSummary) {
+        const firstSentence = entry.positionSummary.match(/[^.!?]*[.!?]/);
+        const summary = firstSentence ? firstSentence[0].trim() : entry.positionSummary.substring(0, 200).trim();
+        lines.push(`- ${entry.speaker}: ${summary}`);
+        continue;
+      }
       // Extract first 2 sentences (split on ., !, ?)
       const sentences = entry.content.match(/[^.!?]*[.!?]/g);
       const summary = sentences
