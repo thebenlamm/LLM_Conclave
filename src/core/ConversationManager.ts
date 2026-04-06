@@ -6,6 +6,7 @@ import { SpeakerSelector, AgentInfo } from './SpeakerSelector';
 import { DiscussionStateExtractor } from './DiscussionStateExtractor';
 import { TaskRouter } from './TaskRouter';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
+import { DiscussionHistoryEntry, Config } from '../types/index.js';
 
 /**
  * Manages the multi-agent conversation
@@ -15,10 +16,10 @@ import { DEFAULT_SELECTOR_MODEL } from '../constants';
 const CONTEXT_OVERFLOW_PATTERN = /context.?length|token.?limit|too.?long|max.?tokens|content_too_large|TPM:\s*Limit|tokens?\s*per\s*min|Request too large for \w/i;
 
 export default class ConversationManager {
-  config: any;
+  config: Config;
   agents: { [key: string]: any };
   agentOrder: string[];
-  conversationHistory: any[];
+  conversationHistory: DiscussionHistoryEntry[];
   currentRound: number;
   maxRounds: number;
   minRounds: number;
@@ -53,7 +54,7 @@ export default class ConversationManager {
   private judgeInstructions: string | null = null;
 
   constructor(
-    config: any,
+    config: Config,
     memoryManager: any = null,
     streamOutput: boolean = false,
     eventBus?: EventBus,

@@ -119,6 +119,7 @@ describe('ConversationManager Quality Tests', () => {
 
     const judgeModel = opts.judgeModel || 'gpt-4o';
     const config = {
+      turn_management: 'roundrobin',
       agents: {
         Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
         Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
@@ -229,6 +230,7 @@ describe('ConversationManager Quality Tests', () => {
       });
 
       const config = {
+        turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
           Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
@@ -304,6 +306,7 @@ describe('ConversationManager Quality Tests', () => {
       });
 
       const config = {
+        turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
           Agent2: { model: 'gpt-4o', prompt: 'Agent2' },

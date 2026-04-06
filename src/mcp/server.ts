@@ -772,7 +772,7 @@ async function handleContinue(args: {
   // Inject previous history before starting
   for (const msg of prepared.mergedHistory) {
     conversationManager.conversationHistory.push({
-      role: msg.role,
+      role: msg.role as 'user' | 'assistant',
       content: msg.content,
       speaker: msg.speaker || (msg.role === 'user' ? 'System' : 'Assistant'),
     });
@@ -947,7 +947,7 @@ function renderTranscriptMarkdown(conversationHistory: any[]): string {
   let emittedFirstRound = false;
 
   for (const msg of conversationHistory) {
-    const speaker = msg.speaker || msg.name || 'Unknown';
+    const speaker = msg.speaker || 'Unknown';
     if (speaker === 'System') continue;
     if (msg.error) continue;
 
@@ -1096,7 +1096,7 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   if (conversationHistory && conversationHistory.length > 0) {
     const speakers = new Set<string>();
     for (const msg of conversationHistory) {
-      const speaker = msg.speaker || msg.name || 'Unknown';
+      const speaker = msg.speaker || 'Unknown';
       if (speaker !== 'System' && speaker !== 'Judge' && !msg.error) {
         speakers.add(speaker);
       }
@@ -1215,7 +1215,7 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
   if (conversationHistory?.length > 0) {
     const seen = new Set<string>();
     for (const msg of conversationHistory) {
-      const speaker = msg.speaker || msg.name;
+      const speaker = msg.speaker;
       if (speaker && speaker !== 'System' && speaker !== 'Judge' && !msg.error && !seen.has(speaker)) {
         seen.add(speaker);
         agents.push({ name: speaker, model: msg.model });

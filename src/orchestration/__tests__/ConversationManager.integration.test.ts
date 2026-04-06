@@ -156,6 +156,7 @@ describe('ConversationManager Integration Tests', () => {
     });
 
     const config = {
+      turn_management: 'roundrobin',
       agents: {
         Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
         Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
@@ -301,6 +302,7 @@ describe('ConversationManager Integration Tests', () => {
       });
 
       const config = {
+        turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
           Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
@@ -380,6 +382,7 @@ describe('ConversationManager Integration Tests', () => {
       });
 
       const config = {
+        turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
           Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
@@ -426,6 +429,7 @@ describe('ConversationManager Integration Tests', () => {
       });
 
       const config = {
+        turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
           Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
@@ -474,6 +478,7 @@ describe('ConversationManager Integration Tests', () => {
       });
 
       const config = {
+        turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
           Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
@@ -515,6 +520,7 @@ describe('ConversationManager Integration Tests', () => {
       });
 
       const config = {
+        turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
           Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
@@ -563,6 +569,7 @@ describe('ConversationManager Integration Tests', () => {
       });
 
       const config = {
+        turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
           Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
