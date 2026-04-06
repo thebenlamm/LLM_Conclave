@@ -201,7 +201,7 @@ describe('CostTracker', () => {
       { model: 'claude-sonnet-4-5', inputCost: 0.003, outputCost: 0.015 },
       { model: 'claude-opus-4-5', inputCost: 0.005, outputCost: 0.025 },
       { model: 'claude-haiku-4-5', inputCost: 0.001, outputCost: 0.005 },
-      { model: 'gemini-2.0-flash', inputCost: 0.00035, outputCost: 0.00105 },
+      { model: 'gemini-2.0-flash', inputCost: 0.0001, outputCost: 0.0004 },
       { model: 'mistral-large-latest', inputCost: 0.008, outputCost: 0.024 },
     ];
 

@@ -20,13 +20,13 @@ export interface ModelPricing {
 export class CostTracker {
   private static instance: CostTracker;
   private logs: CallLog[] = [];
-  // Last Updated: 2025-12-03
+  // Last Updated: 2026-04-06
   // Pricing sources:
   // - OpenAI: https://openai.com/api/pricing/
   // - Anthropic: https://www.anthropic.com/pricing
   // - Google Gemini: https://ai.google.dev/pricing
   // - Mistral: https://mistral.ai/technology/#pricing
-  private pricing: ModelPricing = {
+  private readonly pricing: ModelPricing = {
     // OpenAI
     'gpt-5': { input: 0.00125, output: 0.01 },
     'gpt-5-mini': { input: 0.00025, output: 0.002 },
@@ -56,11 +56,11 @@ export class CostTracker {
     'gemini-pro': { input: 0.000125, output: 0.000375 },
     'gemini-1.5-pro-latest': { input: 0.0035, output: 0.0105 },
     'gemini-1.5-flash-latest': { input: 0.00035, output: 0.00105 },
-    'gemini-2.0-flash': { input: 0.00035, output: 0.00105 },          // Check pricing against current Gemini 2.0 rates
-    'gemini-2.5-flash': { input: 0.00035, output: 0.00105 },          // Note: Pricing needs verification
-    'gemini-2.5-pro': { input: 0.0035, output: 0.0105 },              // Pro-tier pricing subject to updates
+    'gemini-2.0-flash': { input: 0.0001, output: 0.0004 },             // $0.10/$0.40 per 1M tokens
+    'gemini-2.5-flash': { input: 0.0003, output: 0.0025 },            // $0.30/$2.50 per 1M tokens
+    'gemini-2.5-pro': { input: 0.00125, output: 0.01 },               // $1.25/$10.00 per 1M tokens (<=200K context; higher tier at >200K not modeled)
     'gemini-2.5-pro-exp': { input: 0.0, output: 0.0 },                // Experimental preview
-    'gemini-3-pro': { input: 0.0, output: 0.0 },                      // Pricing not yet published
+    'gemini-3-pro': { input: 0.0, output: 0.0 },                      // Model not yet available — keep $0 placeholder
     'gemini-exp-1206': { input: 0.0, output: 0.0 },                   // Free experimental model
 
     // Mistral
@@ -69,7 +69,7 @@ export class CostTracker {
     'codestral-latest': { input: 0.008, output: 0.024 },
 
     // Grok
-    'grok-3': { input: 0.0, output: 0.0 }, // Placeholder, pricing not public
+    'grok-3': { input: 0.003, output: 0.015 }, // xAI Grok 3: $3/$15 per 1M tokens (source: pricepertoken.com, multiple aggregators)
   };
 
   private constructor() {}
