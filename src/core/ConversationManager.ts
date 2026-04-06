@@ -1205,18 +1205,29 @@ export default class ConversationManager {
           });
         }
       } else {
-        // oneSentence or bullet tier: compress entire round into a single summary message
+        // oneSentence or bullet tier: emit entries in chronological order,
+        // replacing agent entries with a single summary at the first agent's position.
         const compressed = ContextOptimizer.compressRound(group.entries, tier);
-        if (compressed) {
-          messages.push({
-            role: 'assistant',
-            content: `[Round ${group.round} summary]\n${compressed}`
-          });
-        }
-        // Still include non-agent entries (System messages, Judge guidance) individually
+        let summaryEmitted = false;
+
         for (const entry of group.entries) {
           if (entry.error) continue;
-          if (entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge') continue; // already compressed
+          const isAgentResponse = entry.role === 'assistant' && entry.speaker !== 'System' && entry.speaker !== 'Judge';
+
+          if (isAgentResponse) {
+            // Insert summary once at the position of the first agent entry
+            if (!summaryEmitted && compressed) {
+              messages.push({
+                role: 'assistant',
+                content: `[Round ${group.round} summary]\n${compressed}`
+              });
+              summaryEmitted = true;
+            }
+            // Skip individual agent entries (already in summary)
+            continue;
+          }
+
+          // Non-agent entries pass through in their original position
           const content = entry.speaker !== 'System'
             ? `${entry.speaker}: ${entry.content}`
             : entry.content;
