@@ -3,7 +3,8 @@
 ## Milestones
 
 - ✅ **v1.0 Refactoring** — Phases 1-3 (shipped 2026-04-06)
-- **v1.1 Bug Fixes & Quality** — Phases 4-6 (current)
+- ✅ **v1.1 Bug Fixes & Quality** — Phases 4-6 (shipped 2026-04-07)
+- **v1.2 Data Quality & Polish** — Phases 7-9 (current)
 
 ## Phases
 
@@ -18,11 +19,22 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 </details>
 
-### v1.1 Bug Fixes & Quality
+<details>
+<summary>✅ v1.1 Bug Fixes & Quality (Phases 4-6) — SHIPPED 2026-04-07</summary>
 
-- [ ] **Phase 4: Conversation Integrity** - Fix continuation session bugs (speaker attribution, contamination, orphan context, duplicate injection, metadata drift)
-- [x] **Phase 5: Resilience & Observability** - Log fallback events, route consult judge through fallback, improve partial abort handling, wire cost tracking (completed 2026-04-07)
-- [x] **Phase 6: Judge Quality** - Fix verdict synthesis collapse, add rubber-stamp detection, eliminate duplicate guidance, fix sentence extraction (completed 2026-04-07)
+- [x] Phase 4: Conversation Integrity (2/2 plans) — completed 2026-04-07
+- [x] Phase 5: Resilience & Observability (2/2 plans) — completed 2026-04-07
+- [x] Phase 6: Judge Quality (2/2 plans) — completed 2026-04-07
+
+Full details: `.planning/milestones/v1.1-ROADMAP.md`
+
+</details>
+
+### v1.2 Data Quality & Polish
+
+- [ ] **Phase 7: Cost Pipeline** - Wire CostTracker data through to session manifest and tool response output
+- [ ] **Phase 8: Output Completeness** - Populate outputFiles paths, consensusReached in manifest, and degraded-status banner
+- [ ] **Phase 9: Data Correctness** - Fix duplicate logs, per-response timestamps, provider field naming, and rubber-stamp thin-verdict detection
 
 ## Phase Details
 
@@ -74,6 +86,39 @@ Plans:
 - [x] 06-01-PLAN.md — Verdict prompt differentiation and rubber-stamp early termination gate
 - [x] 06-02-PLAN.md — Prior guidance injection for round freshness and markdown header filtering
 
+### Phase 7: Cost Pipeline
+**Goal**: CostTracker data flows completely from the discuss pipeline through to the session manifest and the tool response seen by callers
+**Depends on**: Phase 6
+**Requirements**: COST-01, COST-02
+**Success Criteria** (what must be TRUE):
+  1. After a real discuss run, session JSON shows non-zero token counts and a non-zero USD cost in all cost fields
+  2. The tool response returned to the MCP caller shows real cost from CostTracker, not a heuristic msgCount * 750 estimate
+**Plans:** 1 plan
+
+Plans:
+- [ ] 07-01-PLAN.md — Wire CostTracker data into session manifest and replace heuristic formatters
+
+### Phase 8: Output Completeness
+**Goal**: Callers receive complete, accurate output metadata — file paths populated, degraded status visible, and session manifest exposes outcome fields
+**Depends on**: Phase 7
+**Requirements**: COST-03, DATA-04, DATA-05
+**Success Criteria** (what must be TRUE):
+  1. A completed_degraded consult result renders a visible banner in the markdown output indicating judge fallback occurred
+  2. After a discuss run, outputFiles.transcript and outputFiles.json contain actual file paths, not empty strings
+  3. The session manifest includes a consensusReached field that consumers can read without loading full session detail files
+**Plans**: TBD
+
+### Phase 9: Data Correctness
+**Goal**: Session data is internally accurate — no duplicate log files, correct timestamps per response, correct provider names, and rubber-stamp detection catches thin-verdict agreement
+**Depends on**: Phase 8
+**Requirements**: QUAL-05, DATA-01, DATA-02, DATA-03
+**Success Criteria** (what must be TRUE):
+  1. A consult run produces exactly one log file, not two files with consult- and consult-consult- prefixes
+  2. Conversation entries within a discuss session have timestamps that reflect actual response time, not the shared session creation timestamp
+  3. ConsultationResult agents array shows provider name (e.g., "anthropic") not model name (e.g., "claude-opus-4-5") in the provider field
+  4. Rubber-stamp detection flags high-confidence verdicts where agents supply generic/overlapping reasoning rather than domain-specific analysis
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -81,53 +126,9 @@ Plans:
 | 1. Foundation | v1.0 | 3/3 | Complete | 2026-04-06 |
 | 2. ConversationManager Decomposition | v1.0 | 3/3 | Complete | 2026-04-06 |
 | 3. MCP Deduplication + Orchestrator Assessment | v1.0 | 2/2 | Complete | 2026-04-06 |
-| 4. Conversation Integrity | v1.1 | 0/2 | Not started | - |
-| 5. Resilience & Observability | v1.1 | 2/2 | Complete   | 2026-04-07 |
-| 6. Judge Quality | v1.1 | 2/2 | Complete   | 2026-04-07 |
-
-## Backlog — Kept
-
-### Phase 999.4: Duplicate consult log file naming (BACKLOG)
-
-**Goal:** Consult logs are written twice with `consult-` and `consult-consult-` prefixes. Two write paths producing near-identical files.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.6: Per-response timestamps in discuss sessions (BACKLOG)
-
-**Goal:** All conversation entries within a session share the session creation timestamp instead of actual response time. Makes round duration analysis impossible.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.7: Provider field stores model name instead of provider name (BACKLOG)
-
-**Goal:** ConsultationResult agents array has `provider: "claude-opus-4-5"` instead of `provider: "anthropic"`. Minor data quality issue.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.8: outputFiles fields always empty (BACKLOG)
-
-**Goal:** Both discuss sessions have `outputFiles: { transcript: "", json: "" }`. Fields are never populated.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.20: consensusReached missing from session manifest (BACKLOG)
-
-**Goal:** Detail files track consensusReached but the manifest does not surface it. Consumers querying the manifest cannot determine session outcomes without loading full session files.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
+| 4. Conversation Integrity | v1.1 | 2/2 | Complete | 2026-04-07 |
+| 5. Resilience & Observability | v1.1 | 2/2 | Complete | 2026-04-07 |
+| 6. Judge Quality | v1.1 | 2/2 | Complete | 2026-04-07 |
+| 7. Cost Pipeline | v1.2 | 0/1 | Not started | - |
+| 8. Output Completeness | v1.2 | 0/? | Not started | - |
+| 9. Data Correctness | v1.2 | 0/? | Not started | - |
