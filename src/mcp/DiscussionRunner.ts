@@ -344,6 +344,16 @@ export class DiscussionRunner {
       }
     }
 
+    // 10b. Adjust currentRound to account for prior rounds (INTEG-05)
+    // Count completed rounds by counting Judge guidance delimiters
+    // (same logic as ConversationHistory.groupHistoryByRound)
+    if (priorHistory && priorHistory.length > 0) {
+      const completedRounds = conversationManager.conversationHistory.filter(
+        (entry: any) => entry.speaker === 'Judge' && entry.role === 'user'
+      ).length;
+      conversationManager.currentRound = completedRounds;
+    }
+
     // 11. Progress heartbeat — sends periodic updates during long-running discussions
     let lastRound = 0;
     const progressHeartbeat = setInterval(() => {
