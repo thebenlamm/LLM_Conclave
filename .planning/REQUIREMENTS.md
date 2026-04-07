@@ -24,8 +24,8 @@ Bug fixes and quality improvements discovered via live session audit.
 
 ### Quality & Intelligence
 
-- [ ] **QUAL-01**: Verdict synthesis preserves differentiated strategies and actionable advice instead of collapsing to a generic one-liner
-- [ ] **QUAL-02**: Consult early termination checks for rubber-stamp agreement before accepting high-confidence synthesis
+- [x] **QUAL-01**: Verdict synthesis preserves differentiated strategies and actionable advice instead of collapsing to a generic one-liner
+- [x] **QUAL-02**: Consult early termination checks for rubber-stamp agreement before accepting high-confidence synthesis
 - [x] **QUAL-03**: Judge re-evaluates agent progress each round instead of emitting identical guidance in consecutive rounds
 - [x] **QUAL-04**: bestEffortJudgeResult skips markdown headers when extracting representative sentences from agent responses
 
@@ -77,8 +77,8 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | RESIL-04 | Phase 5 | Complete |
 | OBSRV-01 | Phase 5 | Complete |
 | OBSRV-02 | Phase 5 | Complete |
-| QUAL-01 | Phase 6 | Pending |
-| QUAL-02 | Phase 6 | Pending |
+| QUAL-01 | Phase 6 | Complete |
+| QUAL-02 | Phase 6 | Complete |
 | QUAL-03 | Phase 6 | Complete |
 | QUAL-04 | Phase 6 | Complete |
 

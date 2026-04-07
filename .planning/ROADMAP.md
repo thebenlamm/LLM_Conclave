@@ -22,7 +22,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 - [ ] **Phase 4: Conversation Integrity** - Fix continuation session bugs (speaker attribution, contamination, orphan context, duplicate injection, metadata drift)
 - [x] **Phase 5: Resilience & Observability** - Log fallback events, route consult judge through fallback, improve partial abort handling, wire cost tracking (completed 2026-04-07)
-- [ ] **Phase 6: Judge Quality** - Fix verdict synthesis collapse, add rubber-stamp detection, eliminate duplicate guidance, fix sentence extraction
+- [x] **Phase 6: Judge Quality** - Fix verdict synthesis collapse, add rubber-stamp detection, eliminate duplicate guidance, fix sentence extraction (completed 2026-04-07)
 
 ## Phase Details
 
@@ -68,10 +68,10 @@ Plans:
   2. A consult where all agents agree on a high-confidence answer triggers early termination only after rubber-stamp detection confirms genuine consensus, not mere word-level agreement
   3. Judge guidance in consecutive rounds differs — re-evaluates what agents actually said, not copy-paste of prior round guidance
   4. bestEffortJudgeResult sentences extracted from agent responses are content sentences, not markdown headers (no "# Title" or "## Section" text)
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 06-01-PLAN.md — Verdict prompt differentiation and rubber-stamp early termination gate
+- [x] 06-01-PLAN.md — Verdict prompt differentiation and rubber-stamp early termination gate
 - [x] 06-02-PLAN.md — Prior guidance injection for round freshness and markdown header filtering
 
 ## Progress
@@ -83,7 +83,7 @@ Plans:
 | 3. MCP Deduplication + Orchestrator Assessment | v1.0 | 2/2 | Complete | 2026-04-06 |
 | 4. Conversation Integrity | v1.1 | 0/2 | Not started | - |
 | 5. Resilience & Observability | v1.1 | 2/2 | Complete   | 2026-04-07 |
-| 6. Judge Quality | v1.1 | 0/2 | Not started | - |
+| 6. Judge Quality | v1.1 | 2/2 | Complete   | 2026-04-07 |
 
 ## Backlog — Kept
 
