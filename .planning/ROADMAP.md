@@ -119,6 +119,18 @@ Plans:
   4. Rubber-stamp detection flags high-confidence verdicts where agents supply generic/overlapping reasoning rather than domain-specific analysis
 **Plans**: TBD
 
+## Backlog
+
+### Phase 999.21: Audit infrastructure agents for quality (BACKLOG)
+
+**Goal:** [Captured for future planning]
+Audit the selector, judge, and consensus detection infrastructure agents for quality issues. Discovered that speaker selector was using gpt-4o-mini, causing repetitive selection patterns in creative discussions (bumped to gemini-2.5-flash). Next steps: add post-discussion analytics (turn distribution per agent), instrument judge synthesis to verify dissent incorporation, consider comparative runs (same prompt, different selector models) to tune dynamic selection empirically.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
