@@ -274,4 +274,36 @@ describe('AgentTurnExecutor', () => {
     await executor.agentTurn('Alice');
     expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(false);
   });
+
+  // ─── Test 13: Structured FALLBACK_EVENT log on successful fallback ──────────
+  it('emits structured FALLBACK_EVENT JSON log when fallback succeeds', async () => {
+    const deps = makeDeps();
+    deps.agents.Alice.provider.chat = jest.fn()
+      .mockRejectedValue(new Error('rate limit 429'));
+    (MockProviderFactory.createProvider as jest.Mock).mockReturnValue({
+      chat: jest.fn().mockResolvedValue('fallback model response'),
+    });
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const executor = new AgentTurnExecutor(deps);
+
+    await executor.agentTurn('Alice');
+
+    // Find the structured FALLBACK_EVENT log call
+    const fallbackLogCall = consoleSpy.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('FALLBACK_EVENT')
+    );
+    expect(fallbackLogCall).toBeDefined();
+
+    // Parse and validate the structured JSON
+    const parsed = JSON.parse(fallbackLogCall![0]);
+    expect(parsed.event).toBe('FALLBACK_EVENT');
+    expect(parsed.agent).toBe('Alice');
+    expect(parsed.originalModel).toBe('gpt-4o');
+    expect(parsed.fallbackModel).toBeDefined();
+    expect(parsed.reason).toContain('429');
+    expect(parsed.timestamp).toBeDefined();
+
+    consoleSpy.mockRestore();
+  });
 });

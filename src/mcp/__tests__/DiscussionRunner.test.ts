@@ -353,6 +353,20 @@ describe('DiscussionRunner', () => {
     });
   });
 
+  // Test 7b: run() passes CostTracker instance to ConversationManager constructor
+  describe('Test 7b: CostTracker wiring', () => {
+    it('should pass a CostTracker instance in ConversationManager options', async () => {
+      const runner = new DiscussionRunner();
+      await runner.run(makeOptions());
+
+      // ConversationManager constructor args: (config, memoryManager, streamOutput, eventBus, dynamic, selectorModel, options)
+      const cmCall = (ConversationManager as jest.Mock).mock.calls[0];
+      const options = cmCall[6]; // 7th argument = options object
+      expect(options).toBeDefined();
+      expect(options.costTracker).toBeDefined();
+    });
+  });
+
   // Test 7: run() with onProgress callback forwards EventBus events
   describe('Test 7: onProgress callback forwarding', () => {
     it('should forward EventBus events to onProgress callback', async () => {
