@@ -8,6 +8,7 @@ import { EventBus } from '../../core/EventBus';
 // Mock dependencies that do network calls or complex setup
 jest.mock('../../providers/ProviderFactory', () => ({
   createProvider: jest.fn().mockReturnValue({
+    getProviderName: jest.fn().mockReturnValue('MockProvider'),
     chat: jest.fn().mockResolvedValue({
       text: '{}', // Valid JSON text
       usage: { input: 10, output: 10, total: 20 }

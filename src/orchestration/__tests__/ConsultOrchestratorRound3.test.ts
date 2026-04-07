@@ -71,7 +71,8 @@ describe('ConsultOrchestrator Round 3: Cross-Examination', () => {
     (EventBus.getInstance as jest.Mock).mockReturnValue(mockEventBus);
 
     mockProvider = {
-      chat: jest.fn()
+      chat: jest.fn(),
+      getProviderName: jest.fn().mockReturnValue('MockProvider')
     };
     (ProviderFactory.createProvider as jest.Mock).mockReturnValue(mockProvider);
 

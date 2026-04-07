@@ -409,7 +409,7 @@ export default class ConsultOrchestrator {
       this.eventBus.emitEvent('consultation:started', {
         consultation_id: this.consultationId,
         question,
-        agents: (this.agents || []).map(a => ({ name: a.name, model: a.model, provider: 'unknown' })), // Provider logic handled in factory
+        agents: (this.agents || []).map(a => ({ name: a.name, model: a.model, provider: a.provider.getProviderName().toLowerCase() })),
         mode: this.strategy.name // Use strategy mode (Epic 4, Story 1)
       });
 
@@ -830,7 +830,7 @@ export default class ConsultOrchestrator {
           agentId: agent.name,
           agentName: agent.name,
           model: agent.model,
-          provider: 'unknown',
+          provider: agent.provider?.getProviderName().toLowerCase() || 'unknown',
           content: '',
           tokens: { input: 0, output: 0, total: 0 },
           durationMs: 0,
@@ -1219,7 +1219,7 @@ export default class ConsultOrchestrator {
           agentId: agent.name,
           agentName: agent.name,
           model: response.model || agent.model,
-          provider: response.provider || 'unknown',
+          provider: response.provider || agent.provider.getProviderName().toLowerCase(),
           content: response.content || '',
           tokens: response.tokens || { input: 0, output: 0, total: 0 },
           durationMs: duration,
@@ -1450,7 +1450,7 @@ export default class ConsultOrchestrator {
         agentId: agent.name,
         agentName: agent.name,
         model: response.model || agent.model, // Use actual model (backup might be different)
-        provider: response.provider || 'unknown',
+        provider: response.provider || agent.provider.getProviderName().toLowerCase(),
         content: response.content || '',
         tokens: {
           input: inputTokens,
@@ -1482,7 +1482,7 @@ export default class ConsultOrchestrator {
         agentId: agent.name,
         agentName: agent.name,
         model: agent.model,
-        provider: 'unknown',
+        provider: agent.provider?.getProviderName().toLowerCase() || 'unknown',
         content: '',
         tokens: {
           input: 0,
@@ -1549,7 +1549,7 @@ export default class ConsultOrchestrator {
         projectContext: this.projectContextMetadata,
         contextMetadata: this.buildContextMetadata(),
         scrubbingReport: this.scrubbingReport,
-        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: a.provider.getProviderName().toLowerCase() })),
         judgeModel: this.judgeModel,
         agentResponses,
         state: this.stateMachine.getCurrentState(), // Use current state
@@ -1663,7 +1663,7 @@ export default class ConsultOrchestrator {
         projectContext: this.projectContextMetadata,
         contextMetadata: this.buildContextMetadata(),
         scrubbingReport: this.scrubbingReport,
-        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+        agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: a.provider.getProviderName().toLowerCase() })),
         judgeModel: this.judgeModel,
         agentResponses,
         state: ConsultState.Complete,

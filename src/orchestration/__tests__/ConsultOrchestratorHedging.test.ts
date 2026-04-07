@@ -64,6 +64,7 @@ jest.mock('../../consult/artifacts/ArtifactExtractor', () => ({
 jest.mock('../../consult/cost/CostGate');
 jest.mock('../../providers/ProviderFactory', () => ({
   createProvider: jest.fn(() => ({
+    getProviderName: jest.fn().mockReturnValue('MockProvider'),
     chat: jest.fn().mockResolvedValue({ text: '{"position": "pos", "key_points": ["point"], "rationale": "rat", "confidence": 0.9, "prose_excerpt": "exc"}', usage: {} })
   }))
 }));

@@ -73,7 +73,8 @@ describe('ConsultOrchestrator Round 2: Synthesis', () => {
 
     // Setup Mock Provider
     mockProvider = {
-      chat: jest.fn()
+      chat: jest.fn(),
+      getProviderName: jest.fn().mockReturnValue('MockProvider')
     };
 
     (ProviderFactory.createProvider as jest.Mock).mockReturnValue(mockProvider);

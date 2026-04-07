@@ -30,6 +30,7 @@ jest.mock('../../providers/ProviderFactory', () => ({
   __esModule: true,
   default: {
     createProvider: jest.fn((model: string) => ({
+      getProviderName: jest.fn().mockReturnValue('MockProvider'),
       chat: jest.fn().mockResolvedValue({
         text: JSON.stringify({
           position: 'Test position',

@@ -64,7 +64,8 @@ describe('ConsultOrchestrator Story 1.2', () => {
 
     // Setup Mock Provider
     mockProvider = {
-      chat: jest.fn()
+      chat: jest.fn(),
+      getProviderName: jest.fn().mockReturnValue('MockProvider')
     };
 
     (ProviderFactory.createProvider as jest.Mock).mockReturnValue(mockProvider);

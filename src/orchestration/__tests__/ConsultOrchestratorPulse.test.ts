@@ -54,7 +54,8 @@ describe('ConsultOrchestrator Pulse Integration', () => {
 
     (ProviderFactory.createProvider as any).mockReturnValue({
       chat: mockProviderChat,
-      sendMessage: mockProviderChat
+      sendMessage: mockProviderChat,
+      getProviderName: jest.fn().mockReturnValue('MockProvider')
     });
 
     orchestrator = new ConsultOrchestrator({ verbose: false });
