@@ -848,13 +848,15 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
     output += renderTranscriptMarkdown(conversationHistory);
   }
 
-  // Estimate cost based on conversation length (rough heuristic)
-  // ~750 tokens per message average, $0.003/1k input, $0.015/1k output
-  const msgCount = conversationHistory?.length || 0;
-  const estimatedTokens = msgCount * 750;
-  const estimatedCost = (estimatedTokens * 0.003 / 1000) + (estimatedTokens * 0.015 / 1000);
+  // Use real CostTracker data from result.cost
+  const costData = result.cost;
   output += `---\n\n`;
-  output += `**Est. tokens:** ~${estimatedTokens.toLocaleString()} | **Est. cost:** ~$${estimatedCost.toFixed(3)}\n\n`;
+  if (costData && costData.totalCalls > 0) {
+    const totalTokens = (costData.totalTokens?.input || 0) + (costData.totalTokens?.output || 0);
+    output += `**Tokens:** ${totalTokens.toLocaleString()} (${(costData.totalTokens?.input || 0).toLocaleString()} in / ${(costData.totalTokens?.output || 0).toLocaleString()} out) | **Cost:** $${costData.totalCost.toFixed(4)}\n\n`;
+  } else {
+    output += `**Cost:** unavailable (no provider calls recorded)\n\n`;
+  }
 
   // Reference to full log and session
   output += `📄 **Full discussion:** \`${logFilePath}\`\n`;
@@ -901,10 +903,8 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
     }
   }
 
-  // Cost estimate (same heuristic as markdown formatter)
-  const msgCount = conversationHistory?.length || 0;
-  const estimatedTokens = msgCount * 750;
-  const estimatedCost = (estimatedTokens * 0.003 / 1000) + (estimatedTokens * 0.015 / 1000);
+  // Use real CostTracker data from result.cost
+  const costData = result.cost;
 
   // Failed agent details
   const failedDetails = result.failedAgentDetails || {};
@@ -937,8 +937,12 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
     timed_out: timedOut || undefined,
     degraded: degraded || undefined,
     degraded_reason: degradedReason || undefined,
-    estimated_tokens: estimatedTokens,
-    estimated_cost: parseFloat(estimatedCost.toFixed(3)),
+    tokens: costData ? {
+      input: costData.totalTokens?.input || 0,
+      output: costData.totalTokens?.output || 0,
+      total: (costData.totalTokens?.input || 0) + (costData.totalTokens?.output || 0),
+    } : null,
+    cost_usd: costData ? parseFloat(costData.totalCost.toFixed(4)) : null,
     session_id: sessionId || undefined,
     log_file: logFilePath,
   };

@@ -857,5 +857,120 @@ describe('MCP Server Handlers', () => {
       expect(text).toContain('Only 0 of 2 agents responded');
       expect(text).toContain('mcp-server.log');
     });
+
+    // ================================================================
+    // Cost data in discuss output (COST-02)
+    // ================================================================
+
+    describe('Cost data in discuss output (COST-02)', () => {
+      const makeMockResult = (cost?: any) => ({
+        task: 'cost test',
+        rounds: 2,
+        maxRounds: 4,
+        minRounds: 0,
+        consensusReached: true,
+        solution: 'test solution',
+        conversationHistory: [
+          { role: 'assistant', content: 'response', speaker: 'Analyst', model: 'gpt-4o' },
+        ],
+        failedAgents: [],
+        failedAgentDetails: {},
+        agentSubstitutions: {},
+        keyDecisions: [],
+        actionItems: [],
+        dissent: [],
+        confidence: 'HIGH',
+        cost,
+      });
+
+      const setupMocks = (cost?: any) => {
+        const ConversationManager = require('../../core/ConversationManager').default;
+        const SessionManager = require('../../core/SessionManager').default;
+        SessionManager.mockImplementation(() => ({
+          createSessionManifest: jest.fn().mockReturnValue({ id: 'session-cost-test' }),
+          saveSession: jest.fn().mockResolvedValue('session-cost-test'),
+        }));
+        const fs = require('fs');
+        jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+        jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+        jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
+        ConversationManager.mockImplementation(() => ({
+          conversationHistory: [],
+          currentRound: 1,
+          abortSignal: undefined,
+          startConversation: jest.fn().mockResolvedValue(makeMockResult(cost)),
+        }));
+      };
+
+      it('markdown output shows real token count and USD cost from result.cost', async () => {
+        setupMocks({ totalCost: 0.05, totalTokens: { input: 3000, output: 1500 }, totalCalls: 6 });
+
+        const result = await callToolHandler({
+          params: {
+            name: 'llm_conclave_discuss',
+            arguments: { task: 'cost test' },
+          },
+        });
+
+        const text = result.content[0].text;
+        expect(text).toContain('**Tokens:** 4,500');
+        expect(text).toContain('3,000 in');
+        expect(text).toContain('1,500 out');
+        expect(text).toContain('**Cost:** $0.0500');
+        expect(text).not.toContain('Est. tokens');
+        expect(text).not.toContain('Est. cost');
+      });
+
+      it('JSON output returns tokens and cost_usd from result.cost (not heuristic fields)', async () => {
+        setupMocks({ totalCost: 0.05, totalTokens: { input: 3000, output: 1500 }, totalCalls: 6 });
+
+        const result = await callToolHandler({
+          params: {
+            name: 'llm_conclave_discuss',
+            arguments: { task: 'cost test', format: 'json' },
+          },
+        });
+
+        const parsed = JSON.parse(result.content[0].text);
+        expect(parsed.tokens).toEqual({ input: 3000, output: 1500, total: 4500 });
+        expect(parsed.cost_usd).toBe(0.05);
+        expect(parsed).not.toHaveProperty('estimated_tokens');
+        expect(parsed).not.toHaveProperty('estimated_cost');
+      });
+
+      it('markdown output falls back gracefully when result.cost is absent', async () => {
+        setupMocks(undefined);
+
+        const result = await callToolHandler({
+          params: {
+            name: 'llm_conclave_discuss',
+            arguments: { task: 'cost test' },
+          },
+        });
+
+        const text = result.content[0].text;
+        expect(text).not.toContain('Est. tokens');
+        expect(text).not.toContain('Est. cost');
+        expect(text).toContain('unavailable');
+      });
+
+      it('JSON output returns null tokens and cost_usd when result.cost is absent', async () => {
+        setupMocks(undefined);
+
+        const result = await callToolHandler({
+          params: {
+            name: 'llm_conclave_discuss',
+            arguments: { task: 'cost test', format: 'json' },
+          },
+        });
+
+        const parsed = JSON.parse(result.content[0].text);
+        expect(parsed.tokens).toBeNull();
+        expect(parsed.cost_usd).toBeNull();
+        expect(parsed).not.toHaveProperty('estimated_tokens');
+        expect(parsed).not.toHaveProperty('estimated_cost');
+      });
+    });
   });
 });
