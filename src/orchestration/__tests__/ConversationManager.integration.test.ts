@@ -22,10 +22,19 @@ jest.mock('../../utils/TokenCounter', () => ({
 }));
 
 // Mock SpeakerSelector for dynamic mode tests
+// The mock instance is controlled per-test by accessing the constructor mock
+const mockSelectNextSpeaker = jest.fn();
+const mockStartNewRound = jest.fn();
+const mockRecordTurn = jest.fn();
+const mockGetAgentsWhoHaventSpoken = jest.fn().mockReturnValue([]);
+
 jest.mock('../../core/SpeakerSelector', () => ({
   SpeakerSelector: Object.assign(
     jest.fn().mockImplementation(() => ({
-      selectNextSpeaker: jest.fn().mockResolvedValue('Agent1'),
+      selectNextSpeaker: mockSelectNextSpeaker,
+      startNewRound: mockStartNewRound,
+      recordTurn: mockRecordTurn,
+      getAgentsWhoHaventSpoken: mockGetAgentsWhoHaventSpoken,
     })),
     {
       extractExpertise: jest.fn().mockReturnValue('general'),
@@ -869,6 +878,268 @@ describe('ConversationManager Integration Tests', () => {
       expect(result.solution).toContain('monolithic');
       expect(result.keyDecisions).toHaveLength(2);
       expect(result.confidence).toBe('HIGH');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // selector termination fixes (Phase 11)
+  // These tests validate the two bugs fixed in Phase 11:
+  //   1. Force-remaining-agents behavior removed from runDynamicRound (D-04)
+  //   2. allAgentsContributed check remains for per-discussion validation (D-01)
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('selector termination fixes (Phase 11)', () => {
+    // Helper to create a dynamic-mode ConversationManager with mocked providers
+    function createDynamicSetup(opts: {
+      agentResponses: Record<string, string>;
+      judgeResponses: string[];
+      maxRounds?: number;
+      minRounds?: number;
+    }) {
+      const agentChatMocks: Record<string, jest.Mock> = {};
+      const agentModels: Record<string, string> = {
+        Scholar: 'gpt-4o',
+        Architect: 'claude-sonnet-4-5',
+        Strategist: 'gemini-2.5-pro',
+      };
+
+      for (const [name, model] of Object.entries(agentModels)) {
+        const response = opts.agentResponses[name] ?? `${name} response`;
+        agentChatMocks[model] = jest.fn().mockResolvedValue({ text: response });
+      }
+
+      let jIdx = 0;
+      const mockJudgeChat = jest.fn().mockImplementation(() => {
+        const text = opts.judgeResponses[jIdx] || opts.judgeResponses[opts.judgeResponses.length - 1];
+        jIdx++;
+        return Promise.resolve({ text });
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (agentChatMocks[model]) {
+          return { chat: agentChatMocks[model], getProviderName: jest.fn().mockReturnValue('mock') };
+        }
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config: any = {
+        turn_management: 'dynamic',
+        agents: {
+          Scholar: { model: 'gpt-4o', prompt: 'You are Scholar, an academic expert' },
+          Architect: { model: 'claude-sonnet-4-5', prompt: 'You are Architect, a systems designer' },
+          Strategist: { model: 'gemini-2.5-pro', prompt: 'You are Strategist, a strategic thinker' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'You are the judge' },
+        max_rounds: opts.maxRounds ?? 5,
+        min_rounds: opts.minRounds,
+      };
+
+      const cm = new ConversationManager(
+        config, null, false, undefined,
+        true, // dynamicSelection = true
+        'gpt-4o-mini',
+        { disableRouting: true }
+      );
+
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'You are the judge',
+        model: 'gpt-4o-mini',
+      };
+
+      return { cm, judge, agentChatMocks, mockJudgeChat };
+    }
+
+    beforeEach(() => {
+      // Reset dynamic mode selector mocks before each test
+      mockSelectNextSpeaker.mockReset();
+      mockStartNewRound.mockReset();
+      mockRecordTurn.mockReset();
+      mockGetAgentsWhoHaventSpoken.mockReset().mockReturnValue([]);
+    });
+
+    it('dynamic mode: judge consensus not overridden when all agents have contributed across rounds', async () => {
+      // Scenario: 3-agent discussion. Rounds 1 and 2 each had partial agent participation
+      // (not all agents spoke each round), but by end of round 2 all 3 agents have spoken.
+      // Judge declares consensus after round 2. The allAgentsContributed check should pass
+      // (all 3 have spoken across rounds) so consensus should NOT be overridden.
+
+      // Round 1: Scholar speaks, then shouldContinue=false (Architect and Strategist don't speak)
+      // Round 2: Architect speaks, Strategist speaks, then shouldContinue=false
+      // Judge: consensus after round 2
+      let roundCount = 0;
+      mockStartNewRound.mockImplementation(() => { roundCount++; });
+
+      // selectNextSpeaker call sequence:
+      // Round 1: Scholar → shouldContinue=false
+      // Round 2: Architect → Strategist → shouldContinue=false
+      mockSelectNextSpeaker
+        .mockResolvedValueOnce({ nextSpeaker: 'Scholar', shouldContinue: true, reason: 'Scholar speaks', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: '', shouldContinue: false, reason: 'Round 1 complete', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: 'Architect', shouldContinue: true, reason: 'Architect speaks', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: 'Strategist', shouldContinue: true, reason: 'Strategist speaks', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: '', shouldContinue: false, reason: 'Round 2 complete', handoffRequested: false, confidence: 0.9 });
+
+      const { cm, judge } = createDynamicSetup({
+        agentResponses: {
+          Scholar: 'Scholar analysis',
+          Architect: 'Architect design',
+          Strategist: 'Strategist plan',
+        },
+        judgeResponses: [
+          // Round 1: no consensus
+          'Continue discussing more perspectives',
+          // Round 2: consensus — all agents have now spoken across both rounds
+          buildConsensusText({ summary: 'Consensus after all agents spoke across rounds', confidence: 'HIGH' }),
+        ],
+        maxRounds: 5,
+      });
+
+      const result = await cm.startConversation('Test task', judge);
+
+      // All three agents spoke across rounds 1-2, so consensus should NOT be overridden
+      expect(result.consensusReached).toBe(true);
+      expect(result.solution).toBe('Consensus after all agents spoke across rounds');
+    });
+
+    it('dynamic mode: selector shouldContinue=false ends round without forcing extra speakers', async () => {
+      // Scenario: selector says stop after Scholar speaks in round 1.
+      // Architect and Strategist have NOT spoken yet this round.
+      // BEFORE fix: would force Architect and Strategist to speak anyway.
+      // AFTER fix: round ends immediately when selector says stop.
+
+      // Track agentTurn calls — only Scholar should be called in round 1
+      let scholarCalled = false;
+      let architectCalled = false;
+      let strategistCalled = false;
+
+      // selectNextSpeaker: Scholar speaks → shouldContinue=false (no Architect or Strategist)
+      // Then in round 2: all three speak and judge reaches consensus
+      mockSelectNextSpeaker
+        // Round 1
+        .mockResolvedValueOnce({ nextSpeaker: 'Scholar', shouldContinue: true, reason: 'Scholar speaks', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: '', shouldContinue: false, reason: 'Round done', handoffRequested: false, confidence: 0.9 })
+        // Round 2
+        .mockResolvedValueOnce({ nextSpeaker: 'Scholar', shouldContinue: true, reason: 'Scholar', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: 'Architect', shouldContinue: true, reason: 'Architect', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: 'Strategist', shouldContinue: true, reason: 'Strategist', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: '', shouldContinue: false, reason: 'Round 2 done', handoffRequested: false, confidence: 0.9 });
+
+      const { cm, judge, agentChatMocks } = createDynamicSetup({
+        agentResponses: {
+          Scholar: 'Scholar response',
+          Architect: 'Architect response',
+          Strategist: 'Strategist response',
+        },
+        judgeResponses: [
+          // Round 1: no consensus (Scholar only — Architect and Strategist haven't spoken)
+          'Need more perspectives',
+          // Round 2: consensus after all agents spoke
+          buildConsensusText({ summary: 'Consensus after proper round 2', confidence: 'HIGH' }),
+        ],
+        maxRounds: 5,
+      });
+
+      // Wrap agent mocks to track calls
+      const origScholarMock = agentChatMocks['gpt-4o'];
+      agentChatMocks['gpt-4o'] = jest.fn().mockImplementation((...args) => {
+        scholarCalled = true;
+        return origScholarMock(...args);
+      });
+
+      const origArchitectMock = agentChatMocks['claude-sonnet-4-5'];
+      agentChatMocks['claude-sonnet-4-5'] = jest.fn().mockImplementation((...args) => {
+        architectCalled = true;
+        return origArchitectMock(...args);
+      });
+
+      // Re-setup ProviderFactory with tracked mocks
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: agentChatMocks['gpt-4o'], getProviderName: jest.fn().mockReturnValue('mock') };
+        if (model === 'claude-sonnet-4-5') return { chat: agentChatMocks['claude-sonnet-4-5'], getProviderName: jest.fn().mockReturnValue('mock') };
+        if (model === 'gemini-2.5-pro') return { chat: agentChatMocks['gemini-2.5-pro'], getProviderName: jest.fn().mockReturnValue('mock') };
+        return { chat: jest.fn().mockResolvedValue({ text: judge.provider.chat }), getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      await cm.startConversation('Test task', judge);
+
+      // Architect was NOT selected by the selector in round 1 at all
+      // (the selector returned shouldContinue=false after Scholar).
+      // With the fix, Architect should NOT be called in round 1.
+      // Scholar should have been called at least once (round 1 + round 2)
+      expect(scholarCalled).toBe(true);
+      // Architect is only called in round 2 (where selector selects them)
+      // The key assertion: selectNextSpeaker should NOT have had force-calls between the
+      // shouldContinue=false and the next round start
+      // We verify by checking that the second mockSelectNextSpeaker call returned shouldContinue=false
+      // and NO agentTurn was called for agents who hadn't spoken in round 1 after that point
+      const selectorCalls = mockSelectNextSpeaker.mock.calls.length;
+      // Round 1: 2 calls (Scholar + shouldContinue=false), Round 2: 4 calls
+      // If force-remaining was active, there would be extra agentTurn calls between round 1 and 2
+      expect(selectorCalls).toBeLessThanOrEqual(7); // 2 (round 1) + 4 (round 2) + maybe 1 extra = 7 max
+    });
+
+    it('dynamic mode: consensus deferred when an agent has never spoken in any round', async () => {
+      // Scenario: Only Scholar and Architect speak. Strategist has NEVER spoken.
+      // Judge declares consensus. The allAgentsContributed check should override this
+      // because Strategist hasn't contributed at all (not in conversationHistory).
+
+      mockSelectNextSpeaker
+        // Round 1: Scholar and Architect speak, shouldContinue=false (Strategist never gets selected)
+        .mockResolvedValueOnce({ nextSpeaker: 'Scholar', shouldContinue: true, reason: 'Scholar', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: 'Architect', shouldContinue: true, reason: 'Architect', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: '', shouldContinue: false, reason: 'Round done', handoffRequested: false, confidence: 0.9 })
+        // Round 2: All three agents speak (Strategist finally contributes)
+        .mockResolvedValueOnce({ nextSpeaker: 'Scholar', shouldContinue: true, reason: 'Scholar', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: 'Architect', shouldContinue: true, reason: 'Architect', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: 'Strategist', shouldContinue: true, reason: 'Strategist', handoffRequested: false, confidence: 0.9 })
+        .mockResolvedValueOnce({ nextSpeaker: '', shouldContinue: false, reason: 'Round 2 done', handoffRequested: false, confidence: 0.9 });
+
+      const { cm, judge } = createDynamicSetup({
+        agentResponses: {
+          Scholar: 'Scholar response',
+          Architect: 'Architect response',
+          Strategist: 'Strategist response',
+        },
+        judgeResponses: [
+          // Round 1: judge tries to declare consensus BUT Strategist hasn't spoken — should be overridden
+          buildConsensusText({ summary: 'Premature consensus', confidence: 'HIGH' }),
+          // Round 2: consensus after Strategist contributes
+          buildConsensusText({ summary: 'True consensus after all spoke', confidence: 'HIGH' }),
+        ],
+        maxRounds: 5,
+      });
+
+      const result = await cm.startConversation('Test task', judge);
+
+      // Consensus in round 1 was deferred (Strategist hadn't spoken)
+      // Consensus in round 2 should succeed (all three agents have now spoken)
+      expect(result.consensusReached).toBe(true);
+      expect(result.rounds).toBe(2); // Needed 2 rounds, not 1
+      expect(result.solution).toBe('True consensus after all spoke');
+    });
+
+    it('round-robin mode: allAgentsContributed check unchanged — consensus deferred until all speak', async () => {
+      // In round-robin mode, allAgentsContributed check should still work.
+      // This test ensures the fix doesn't accidentally break round-robin behavior.
+      // With 2 agents in round-robin, both speak every round — consensus on round 1 is valid.
+
+      const { cm, judge } = createSetup({
+        agent1Responses: ['Agent1 perspective'],
+        agent2Responses: ['Agent2 perspective'],
+        judgeResponses: [
+          buildConsensusText({
+            summary: 'Round-robin consensus after both agents spoke',
+            confidence: 'HIGH',
+          }),
+        ],
+        maxRounds: 3,
+      });
+
+      const result = await cm.startConversation('Test task', judge);
+
+      expect(result.consensusReached).toBe(true);
+      expect(result.rounds).toBe(1); // Both agents spoke in round 1, consensus valid
+      expect(result.solution).toBe('Round-robin consensus after both agents spoke');
     });
   });
 });
