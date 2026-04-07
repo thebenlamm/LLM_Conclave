@@ -54,6 +54,22 @@ describe('Formatters', () => {
       expect(output).toContain('**Duration:** 5.0s');
     });
 
+    it('should render degraded-status banner when result.status is completed_degraded', () => {
+      const degradedResult = { ...mockResult, status: 'completed_degraded' as const };
+      const formatter = new MarkdownFormatter();
+      const output = formatter.format(degradedResult);
+
+      expect(output).toContain('**Degraded Results**');
+      expect(output).toContain('fallback model');
+    });
+
+    it('should NOT render degraded-status banner when status is undefined', () => {
+      const formatter = new MarkdownFormatter();
+      const output = formatter.format(mockResult); // status is undefined
+
+      expect(output).not.toContain('Degraded Results');
+    });
+
     it('should display full agent reasoning when available', () => {
       const resultWithFullReasoning = {
         ...mockResult,

@@ -13,6 +13,12 @@ export class MarkdownFormatter implements IOutputFormatter {
     lines.push('# Consultation Summary');
     lines.push('');
 
+    // Degraded results banner (judge fallback occurred)
+    if (result.status === 'completed_degraded') {
+      lines.push('> **Degraded Results** — Judge model was unavailable; synthesis used a fallback model.');
+      lines.push('');
+    }
+
     // Partial results banner
     if (result.status === 'partial') {
       lines.push(`> **Partial Results** — Consultation interrupted after ${result.completedRounds} of ${result.rounds} rounds.`);
