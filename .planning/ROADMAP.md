@@ -35,7 +35,7 @@ Full details: `.planning/milestones/v1.1-ROADMAP.md`
 - [x] **Phase 7: Cost Pipeline** - Wire CostTracker data through to session manifest and tool response output (completed 2026-04-07)
 - [ ] **Phase 8: Output Completeness** - Populate outputFiles paths, consensusReached in manifest, and degraded-status banner
 - [x] **Phase 9: Data Correctness** - Fix duplicate logs, per-response timestamps, provider field naming, and rubber-stamp thin-verdict detection (completed 2026-04-07)
-- [ ] **Phase 10: Status MCP Tool** - Add llm_conclave_status tool with active-discussion.json status file
+- [x] **Phase 10: Status MCP Tool** - Add llm_conclave_status tool with active-discussion.json status file (completed 2026-04-07)
 - [ ] **Phase 11: Infrastructure Agent Quality** - Fix selector termination in dynamic mode, add turn analytics and dissent instrumentation
 
 ## Phase Details
@@ -140,22 +140,23 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 10-01-PLAN.md — StatusFileManager lifecycle + llm_conclave_status MCP tool registration and handler
+- [x] 10-01-PLAN.md — StatusFileManager lifecycle + llm_conclave_status MCP tool registration and handler
 
 ### Phase 11: Infrastructure Agent Quality
 **Goal**: Fix selector termination bugs in dynamic mode (per-round contribution override, force-remaining-agents) and add lightweight instrumentation (turn analytics, dissent quality check) to verify fixes work
 **Depends on**: Phase 10 (not technically, but ships after)
-**Requirements**: TBD
+**Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05
 **Success Criteria** (what must be TRUE):
   1. In dynamic mode, the judge's consensus declaration is not overridden by per-round contribution checks — consensus stops the discussion
   2. In dynamic mode, when the selector says `shouldContinue: false`, the round ends without forcing remaining agents to speak
   3. The per-discussion contribution check ensures every agent has spoken at least once across all rounds before allowing consensus
   4. Session JSON and tool response include per-agent turn counts and token share percentages
   5. Session JSON includes `dissent_quality` field ("captured"/"missing"/"not_applicable") and tool response shows a warning when dissent is missing despite disagreement
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD
+- [ ] 11-01-PLAN.md — Fix selector termination: remove force-remaining-agents and fix contribution override in dynamic mode
+- [ ] 11-02-PLAN.md — Add turn analytics (per-agent turns + token share) and dissent quality instrumentation
 
 ## Backlog
 
@@ -174,5 +175,5 @@ Plans:
 | 7. Cost Pipeline | v1.2 | 1/1 | Complete   | 2026-04-07 |
 | 8. Output Completeness | v1.2 | 0/1 | Not started | - |
 | 9. Data Correctness | v1.2 | 2/2 | Complete   | 2026-04-07 |
-| 10. Status MCP Tool | v1.2 | 0/1 | Not started | - |
-| 11. Infrastructure Agent Quality | v1.2 | 0/? | Not started | - |
+| 10. Status MCP Tool | v1.2 | 1/1 | Complete    | 2026-04-07 |
+| 11. Infrastructure Agent Quality | v1.2 | 0/2 | Not started | - |

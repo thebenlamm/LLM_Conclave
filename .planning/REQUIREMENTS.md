@@ -25,6 +25,14 @@ All items from backlog — data quality fixes, cost pipeline completion, and qua
 - [x] **DATA-04**: Discuss session outputFiles fields (transcript, json) are populated with actual file paths after a run
 - [x] **DATA-05**: Session manifest includes consensusReached field so consumers can determine session outcomes without loading full session files
 
+### Infrastructure Agent Quality
+
+- [ ] **INFRA-01**: In dynamic mode, judge consensus declaration is not overridden by per-round contribution checks — consensus stops the discussion
+- [ ] **INFRA-02**: In dynamic mode, when the selector says shouldContinue: false, the round ends without forcing remaining agents to speak
+- [ ] **INFRA-03**: Per-discussion contribution check ensures every agent has spoken at least once across all rounds before allowing consensus
+- [ ] **INFRA-04**: Session JSON and tool response include per-agent turn counts and token share percentages
+- [ ] **INFRA-05**: Session JSON includes dissent_quality field ("captured"/"missing"/"not_applicable") and tool response shows a warning when dissent is missing despite disagreement
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -47,10 +55,15 @@ All items from backlog — data quality fixes, cost pipeline completion, and qua
 | DATA-01 | Phase 9 | Complete |
 | DATA-02 | Phase 9 | Complete |
 | DATA-03 | Phase 9 | Complete |
+| INFRA-01 | Phase 11 | Planned |
+| INFRA-02 | Phase 11 | Planned |
+| INFRA-03 | Phase 11 | Planned |
+| INFRA-04 | Phase 11 | Planned |
+| INFRA-05 | Phase 11 | Planned |
 
 **Coverage:**
-- v1.2 requirements: 9 total
-- Mapped to phases: 9
+- v1.2 requirements: 14 total
+- Mapped to phases: 14
 - Unmapped: 0
 
 ---
