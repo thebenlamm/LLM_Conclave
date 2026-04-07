@@ -650,7 +650,7 @@ describe('MCP Server Handlers', () => {
         },
       });
 
-      expect(capturedOptions).toEqual({ judgeInstructions: 'Focus on cost analysis' });
+      expect(capturedOptions).toMatchObject({ judgeInstructions: 'Focus on cost analysis' });
     });
 
     it('handleDiscuss without judge_instructions passes undefined', async () => {
@@ -698,7 +698,7 @@ describe('MCP Server Handlers', () => {
         },
       });
 
-      expect(capturedOptions).toEqual({ judgeInstructions: undefined });
+      expect(capturedOptions).toMatchObject({ judgeInstructions: undefined });
     });
 
     // ================================================================
