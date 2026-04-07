@@ -275,7 +275,42 @@ describe('AgentTurnExecutor', () => {
     expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(false);
   });
 
-  // ─── Test 13: Structured FALLBACK_EVENT log on successful fallback ──────────
+  // ─── Test 13: Successful response has ISO timestamp ─────────────────────────
+  it('adds ISO timestamp to successful agent response entry', async () => {
+    const deps = makeDeps();
+    const executor = new AgentTurnExecutor(deps);
+
+    const before = new Date().toISOString();
+    await executor.agentTurn('Alice');
+    const after = new Date().toISOString();
+
+    expect(deps.conversationHistory).toHaveLength(1);
+    const entry = deps.conversationHistory[0];
+    expect(entry.timestamp).toBeDefined();
+    expect(typeof entry.timestamp).toBe('string');
+    // Validate it's a valid ISO date within the test window
+    expect(entry.timestamp! >= before).toBe(true);
+    expect(entry.timestamp! <= after).toBe(true);
+  });
+
+  // ─── Test 14: Error entries have ISO timestamp ───────────────────────────────
+  it('adds ISO timestamp to error entries (empty response)', async () => {
+    const deps = makeDeps();
+    deps.agents.Alice.provider.chat = jest.fn().mockResolvedValue('');
+    const executor = new AgentTurnExecutor(deps);
+
+    await executor.agentTurn('Alice');
+
+    expect(deps.conversationHistory).toHaveLength(1);
+    const entry = deps.conversationHistory[0];
+    expect(entry.error).toBe(true);
+    expect(entry.timestamp).toBeDefined();
+    expect(typeof entry.timestamp).toBe('string');
+    // Verify it's a parseable ISO string
+    expect(isNaN(Date.parse(entry.timestamp!))).toBe(false);
+  });
+
+  // ─── Test 15: Structured FALLBACK_EVENT log on successful fallback ──────────
   it('emits structured FALLBACK_EVENT JSON log when fallback succeeds', async () => {
     const deps = makeDeps();
     deps.agents.Alice.provider.chat = jest.fn()

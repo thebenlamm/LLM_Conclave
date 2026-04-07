@@ -222,7 +222,8 @@ export default class ConversationManager {
     this.conversationHistory.push({
       role: 'user',
       content: initialMessage,
-      speaker: 'System'
+      speaker: 'System',
+      timestamp: new Date().toISOString()
     });
 
     let consensusReached = false;
@@ -400,7 +401,8 @@ export default class ConversationManager {
         this.conversationHistory.push({
           role: 'user',
           content: `Judge's evaluation: ${judgeContext}\n\nNote: While the above solution shows promise, we need more thorough discussion (round ${this.currentRound}/${this.minRounds}). Please challenge assumptions, explore edge cases, identify potential weaknesses, or offer alternative perspectives that haven't been fully considered yet.`,
-          speaker: 'Judge'
+          speaker: 'Judge',
+          timestamp: new Date().toISOString()
         });
       } else {
         console.log(`Judge: ${judgeResult.guidance}\n`);
@@ -413,7 +415,8 @@ export default class ConversationManager {
         this.conversationHistory.push({
           role: 'user',
           content: `Judge's guidance: ${judgeResult.guidance}`,
-          speaker: 'Judge'
+          speaker: 'Judge',
+          timestamp: new Date().toISOString()
         });
       }
       

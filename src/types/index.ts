@@ -201,6 +201,8 @@ export interface DiscussionHistoryEntry {
   errorDetails?: string;
   compressed?: true;
   positionSummary?: string;
+  /** ISO 8601 timestamp indicating when this entry was added to the history */
+  timestamp?: string;
 }
 
 // ============================================================================
