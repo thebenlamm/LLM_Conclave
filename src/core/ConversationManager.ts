@@ -304,6 +304,24 @@ export default class ConversationManager {
         }
 
         const degradedCostSummary = this.costTracker.getSummary();
+
+        // Compute turn analytics from whatever history exists (degraded path)
+        const degradedTurnCounts: Record<string, number> = {};
+        const degradedAgentTokens: Record<string, number> = {};
+        for (const entry of this.conversationHistory) {
+          if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+            const name = entry.speaker;
+            degradedTurnCounts[name] = (degradedTurnCounts[name] || 0) + 1;
+            degradedAgentTokens[name] = (degradedAgentTokens[name] || 0) + Math.ceil((entry.content?.length || 0) / 4);
+          }
+        }
+        const degradedTotalTokens = Object.values(degradedAgentTokens).reduce((a, b) => a + b, 0) || 1;
+        const degradedTokenShare: Record<string, number> = {};
+        for (const [name, tokens] of Object.entries(degradedAgentTokens)) {
+          degradedTokenShare[name] = Math.round((tokens / degradedTotalTokens) * 100);
+        }
+        const degradedSortedAgents = Object.entries(degradedTurnCounts).sort((a, b) => b[1] - a[1]);
+
         return {
           task: task,
           rounds: this.currentRound,
@@ -321,6 +339,14 @@ export default class ConversationManager {
           agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
           degraded: true,
           degradedReason,
+          turn_analytics: {
+            per_agent: degradedSortedAgents.map(([name, turns]) => ({
+              name,
+              turns,
+              token_share_pct: degradedTokenShare[name] || 0,
+            })),
+          },
+          dissent_quality: 'not_applicable' as const,
           cost: {
             totalCost: degradedCostSummary.totalCost,
             totalTokens: {
@@ -489,6 +515,24 @@ export default class ConversationManager {
       }
 
       const abortedCostSummary = this.costTracker.getSummary();
+
+      // Compute turn analytics from whatever history exists (abort/timeout path)
+      const abortTurnCounts: Record<string, number> = {};
+      const abortAgentTokens: Record<string, number> = {};
+      for (const entry of this.conversationHistory) {
+        if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+          const name = entry.speaker;
+          abortTurnCounts[name] = (abortTurnCounts[name] || 0) + 1;
+          abortAgentTokens[name] = (abortAgentTokens[name] || 0) + Math.ceil((entry.content?.length || 0) / 4);
+        }
+      }
+      const abortTotalTokens = Object.values(abortAgentTokens).reduce((a, b) => a + b, 0) || 1;
+      const abortTokenShare: Record<string, number> = {};
+      for (const [name, tokens] of Object.entries(abortAgentTokens)) {
+        abortTokenShare[name] = Math.round((tokens / abortTotalTokens) * 100);
+      }
+      const abortSortedAgents = Object.entries(abortTurnCounts).sort((a, b) => b[1] - a[1]);
+
       return {
         task: task,
         rounds: this.currentRound,
@@ -505,6 +549,14 @@ export default class ConversationManager {
         failedAgentDetails,
         agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
         timedOut: true,
+        turn_analytics: {
+          per_agent: abortSortedAgents.map(([name, turns]) => ({
+            name,
+            turns,
+            token_share_pct: abortTokenShare[name] || 0,
+          })),
+        },
+        dissent_quality: 'not_applicable' as const,
         cost: {
           totalCost: abortedCostSummary.totalCost,
           totalTokens: {
@@ -566,6 +618,42 @@ export default class ConversationManager {
     // Build cost data from CostTracker for session persistence (OBSRV-01)
     const costSummary = this.costTracker.getSummary();
 
+    // Compute per-agent turn analytics (D-09, D-12)
+    const turnCounts: Record<string, number> = {};
+    const agentTokens: Record<string, number> = {};
+    for (const entry of this.conversationHistory) {
+      if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+        const name = entry.speaker;
+        turnCounts[name] = (turnCounts[name] || 0) + 1;
+        // Use content length as token proxy (actual per-entry tokens not tracked)
+        agentTokens[name] = (agentTokens[name] || 0) + Math.ceil((entry.content?.length || 0) / 4);
+      }
+    }
+    const totalTokensEstimate = Object.values(agentTokens).reduce((a, b) => a + b, 0) || 1;
+    const tokenShare: Record<string, number> = {};
+    for (const [name, tokens] of Object.entries(agentTokens)) {
+      tokenShare[name] = Math.round((tokens / totalTokensEstimate) * 100);
+    }
+    const sortedAgents = Object.entries(turnCounts).sort((a, b) => b[1] - a[1]);
+    const turn_analytics = {
+      per_agent: sortedAgents.map(([name, turns]) => ({
+        name,
+        turns,
+        token_share_pct: tokenShare[name] || 0,
+      })),
+    };
+
+    // Determine dissent quality (D-15, D-16)
+    let dissent_quality: 'captured' | 'missing' | 'not_applicable';
+    if (consensusReached) {
+      dissent_quality = 'not_applicable';
+    } else {
+      const substantiveDissent = dissent.filter(
+        (d: string) => d && d.toLowerCase() !== 'none' && d.length > 10
+      );
+      dissent_quality = substantiveDissent.length > 0 ? 'captured' : 'missing';
+    }
+
     const result = {
       task: task,
       rounds: this.currentRound,
@@ -581,6 +669,8 @@ export default class ConversationManager {
       failedAgents: uniqueFailedAgents,
       failedAgentDetails,
       agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
+      turn_analytics,
+      dissent_quality,
       cost: {
         totalCost: costSummary.totalCost,
         totalTokens: {
