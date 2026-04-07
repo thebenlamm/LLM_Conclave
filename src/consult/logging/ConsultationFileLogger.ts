@@ -100,7 +100,7 @@ export class ConsultationFileLogger {
    * Write JSON log file
    */
   private async writeJsonLog(result: ConsultationResult): Promise<void> {
-    const filename = `consult-${result.consultationId}.json`;
+    const filename = `${result.consultationId}.json`;
     const filePath = path.join(this.logDir, filename);
 
     // Convert to snake_case JSON using ArtifactTransformer
@@ -131,7 +131,7 @@ export class ConsultationFileLogger {
    * Write Markdown log file
    */
   private async writeMarkdownLog(result: ConsultationResult): Promise<void> {
-    const filename = `consult-${result.consultationId}.md`;
+    const filename = `${result.consultationId}.md`;
     const filePath = path.join(this.logDir, filename);
 
     // Use MarkdownFormatter from Story 1.7
