@@ -45,7 +45,7 @@ export class ConfigCascade {
         anthropic: { enabled: true },
         google: { enabled: true },
         xai: { enabled: true },
-        mistral: { enabled: true }
+        mistral: { enabled: false }
       },
       judge: {
         model: 'gemini-2.5-flash',

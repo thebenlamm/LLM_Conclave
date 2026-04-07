@@ -288,6 +288,12 @@ describe('MCP Server Handlers', () => {
         saveSession: jest.fn().mockResolvedValue('new-session'),
       }));
 
+      // Mock fs to prevent test from writing real files to ~/.llm-conclave/discuss-logs/
+      const fs = require('fs');
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(fs, 'mkdirSync').mockImplementation(() => {});
+
       // Capture the config passed to ConversationManager constructor
       let capturedConfig: any;
       ConversationManager.mockImplementation((config: any) => {
