@@ -131,6 +131,16 @@ Audit the selector, judge, and consensus detection infrastructure agents for qua
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
+### Phase 999.22: Add llm_conclave_status MCP tool (BACKLOG)
+
+**Goal:** [Captured for future planning]
+Lightweight MCP tool that returns whether a discussion is currently active, which round it's on, elapsed time, and participating agents. Solves the problem where checking on a running Conclave from another window returns misleading errors. Could also write an `active-discussion.json` status file as a non-MCP fallback.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
