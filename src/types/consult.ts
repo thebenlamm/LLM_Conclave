@@ -272,6 +272,7 @@ export interface ConsultationResult {
     model: string;
     provider: string;
   }[];
+  judgeModel?: string;
   agentResponses?: AgentResponse[];
 
   // State and Rounds

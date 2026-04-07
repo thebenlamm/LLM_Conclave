@@ -1462,6 +1462,7 @@ export default class ConsultOrchestrator {
         contextMetadata: this.buildContextMetadata(),
         scrubbingReport: this.scrubbingReport,
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+        judgeModel: this.judgeModel,
         agentResponses,
         state: this.stateMachine.getCurrentState(), // Use current state
         status,
@@ -1563,6 +1564,7 @@ export default class ConsultOrchestrator {
         contextMetadata: this.buildContextMetadata(),
         scrubbingReport: this.scrubbingReport,
         agents: this.agents.map(a => ({ name: a.name, model: a.model, provider: 'unknown' })),
+        judgeModel: this.judgeModel,
         agentResponses,
         state: ConsultState.Complete,
         rounds: this.maxRounds,
