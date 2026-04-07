@@ -287,6 +287,63 @@ CONFIDENCE: HIGH`;
       expect(result.consensusReached).toBe(false);
     });
 
+    it('includes prior guidance in subsequent judgeEvaluate calls (QUAL-03)', async () => {
+      const judge = makeJudge('No consensus. Focus on security aspects.');
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+
+      // First call — should NOT have prior guidance
+      await evaluator.judgeEvaluate(judge);
+      const firstCallArgs = (judge.provider.chat as jest.Mock).mock.calls[0];
+      const firstPrompt = firstCallArgs[0][0].content;
+      expect(firstPrompt).not.toContain('PREVIOUS guidance');
+
+      // Second call — should include prior guidance with "DO NOT repeat"
+      judge.provider.chat.mockResolvedValue({ text: 'No consensus. Explore edge cases.' });
+      await evaluator.judgeEvaluate(judge);
+      const secondCallArgs = (judge.provider.chat as jest.Mock).mock.calls[1];
+      const secondPrompt = secondCallArgs[0][0].content;
+      expect(secondPrompt).toContain('PREVIOUS guidance');
+      expect(secondPrompt).toContain('DO NOT repeat');
+    });
+
+    it('resets priorGuidance when invalidateCache is called (QUAL-03)', async () => {
+      const judge = makeJudge('No consensus. Focus on performance.');
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+
+      // First call stores guidance
+      await evaluator.judgeEvaluate(judge);
+
+      // Invalidate cache — should reset prior guidance
+      evaluator.invalidateCache();
+
+      // Next call should NOT have prior guidance
+      judge.provider.chat.mockResolvedValue({ text: 'No consensus. Keep going.' });
+      await evaluator.judgeEvaluate(judge);
+      const callArgs = (judge.provider.chat as jest.Mock).mock.calls[1];
+      const prompt = callArgs[0][0].content;
+      expect(prompt).not.toContain('PREVIOUS guidance');
+    });
+
+    it('does not store prior guidance when consensus is reached (QUAL-03)', async () => {
+      const consensusResponse = `CONSENSUS_REACHED\n\nSUMMARY:\nAgreed on REST.\n\nKEY_DECISIONS:\n- Use REST\n\nACTION_ITEMS:\n- Build it\n\nDISSENT:\n- None\n\nCONFIDENCE: HIGH`;
+      const judge = makeJudge(consensusResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+
+      // Consensus call
+      const result = await evaluator.judgeEvaluate(judge);
+      expect(result.consensusReached).toBe(true);
+
+      // Next call should NOT have prior guidance (consensus doesn't store)
+      judge.provider.chat.mockResolvedValue({ text: 'No consensus.' });
+      await evaluator.judgeEvaluate(judge);
+      const callArgs = (judge.provider.chat as jest.Mock).mock.calls[1];
+      const prompt = callArgs[0][0].content;
+      expect(prompt).not.toContain('PREVIOUS guidance');
+    });
+
     it('falls back to bestEffortJudgeResult when judge LLM throws non-overflow error', async () => {
       const judge = {
         model: 'gemini-2.5-flash',
