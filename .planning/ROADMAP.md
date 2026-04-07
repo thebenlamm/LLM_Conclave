@@ -1,69 +1,100 @@
-# Roadmap: LLM Conclave Refactoring
+# Roadmap: LLM Conclave
 
-## Overview
+## Milestones
 
-Three phases of behavior-preserving refactoring. Phase 1 lays the type foundation and fixes known bugs — quick wins that make the rest safer. Phase 2 decomposes the ConversationManager god class into focused modules, the highest-leverage structural change. Phase 3 eliminates the MCP handler duplication and resolves the orchestrator interface ambiguity. The MCP server works identically throughout.
+- ✅ **v1.0 Refactoring** — Phases 1-3 (shipped 2026-04-06)
 
 ## Phases
 
-- [x] **Phase 1: Foundation** - Type safety, quick wins, and CostTracker fixes (completed 2026-04-06)
-- [x] **Phase 2: ConversationManager Decomposition** - Extract focused modules from the 2044-line god class (completed 2026-04-06)
-- [ ] **Phase 3: MCP Deduplication + Orchestrator Assessment** - Eliminate 3x handler duplication and audit legacy orchestrators
+<details>
+<summary>✅ v1.0 Refactoring (Phases 1-3) — SHIPPED 2026-04-06</summary>
 
-## Phase Details
+- [x] Phase 1: Foundation (3/3 plans) — completed 2026-04-06
+- [x] Phase 2: ConversationManager Decomposition (3/3 plans) — completed 2026-04-06
+- [x] Phase 3: MCP Deduplication + Orchestrator Assessment (2/2 plans) — completed 2026-04-06
 
-### Phase 1: Foundation
-**Goal**: The codebase has a solid type foundation and known bugs are fixed — enabling safe refactoring in subsequent phases
-**Depends on**: Nothing (first phase)
-**Requirements**: TYPE-01, TYPE-02, TYPE-03, TYPE-04, COST-01, COST-02, COST-03, COST-04
-**Success Criteria** (what must be TRUE):
-  1. `DiscussionHistoryEntry` type exists and `conversationHistory` throughout ConversationManager is typed `DiscussionHistoryEntry[]` with no `: any[]` on history arrays
-  2. Failed LLM API calls appear exactly once in cost reports (no 2x token count entries)
-  3. CostTracker pricing data is current for Gemini and Grok models (no $0 placeholders for models in active use)
-  4. `CostTracker.pricing` is marked `readonly` and TypeScript rejects mutation attempts
-  5. CostTracker is instantiable per consultation; ConsultOrchestrator and ConversationManager accept a CostTracker instance rather than calling `CostTracker.getInstance()` directly
-  6. All tests pass and the MCP server handles `llm_conclave_discuss` and `llm_conclave_consult` requests identically to before
-**Plans**: 3 plans
-Plans:
-- [x] 01-01-PLAN.md — Type safety: DiscussionHistoryEntry, Config typing, dead code removal
-- [x] 01-02-PLAN.md — CostTracker fixes: double-logging bug, pricing updates, readonly
-- [x] 01-03-PLAN.md — CostTracker injection: per-consultation instances through provider chain
+Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
-### Phase 2: ConversationManager Decomposition
-**Goal**: ConversationManager delegates to focused single-responsibility modules — history management, agent turn execution, and judge evaluation each live in their own class
-**Depends on**: Phase 1
-**Requirements**: TEST-01, CONV-01, CONV-02, CONV-03
-**Success Criteria** (what must be TRUE):
-  1. Integration tests exist for judge evaluation path with context compression (safety net for CONV-03 extraction)
-  2. `ConversationHistory` class exists owning all history manipulation and compression logic; ConversationManager no longer contains `groupHistoryByRound`, `compressHistory`, or `formatEntryAsMessage` directly
-  2. `AgentTurnExecutor` class exists owning the full agent call cycle (retry, fallback, circuit breaker); ConversationManager delegates single-agent execution to it
-  3. `JudgeEvaluator` class exists owning judge logic (evaluate, vote, rubber-stamp detection); ConversationManager delegates judge evaluation to it
-  5. ConversationManager is reduced by at least 50% from 2044 lines (under 1000 lines)
-  6. All existing tests pass; free-form discussions via `llm_conclave_discuss` produce identical results
-**Plans**: 3 plans
-Plans:
-- [x] 02-01-PLAN.md — Test safety net + ConversationHistory extraction
-- [x] 02-02-PLAN.md — AgentTurnExecutor extraction
-- [x] 02-03-PLAN.md — JudgeEvaluator extraction
-
-### Phase 3: MCP Deduplication + Orchestrator Assessment
-**Goal**: MCP handler logic exists in one place, and the active/legacy status of all three orchestrators is documented and acted on
-**Depends on**: Phase 1
-**Requirements**: MCP-01, MCP-02, MCP-03, MCP-04, ORCH-01, ORCH-02, ORCH-03
-**Success Criteria** (what must be TRUE):
-  1. `DiscussionRunner` abstraction exists; `handleDiscuss`, `handleContinue`, and REST `/api/discuss` each delegate to it — no three-way code duplication remains
-  2. `handleDiscuss`, `handleContinue`, and REST `/api/discuss` contain no direct references to EventBus construction, AbortController setup, SessionManager saving, or ConversationManager construction — all delegated to `DiscussionRunner`
-  3. The active/legacy status of `Orchestrator` and `IterativeCollaborativeOrchestrator` is recorded in code comments or a decision doc — no more uncertainty
-  4. All three MCP tools (`llm_conclave_discuss`, `llm_conclave_consult`, `llm_conclave_continue`) respond identically to callers as before
-**Plans**: 2 plans
-Plans:
-- [x] 03-01-PLAN.md — DiscussionRunner extraction + orchestrator legacy assessment
-- [x] 03-02-PLAN.md — Rewrite all 3 handlers to delegate to DiscussionRunner
+</details>
 
 ## Progress
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Foundation | 3/3 | Complete   | 2026-04-06 |
-| 2. ConversationManager Decomposition | 3/3 | Complete   | 2026-04-06 |
-| 3. MCP Deduplication + Orchestrator Assessment | 0/2 | Not started | - |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Foundation | v1.0 | 3/3 | Complete | 2026-04-06 |
+| 2. ConversationManager Decomposition | v1.0 | 3/3 | Complete | 2026-04-06 |
+| 3. MCP Deduplication + Orchestrator Assessment | v1.0 | 2/2 | Complete | 2026-04-06 |
+
+## Backlog
+
+### Phase 999.1: Silent model fallback logging (BACKLOG)
+
+**Goal:** Agents fall back to claude-sonnet without logging when declared model (e.g., gpt-4o) is unavailable. Need to log fallback events or fail fast.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.2: Cost tracking broken in discuss sessions (BACKLOG)
+
+**Goal:** All discuss sessions show cost: 0 in session manifest (going back to Dec 2025). Cost aggregation never wired up for discuss mode.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.3: Aggregate input token count wrong in consult (BACKLOG)
+
+**Goal:** Final consult log shows 28-52 input tokens instead of actual sum. Checkpoint files have correct per-agent counts but aggregate is wrong.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.4: Duplicate consult log file naming (BACKLOG)
+
+**Goal:** Consult logs are written twice with `consult-` and `consult-consult-` prefixes. Two write paths producing near-identical files.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.5: Speaker label contamination in conversation content (BACKLOG)
+
+**Goal:** Agent content has mismatched speaker name prefixes baked into the text (e.g., "Developer:" prefix on Pragmatist response). The speaker metadata field is correct but content is contaminated.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.6: Per-response timestamps in discuss sessions (BACKLOG)
+
+**Goal:** All conversation entries within a session share the session creation timestamp instead of actual response time. Makes round duration analysis impossible.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.7: Provider field stores model name instead of provider name (BACKLOG)
+
+**Goal:** ConsultationResult agents array has `provider: "claude-opus-4-5"` instead of `provider: "anthropic"`. Minor data quality issue.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.8: outputFiles fields always empty (BACKLOG)
+
+**Goal:** Both discuss sessions have `outputFiles: { transcript: "", json: "" }`. Fields are never populated.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)

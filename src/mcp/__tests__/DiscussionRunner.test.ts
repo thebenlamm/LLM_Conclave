@@ -247,6 +247,51 @@ describe('DiscussionRunner', () => {
       expect(history[1]).toMatchObject({ role: 'assistant', content: 'prior response 1' });
     });
 
+    it('should set currentRound based on completed rounds in priorHistory', async () => {
+      // 3 completed rounds: each round has agent entries + a Judge guidance delimiter
+      const priorHistory = [
+        { role: 'user', content: 'Task: test', speaker: 'System' },
+        { role: 'assistant', content: 'Alpha round 1', speaker: 'AgentAlpha' },
+        { role: 'assistant', content: 'Beta round 1', speaker: 'AgentBeta' },
+        { role: 'user', content: 'Judge evaluation round 1', speaker: 'Judge' },
+        { role: 'assistant', content: 'Alpha round 2', speaker: 'AgentAlpha' },
+        { role: 'assistant', content: 'Beta round 2', speaker: 'AgentBeta' },
+        { role: 'user', content: 'Judge evaluation round 2', speaker: 'Judge' },
+        { role: 'assistant', content: 'Alpha round 3', speaker: 'AgentAlpha' },
+        { role: 'assistant', content: 'Beta round 3', speaker: 'AgentBeta' },
+        { role: 'user', content: 'Judge evaluation round 3', speaker: 'Judge' },
+      ];
+
+      const runner = new DiscussionRunner();
+      // Capture currentRound at the time startConversation is called
+      let capturedRound: number | undefined;
+      mockStartConversation.mockImplementationOnce(async () => {
+        capturedRound = mockConversationManager.currentRound;
+        return { conversationHistory: [], solution: 'test', rounds: 3, consensusReached: false };
+      });
+
+      await runner.run(makeOptions({ priorHistory }));
+      expect(capturedRound).toBe(3);
+    });
+
+    it('should keep currentRound at 0 when priorHistory has no Judge delimiters', async () => {
+      // Partial round with no Judge guidance — no completed rounds
+      const priorHistory = [
+        { role: 'user', content: 'Task: test', speaker: 'System' },
+        { role: 'assistant', content: 'Alpha partial', speaker: 'AgentAlpha' },
+      ];
+
+      const runner = new DiscussionRunner();
+      let capturedRound: number | undefined;
+      mockStartConversation.mockImplementationOnce(async () => {
+        capturedRound = mockConversationManager.currentRound;
+        return { conversationHistory: [], solution: 'test', rounds: 1, consensusReached: false };
+      });
+
+      await runner.run(makeOptions({ priorHistory }));
+      expect(capturedRound).toBe(0);
+    });
+
     it('should not modify conversationHistory when priorHistory is not provided', async () => {
       const runner = new DiscussionRunner();
       await runner.run(makeOptions());
