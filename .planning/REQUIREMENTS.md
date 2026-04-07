@@ -11,7 +11,7 @@ All items from backlog — data quality fixes, cost pipeline completion, and qua
 
 - [x] **COST-01**: CostTracker data (tokens, calls, USD) reaches session manifest — session JSON shows non-zero cost after a real discuss run
 - [x] **COST-02**: formatDiscussionResult and formatDiscussionResultJson use result.cost from CostTracker instead of heuristic msgCount*750 estimate
-- [ ] **COST-03**: MarkdownFormatter renders a degraded-status banner when consult result status is completed_degraded — callers see judge fallback occurred
+- [x] **COST-03**: MarkdownFormatter renders a degraded-status banner when consult result status is completed_degraded — callers see judge fallback occurred
 
 ### Quality Refinements
 
@@ -22,8 +22,8 @@ All items from backlog — data quality fixes, cost pipeline completion, and qua
 - [ ] **DATA-01**: Consult log files are written once, not twice with consult- and consult-consult- prefixes
 - [ ] **DATA-02**: Conversation entries within a session have per-response timestamps reflecting actual response time, not the shared session creation timestamp
 - [ ] **DATA-03**: ConsultationResult agents array provider field contains provider name (e.g., "anthropic") not model name (e.g., "claude-opus-4-5")
-- [ ] **DATA-04**: Discuss session outputFiles fields (transcript, json) are populated with actual file paths after a run
-- [ ] **DATA-05**: Session manifest includes consensusReached field so consumers can determine session outcomes without loading full session files
+- [x] **DATA-04**: Discuss session outputFiles fields (transcript, json) are populated with actual file paths after a run
+- [x] **DATA-05**: Session manifest includes consensusReached field so consumers can determine session outcomes without loading full session files
 
 ## Out of Scope
 
@@ -40,9 +40,9 @@ All items from backlog — data quality fixes, cost pipeline completion, and qua
 |-------------|-------|--------|
 | COST-01 | Phase 7 | Complete |
 | COST-02 | Phase 7 | Complete |
-| COST-03 | Phase 8 | Pending |
-| DATA-04 | Phase 8 | Pending |
-| DATA-05 | Phase 8 | Pending |
+| COST-03 | Phase 8 | Complete |
+| DATA-04 | Phase 8 | Complete |
+| DATA-05 | Phase 8 | Complete |
 | QUAL-05 | Phase 9 | Pending |
 | DATA-01 | Phase 9 | Pending |
 | DATA-02 | Phase 9 | Pending |

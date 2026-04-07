@@ -4,7 +4,7 @@
 
 - ✅ **v1.0 Refactoring** — Phases 1-3 (shipped 2026-04-06)
 - ✅ **v1.1 Bug Fixes & Quality** — Phases 4-6 (shipped 2026-04-07)
-- **v1.2 Data Quality & Polish** — Phases 7-9 (current)
+- **v1.2 Data Quality & Polish** — Phases 7-11 (current)
 
 ## Phases
 
@@ -35,6 +35,8 @@ Full details: `.planning/milestones/v1.1-ROADMAP.md`
 - [x] **Phase 7: Cost Pipeline** - Wire CostTracker data through to session manifest and tool response output (completed 2026-04-07)
 - [ ] **Phase 8: Output Completeness** - Populate outputFiles paths, consensusReached in manifest, and degraded-status banner
 - [ ] **Phase 9: Data Correctness** - Fix duplicate logs, per-response timestamps, provider field naming, and rubber-stamp thin-verdict detection
+- [ ] **Phase 10: Status MCP Tool** - Add llm_conclave_status tool with active-discussion.json status file
+- [ ] **Phase 11: Infrastructure Agent Quality** - Fix selector termination in dynamic mode, add turn analytics and dissent instrumentation
 
 ## Phase Details
 
@@ -106,7 +108,10 @@ Plans:
   1. A completed_degraded consult result renders a visible banner in the markdown output indicating judge fallback occurred
   2. After a discuss run, outputFiles.transcript and outputFiles.json contain actual file paths, not empty strings
   3. The session manifest includes a consensusReached field that consumers can read without loading full session detail files
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [x] 08-01-PLAN.md — Degraded banner, outputFiles paths, and consensusReached in session listing
 
 ### Phase 9: Data Correctness
 **Goal**: Session data is internally accurate — no duplicate log files, correct timestamps per response, correct provider names, and rubber-stamp detection catches thin-verdict agreement
@@ -119,27 +124,38 @@ Plans:
   4. Rubber-stamp detection flags high-confidence verdicts where agents supply generic/overlapping reasoning rather than domain-specific analysis
 **Plans**: TBD
 
+### Phase 10: Status MCP Tool
+**Goal**: Add `llm_conclave_status` MCP tool — a 0ms filesystem read that returns active discussion status or last completed session. Write `active-discussion.json` during execution via existing heartbeat, delete on completion.
+**Depends on**: Nothing (read-only tool, no behavioral changes)
+**Requirements**: TBD
+**Success Criteria** (what must be TRUE):
+  1. Calling `llm_conclave_status` during an active discussion returns current round, elapsed time, agent names, and which agent is thinking
+  2. Calling `llm_conclave_status` with no active discussion returns the most recent completed session summary (task, outcome, timestamp)
+  3. The tool never errors, never times out, and never returns empty — always a valid structured response
+  4. `active-discussion.json` is written on discussion start, updated every heartbeat, and deleted on completion
+**Plans**: TBD
+
+Plans:
+- [ ] TBD
+
+### Phase 11: Infrastructure Agent Quality
+**Goal**: Fix selector termination bugs in dynamic mode (per-round contribution override, force-remaining-agents) and add lightweight instrumentation (turn analytics, dissent quality check) to verify fixes work
+**Depends on**: Phase 10 (not technically, but ships after)
+**Requirements**: TBD
+**Success Criteria** (what must be TRUE):
+  1. In dynamic mode, the judge's consensus declaration is not overridden by per-round contribution checks — consensus stops the discussion
+  2. In dynamic mode, when the selector says `shouldContinue: false`, the round ends without forcing remaining agents to speak
+  3. The per-discussion contribution check ensures every agent has spoken at least once across all rounds before allowing consensus
+  4. Session JSON and tool response include per-agent turn counts and token share percentages
+  5. Session JSON includes `dissent_quality` field ("captured"/"missing"/"not_applicable") and tool response shows a warning when dissent is missing despite disagreement
+**Plans**: TBD
+
+Plans:
+- [ ] TBD
+
 ## Backlog
 
-### Phase 999.21: Audit infrastructure agents for quality (BACKLOG)
-
-**Goal:** [Captured for future planning]
-Audit the selector, judge, and consensus detection infrastructure agents for quality issues. Discovered that speaker selector was using gpt-4o-mini, causing repetitive selection patterns in creative discussions (bumped to gemini-2.5-flash). Next steps: add post-discussion analytics (turn distribution per agent), instrument judge synthesis to verify dissent incorporation, consider comparative runs (same prompt, different selector models) to tune dynamic selection empirically.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.22: Add llm_conclave_status MCP tool (BACKLOG)
-
-**Goal:** [Captured for future planning]
-Lightweight MCP tool that returns whether a discussion is currently active, which round it's on, elapsed time, and participating agents. Solves the problem where checking on a running Conclave from another window returns misleading errors. Could also write an `active-discussion.json` status file as a non-MCP fallback.
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
+(empty)
 
 ## Progress
 
@@ -152,5 +168,7 @@ Plans:
 | 5. Resilience & Observability | v1.1 | 2/2 | Complete | 2026-04-07 |
 | 6. Judge Quality | v1.1 | 2/2 | Complete | 2026-04-07 |
 | 7. Cost Pipeline | v1.2 | 1/1 | Complete   | 2026-04-07 |
-| 8. Output Completeness | v1.2 | 0/? | Not started | - |
+| 8. Output Completeness | v1.2 | 0/1 | Not started | - |
 | 9. Data Correctness | v1.2 | 0/? | Not started | - |
+| 10. Status MCP Tool | v1.2 | 0/? | Not started | - |
+| 11. Infrastructure Agent Quality | v1.2 | 0/? | Not started | - |
