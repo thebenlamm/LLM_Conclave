@@ -17,7 +17,7 @@ Bug fixes and quality improvements discovered via live session audit.
 
 ### Resilience & Fallbacks
 
-- [ ] **RESIL-01**: Model fallback events are logged with original model, fallback model, and reason when an agent silently substitutes
+- [x] **RESIL-01**: Model fallback events are logged with original model, fallback model, and reason when an agent silently substitutes
 - [x] **RESIL-02**: Consult synthesis/cross-exam/verdict rounds fall back to alternative models when judge model fails instead of aborting
 - [x] **RESIL-03**: Aborted consults with complete round-1 data report partial confidence and include agent perspectives in the result
 - [x] **RESIL-04**: Session status reflects degraded quality when judge was unavailable (e.g., "completed_degraded" instead of "completed")
@@ -31,7 +31,7 @@ Bug fixes and quality improvements discovered via live session audit.
 
 ### Observability
 
-- [ ] **OBSRV-01**: Discuss sessions track and persist cost data (tokens, calls, USD) to session JSON — no more all-zero cost fields
+- [x] **OBSRV-01**: Discuss sessions track and persist cost data (tokens, calls, USD) to session JSON — no more all-zero cost fields
 - [x] **OBSRV-02**: Consult log aggregate input token count sums all rounds correctly instead of showing 28-52 tokens
 
 ## v2 Requirements
@@ -71,11 +71,11 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | INTEG-03 | Phase 4 | Complete |
 | INTEG-04 | Phase 4 | Complete |
 | INTEG-05 | Phase 4 | Complete |
-| RESIL-01 | Phase 5 | Pending |
+| RESIL-01 | Phase 5 | Complete |
 | RESIL-02 | Phase 5 | Complete |
 | RESIL-03 | Phase 5 | Complete |
 | RESIL-04 | Phase 5 | Complete |
-| OBSRV-01 | Phase 5 | Pending |
+| OBSRV-01 | Phase 5 | Complete |
 | OBSRV-02 | Phase 5 | Complete |
 | QUAL-01 | Phase 6 | Pending |
 | QUAL-02 | Phase 6 | Pending |

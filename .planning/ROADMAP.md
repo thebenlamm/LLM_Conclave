@@ -21,7 +21,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 ### v1.1 Bug Fixes & Quality
 
 - [ ] **Phase 4: Conversation Integrity** - Fix continuation session bugs (speaker attribution, contamination, orphan context, duplicate injection, metadata drift)
-- [ ] **Phase 5: Resilience & Observability** - Log fallback events, route consult judge through fallback, improve partial abort handling, wire cost tracking
+- [x] **Phase 5: Resilience & Observability** - Log fallback events, route consult judge through fallback, improve partial abort handling, wire cost tracking (completed 2026-04-07)
 - [ ] **Phase 6: Judge Quality** - Fix verdict synthesis collapse, add rubber-stamp detection, eliminate duplicate guidance, fix sentence extraction
 
 ## Phase Details
@@ -53,10 +53,10 @@ Plans:
   4. Session JSON status reads "completed_degraded" (not "completed") when the judge was unavailable during the run
   5. Discuss session JSON files contain non-zero token counts and USD cost after a real run
   6. Consult log aggregate input token count reflects the actual sum across all rounds, not a single-round value
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 05-01-PLAN.md — Structured fallback logging and discuss cost tracking wiring
+- [x] 05-01-PLAN.md — Structured fallback logging and discuss cost tracking wiring
 - [x] 05-02-PLAN.md — Judge fallback in consult rounds, partial abort results, degraded status, token fix
 
 ### Phase 6: Judge Quality
@@ -78,7 +78,7 @@ Plans:
 | 2. ConversationManager Decomposition | v1.0 | 3/3 | Complete | 2026-04-06 |
 | 3. MCP Deduplication + Orchestrator Assessment | v1.0 | 2/2 | Complete | 2026-04-06 |
 | 4. Conversation Integrity | v1.1 | 0/2 | Not started | - |
-| 5. Resilience & Observability | v1.1 | 0/2 | Not started | - |
+| 5. Resilience & Observability | v1.1 | 2/2 | Complete   | 2026-04-07 |
 | 6. Judge Quality | v1.1 | 0/TBD | Not started | - |
 
 ## Backlog — Kept

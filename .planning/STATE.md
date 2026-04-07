@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Bug Fixes & Quality
 status: unknown
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-04-07T01:44:21.362Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-04-07T01:45:10.334Z"
 progress:
   total_phases: 8
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -57,6 +57,7 @@ Plan: 2 of 2
 | Phase 04 P02 | 2min | 1 tasks | 2 files |
 | Phase 04-conversation-integrity P01 | 3min | 2 tasks | 3 files |
 | Phase 05 P02 | 4min | 2 tasks | 2 files |
+| Phase 05 P01 | 4min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,8 @@ Recent decisions affecting current work:
 - [Phase 04-01]: Fix INTEG-04 at server.ts call site (slice mergedHistory) rather than changing ContinuationHandler return contract
 - [Phase 05]: Cross-provider fallback pattern: gemini->claude-sonnet-4-5, claude->gemini-2.5-flash, others->gemini-2.5-flash
 - [Phase 05]: Hoist R2 messages before try block so fallback catch can reuse them
+- [Phase 05]: Cost field added to all 3 ConversationManager return paths (normal, degraded, aborted) for complete session cost tracking
+- [Phase 05]: Per-session CostTracker instance created in DiscussionRunner instead of using singleton fallback
 
 ### Pending Todos
 
@@ -106,6 +109,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-07T01:44:21.360Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-04-07T01:45:10.331Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
