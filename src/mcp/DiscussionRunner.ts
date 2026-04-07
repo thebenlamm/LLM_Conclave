@@ -408,6 +408,15 @@ export class DiscussionRunner {
     if (parentSessionId) {
       (session as any).parentSessionId = parentSessionId;
     }
+    // Populate outputFiles with actual paths (DATA-04)
+    if (session.outputFiles) {
+      session.outputFiles.transcript = logFilePath || '';
+      session.outputFiles.json = path.join(
+        sessionManager['sessionsDir'] || path.join(process.env.HOME || '', '.llm-conclave', 'sessions'),
+        session.id,
+        'session.json'
+      );
+    }
     const sessionId = await sessionManager.saveSession(session);
 
     return {

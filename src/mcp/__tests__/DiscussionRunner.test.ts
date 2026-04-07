@@ -320,6 +320,40 @@ describe('DiscussionRunner', () => {
       expect(manifestCall[0]).toBe('consensus');
       expect(manifestCall[1]).toBe('test task');
     });
+
+    it('should populate outputFiles.transcript with the log file path (DATA-04)', async () => {
+      const sessionObj = {
+        id: 'session-abc',
+        task: 'test',
+        outputFiles: { transcript: '', json: '' },
+      };
+      mockCreateSessionManifest.mockReturnValue(sessionObj);
+
+      const runner = new DiscussionRunner();
+      await runner.run(makeOptions());
+
+      // After run(), the session passed to saveSession should have non-empty transcript
+      const savedSession = mockSaveSession.mock.calls[0][0];
+      expect(savedSession.outputFiles.transcript).not.toBe('');
+      expect(typeof savedSession.outputFiles.transcript).toBe('string');
+    });
+
+    it('should populate outputFiles.json with the session JSON file path (DATA-04)', async () => {
+      const sessionObj = {
+        id: 'session-test-xyz',
+        task: 'test',
+        outputFiles: { transcript: '', json: '' },
+      };
+      mockCreateSessionManifest.mockReturnValue(sessionObj);
+
+      const runner = new DiscussionRunner();
+      await runner.run(makeOptions());
+
+      const savedSession = mockSaveSession.mock.calls[0][0];
+      expect(savedSession.outputFiles.json).not.toBe('');
+      expect(savedSession.outputFiles.json).toContain('session-test-xyz');
+      expect(savedSession.outputFiles.json).toContain('session.json');
+    });
   });
 
   // Test 6: run() cleans up EventBus listeners and heartbeat in finally block
