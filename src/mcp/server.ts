@@ -942,6 +942,23 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
     output += `**Cost:** unavailable (no provider calls recorded)\n\n`;
   }
 
+  // Turn analytics one-liner (D-13, D-14)
+  const turnAnalytics = result.turn_analytics;
+  if (turnAnalytics?.per_agent?.length > 0) {
+    const turnsStr = turnAnalytics.per_agent
+      .map((a: any) => `${a.name} ${a.turns}`)
+      .join(', ');
+    const tokensStr = turnAnalytics.per_agent
+      .map((a: any) => `${a.token_share_pct}%`)
+      .join('/');
+    output += `**Turns:** ${turnsStr} | **Tokens:** ${tokensStr}\n\n`;
+  }
+
+  // Dissent quality warning (D-17) — only surface when dissent was expected but missing
+  if (result.dissent_quality === 'missing') {
+    output += `**Warning:** Discussion ended without consensus but judge synthesis contains no dissent section.\n\n`;
+  }
+
   // Reference to full log and session
   output += `📄 **Full discussion:** \`${logFilePath}\`\n`;
   if (sessionId) {
@@ -1027,6 +1044,8 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
       total: (costData.totalTokens?.input || 0) + (costData.totalTokens?.output || 0),
     } : null,
     cost_usd: costData ? parseFloat(costData.totalCost.toFixed(4)) : null,
+    turn_analytics: result.turn_analytics || null,
+    dissent_quality: result.dissent_quality || null,
     session_id: sessionId || undefined,
     log_file: logFilePath,
   };

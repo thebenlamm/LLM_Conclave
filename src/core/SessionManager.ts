@@ -268,6 +268,8 @@ export default class SessionManager {
       projectContext: projectContext,
       consensusReached: result.consensusReached,
       finalSolution: result.solution || result.finalOutput,
+      turn_analytics: result.turn_analytics || undefined,
+      dissent_quality: result.dissent_quality || undefined,
       cost: costInfo,
       outputFiles: {
         transcript: result.transcript || '',

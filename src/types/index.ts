@@ -338,6 +338,10 @@ export interface SessionManifest {
   // Results
   consensusReached?: boolean;
   finalSolution?: string;
+  turn_analytics?: {
+    per_agent: Array<{ name: string; turns: number; token_share_pct: number }>;
+  };
+  dissent_quality?: 'captured' | 'missing' | 'not_applicable';
 
   // Metadata
   cost: SessionCostInfo;
