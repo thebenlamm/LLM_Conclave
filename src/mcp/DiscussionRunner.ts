@@ -20,6 +20,7 @@ import ProviderFactory from '../providers/ProviderFactory.js';
 import ProjectContext from '../utils/ProjectContext.js';
 import { CostTracker } from '../core/CostTracker.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
+import { StatusFileManager } from './StatusFileManager.js';
 
 /**
  * Options for DiscussionRunner.run()
@@ -256,6 +257,10 @@ export class DiscussionRunner {
       systemPrompt: config.judge.prompt || config.judge.systemPrompt || 'You are a judge evaluating agent responses.',
     };
 
+    // 6b. StatusFileManager — tracks active discussion state for llm_conclave_status tool
+    const statusFileManager = new StatusFileManager();
+    const agentNames = Object.keys(config.agents);
+
     // 7. EventBus setup — scoped instance to avoid cross-talk between concurrent requests
     const scopedEventBus = EventBus.createInstance();
 
@@ -268,6 +273,18 @@ export class DiscussionRunner {
 
     const onAgentThinking = (event: any) => {
       const agent = event?.payload?.agent ?? 'Agent';
+      currentAgentName = agent;
+      statusFileManager.writeStatus({
+        active: true,
+        task,
+        startTime: new Date(discussionStartMs).toISOString(),
+        elapsedMs: Date.now() - discussionStartMs,
+        agents: agentNames,
+        currentRound: (conversationManager.currentRound ?? 0) + 1,
+        maxRounds: rounds,
+        currentAgent: currentAgentName,
+        updatedAt: new Date().toISOString(),
+      });
       if (onProgress) {
         onProgress({ type: 'agent:thinking', message: `${agent} is responding...` });
       }
@@ -356,11 +373,37 @@ export class DiscussionRunner {
       conversationManager.currentRound = completedRounds;
     }
 
+    // 10c. Write initial status file and set up timing/agent tracking
+    const discussionStartMs = Date.now();
+    let currentAgentName: string | null = null;
+    statusFileManager.writeStatus({
+      active: true,
+      task,
+      startTime: new Date(discussionStartMs).toISOString(),
+      elapsedMs: 0,
+      agents: agentNames,
+      currentRound: 1,
+      maxRounds: rounds,
+      currentAgent: null,
+      updatedAt: new Date().toISOString(),
+    });
+
     // 11. Progress heartbeat — sends periodic updates during long-running discussions
     let lastRound = 0;
     const progressHeartbeat = setInterval(() => {
       const currentRound = conversationManager.currentRound ?? lastRound;
       lastRound = currentRound;
+      statusFileManager.writeStatus({
+        active: true,
+        task,
+        startTime: new Date(discussionStartMs).toISOString(),
+        elapsedMs: Date.now() - discussionStartMs,
+        agents: agentNames,
+        currentRound: currentRound + 1,
+        maxRounds: rounds,
+        currentAgent: currentAgentName,
+        updatedAt: new Date().toISOString(),
+      });
       if (onProgress) {
         onProgress({
           type: 'heartbeat',
@@ -375,6 +418,7 @@ export class DiscussionRunner {
       result = await conversationManager.startConversation(task, judge, projectContext);
     } finally {
       // 13. Cleanup
+      statusFileManager.deleteStatus();
       clearInterval(progressHeartbeat);
       if (timeoutId) clearTimeout(timeoutId);
       // Remove only the handlers registered above, preserving EventBus default no-op error handler
