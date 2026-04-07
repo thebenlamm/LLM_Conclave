@@ -36,7 +36,7 @@ Full details: `.planning/milestones/v1.1-ROADMAP.md`
 - [ ] **Phase 8: Output Completeness** - Populate outputFiles paths, consensusReached in manifest, and degraded-status banner
 - [x] **Phase 9: Data Correctness** - Fix duplicate logs, per-response timestamps, provider field naming, and rubber-stamp thin-verdict detection (completed 2026-04-07)
 - [x] **Phase 10: Status MCP Tool** - Add llm_conclave_status tool with active-discussion.json status file (completed 2026-04-07)
-- [ ] **Phase 11: Infrastructure Agent Quality** - Fix selector termination in dynamic mode, add turn analytics and dissent instrumentation
+- [x] **Phase 11: Infrastructure Agent Quality** - Fix selector termination in dynamic mode, add turn analytics and dissent instrumentation (completed 2026-04-07)
 
 ## Phase Details
 
@@ -156,7 +156,7 @@ Plans:
 
 Plans:
 - [x] 11-01-PLAN.md — Fix selector termination: remove force-remaining-agents and fix contribution override in dynamic mode
-- [ ] 11-02-PLAN.md — Add turn analytics (per-agent turns + token share) and dissent quality instrumentation
+- [x] 11-02-PLAN.md — Add turn analytics (per-agent turns + token share) and dissent quality instrumentation
 
 ## Backlog
 
@@ -176,4 +176,4 @@ Plans:
 | 8. Output Completeness | v1.2 | 0/1 | Not started | - |
 | 9. Data Correctness | v1.2 | 2/2 | Complete   | 2026-04-07 |
 | 10. Status MCP Tool | v1.2 | 1/1 | Complete    | 2026-04-07 |
-| 11. Infrastructure Agent Quality | v1.2 | 1/2 | In Progress|  |
+| 11. Infrastructure Agent Quality | v1.2 | 2/2 | Complete   | 2026-04-07 |
