@@ -1,56 +1,29 @@
-# Requirements: LLM Conclave v1.1
+# Requirements: LLM Conclave v1.2
 
-**Defined:** 2026-04-06
+**Defined:** 2026-04-07
 **Core Value:** Multi-LLM collaboration with reliable, maintainable infrastructure.
 
-## v1.1 Requirements
+## v1.2 Requirements
 
-Bug fixes and quality improvements discovered via live session audit.
+All items from backlog — data quality fixes, cost pipeline completion, and quality refinements discovered via E2E testing and integration audit.
 
-### Conversation Integrity
+### Cost & Observability
 
-- [x] **INTEG-01**: Speaker attribution in continuation sessions is correct — speaker field matches the actual agent that generated the content in all rounds
-- [x] **INTEG-02**: Conversation content does not contain wrong speaker name prefixes — agent responses have no cross-contaminated speaker labels
-- [x] **INTEG-03**: Orphan judge guidance from parent session is stripped before building continuation context
-- [x] **INTEG-04**: Continuation task prompt is injected exactly once, not duplicated
-- [x] **INTEG-05**: currentRound metadata stays in sync with actual conversation history length across continuations
+- [x] **COST-01**: CostTracker data (tokens, calls, USD) reaches session manifest — session JSON shows non-zero cost after a real discuss run
+- [x] **COST-02**: formatDiscussionResult and formatDiscussionResultJson use result.cost from CostTracker instead of heuristic msgCount*750 estimate
+- [ ] **COST-03**: MarkdownFormatter renders a degraded-status banner when consult result status is completed_degraded — callers see judge fallback occurred
 
-### Resilience & Fallbacks
+### Quality Refinements
 
-- [x] **RESIL-01**: Model fallback events are logged with original model, fallback model, and reason when an agent silently substitutes
-- [x] **RESIL-02**: Consult synthesis/cross-exam/verdict rounds fall back to alternative models when judge model fails instead of aborting
-- [x] **RESIL-03**: Aborted consults with complete round-1 data report partial confidence and include agent perspectives in the result
-- [x] **RESIL-04**: Session status reflects degraded quality when judge was unavailable (e.g., "completed_degraded" instead of "completed")
+- [ ] **QUAL-05**: Rubber-stamp detection identifies high-confidence thin verdicts where agents agree strongly but provide generic/overlapping reasoning instead of domain-specific analysis
 
-### Quality & Intelligence
+### Data Quality
 
-- [x] **QUAL-01**: Verdict synthesis preserves differentiated strategies and actionable advice instead of collapsing to a generic one-liner
-- [x] **QUAL-02**: Consult early termination checks for rubber-stamp agreement before accepting high-confidence synthesis
-- [x] **QUAL-03**: Judge re-evaluates agent progress each round instead of emitting identical guidance in consecutive rounds
-- [x] **QUAL-04**: bestEffortJudgeResult skips markdown headers when extracting representative sentences from agent responses
-
-### Observability
-
-- [x] **OBSRV-01**: Discuss sessions track and persist cost data (tokens, calls, USD) to session JSON — no more all-zero cost fields
-- [x] **OBSRV-02**: Consult log aggregate input token count sums all rounds correctly instead of showing 28-52 tokens
-
-## v2 Requirements
-
-Deferred to future milestone. Tracked but not in current roadmap.
-
-### Data Quality (from backlog)
-
-- **DATA-01**: Duplicate consult log file naming (consult-consult- prefix doubling)
-- **DATA-02**: Per-response timestamps (all entries share session start time)
-- **DATA-03**: Provider field stores model name instead of provider name
-- **DATA-04**: outputFiles fields always empty
-- **DATA-05**: consensusReached missing from session manifest
-
-### Further Cleanup (from v1.0)
-
-- **CLEAN-01**: Extract PARTICIPATION_REQUIREMENT and STRUCTURED_OUTPUT_INSTRUCTION from PersonaSystem into constants
-- **CLEAN-02**: Reduce `: any` annotations across remaining files (currently 225 total)
-- **CLEAN-03**: Consolidate fallback model selection logic (duplicated in ConversationManager and judge methods)
+- [ ] **DATA-01**: Consult log files are written once, not twice with consult- and consult-consult- prefixes
+- [ ] **DATA-02**: Conversation entries within a session have per-response timestamps reflecting actual response time, not the shared session creation timestamp
+- [ ] **DATA-03**: ConsultationResult agents array provider field contains provider name (e.g., "anthropic") not model name (e.g., "claude-opus-4-5")
+- [ ] **DATA-04**: Discuss session outputFiles fields (transcript, json) are populated with actual file paths after a run
+- [ ] **DATA-05**: Session manifest includes consensusReached field so consumers can determine session outcomes without loading full session files
 
 ## Out of Scope
 
@@ -59,34 +32,26 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | New LLM providers | Bug fixes only — no new functionality |
 | MCP tool schema changes | Callers must not notice any difference |
 | Consult subdomain restructuring | Already well-organized |
-| Delete legacy orchestrators | Deprecated in v1.0, not urgent to remove |
-| ~~CostTracker threading through DiscussionRunner~~ | ~~Tech debt from v1.0~~ — superseded by OBSRV-01 (Phase 5) |
+| New features or capabilities | Polish milestone — fixes only |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INTEG-01 | Phase 4 | Complete |
-| INTEG-02 | Phase 4 | Complete |
-| INTEG-03 | Phase 4 | Complete |
-| INTEG-04 | Phase 4 | Complete |
-| INTEG-05 | Phase 4 | Complete |
-| RESIL-01 | Phase 5 | Complete |
-| RESIL-02 | Phase 5 | Complete |
-| RESIL-03 | Phase 5 | Complete |
-| RESIL-04 | Phase 5 | Complete |
-| OBSRV-01 | Phase 5 | Complete |
-| OBSRV-02 | Phase 5 | Complete |
-| QUAL-01 | Phase 6 | Complete |
-| QUAL-02 | Phase 6 | Complete |
-| QUAL-03 | Phase 6 | Complete |
-| QUAL-04 | Phase 6 | Complete |
+| COST-01 | Phase 7 | Complete |
+| COST-02 | Phase 7 | Complete |
+| COST-03 | Phase 8 | Pending |
+| DATA-04 | Phase 8 | Pending |
+| DATA-05 | Phase 8 | Pending |
+| QUAL-05 | Phase 9 | Pending |
+| DATA-01 | Phase 9 | Pending |
+| DATA-02 | Phase 9 | Pending |
+| DATA-03 | Phase 9 | Pending |
 
 **Coverage:**
-- v1.1 requirements: 15 total
-- Mapped to phases: 15
-- Unmapped: 0 ✓
+- v1.2 requirements: 9 total
+- Mapped to phases: 9
+- Unmapped: 0
 
 ---
-*Requirements defined: 2026-04-06*
-*Last updated: 2026-04-06 after roadmap creation*
+*Requirements defined: 2026-04-07*

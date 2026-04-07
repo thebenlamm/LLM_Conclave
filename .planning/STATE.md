@@ -1,34 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Bug Fixes & Quality
+milestone: v1.2
+milestone_name: Data Quality & Polish
 status: unknown
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-04-07T02:01:15.286Z"
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-04-07T02:42:59.913Z"
 progress:
-  total_phases: 8
-  completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  total_phases: 6
+  completed_phases: 4
+  total_plans: 7
+  completed_plans: 7
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-06)
+See: .planning/PROJECT.md (updated 2026-04-07)
 
 **Core value:** Multi-LLM collaboration with reliable, maintainable infrastructure.
-**Current focus:** Phase 06 — judge-quality
+**Current focus:** Phase 07 — cost-pipeline
 
 ## Current Position
 
-Phase: 06 (judge-quality) — EXECUTING
-Plan: 2 of 2
+Phase: 07 (cost-pipeline) — EXECUTING
+Plan: 1 of 1
 
 ## Performance Metrics
 
-**v1.1 Velocity:**
+**v1.2 Velocity:**
 
 - Total plans completed: 0
 - Average duration: -
@@ -42,24 +42,17 @@ Plan: 2 of 2
 
 *Updated after each plan completion*
 
-**v1.0 Reference (for calibration):**
+**v1.1 Reference (for calibration):**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| Phase 01-foundation P01 | 8 | 2 tasks | 5 files |
-| Phase 01-foundation P02 | 4 | 2 tasks | 4 files |
-| Phase 01-foundation P03 | 18 | 2 tasks | 12 files |
-| Phase 02-conversationmanager-decomposition P01 | 25 | 2 tasks | 4 files |
-| Phase 02-conversationmanager-decomposition P02 | 7 | 1 tasks | 3 files |
-| Phase 02-conversationmanager-decomposition P03 | 14 | 1 tasks | 3 files |
-| Phase 03-mcp-deduplication-orchestrator-assessment P01 | 7 | 2 tasks | 4 files |
-| Phase 03-mcp-deduplication-orchestrator-assessment P02 | 7m | 2 tasks | 2 files |
-| Phase 04 P02 | 2min | 1 tasks | 2 files |
 | Phase 04-conversation-integrity P01 | 3min | 2 tasks | 3 files |
-| Phase 05 P02 | 4min | 2 tasks | 2 files |
+| Phase 04 P02 | 2min | 1 task | 2 files |
 | Phase 05 P01 | 4min | 2 tasks | 5 files |
-| Phase 06 P02 | 3min | 2 tasks | 2 files |
+| Phase 05 P02 | 4min | 2 tasks | 2 files |
 | Phase 06-judge-quality P01 | 3min | 2 tasks | 8 files |
+| Phase 06 P02 | 3min | 2 tasks | 2 files |
+| Phase 07-cost-pipeline P01 | 8min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -68,42 +61,12 @@ Plan: 2 of 2
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- Include all 5 findings: User wants comprehensive cleanup, not cherry-picking
-- Fix bugs alongside refactoring: Double-logging and stale pricing are cheap to fix during restructuring
-- Defer orchestrator unification details: Need to assess actual usage of Orchestrator and IterativeCollaborativeOrchestrator first
-- Trust existing tests: Tests cover main paths well enough to refactor against
-- [Phase 01-foundation]: error and compressed typed as literal true: matches actual usage where entry.error === true is the check pattern
-- [Phase 01-foundation]: Cast SessionMessage.role in continue injection: intentional narrowing from persistence roles to runtime conversation roles
-- [Phase 01-foundation]: Remove finally block from LLMProvider.chat(): success logging in try, failure in catch — eliminates execution path ambiguity
-- [Phase 01-foundation]: CostTracker.pricing readonly: prevents compile-time accidental reassignment
-- [Phase 01-foundation]: Updated Gemini pricing: 2.5-pro .25/10.00, 2.5-flash /bin/zsh.30/2.50, 2.0-flash /bin/zsh.10/0.40; grok-3 /15 per 1M tokens (2026-04)
-- [Phase 01-foundation]: All ProviderFactory.createProvider() calls updated with costTracker: 6 in ConsultOrchestrator, 4 in ConversationManager — full injection chain complete
-- [Phase 01-foundation]: CostTracker DI pattern: optional constructor param with ?? CostTracker.getInstance() fallback for backward compat
-- [Phase 02-conversationmanager-decomposition]: compressHistory mutates shared array in-place (splice) to keep CM reference valid after compression
-- [Phase 02-conversationmanager-decomposition]: ConversationHistory uses callbacks for cross-object state (onCacheInvalidated, getAgents) instead of holding direct references
-- [Phase 02-conversationmanager-decomposition]: createCallAbortController retained in CM: judge methods still call it; Plan 03 moves it to JudgeEvaluator
-- [Phase 02-conversationmanager-decomposition]: AgentTurnExecutor two-phase init: executor first (null history), history second, then wire back via deps.history assignment
-- [Phase 02-conversationmanager-decomposition]: CONTEXT_OVERFLOW_PATTERN moved to JudgeEvaluator as sole owner — only judge methods use it; no duplication anywhere
-- [Phase 02-conversationmanager-decomposition]: JudgeEvaluator deps include streamOutput and getPersistentlyFailedAgents callbacks for rubber-stamp detection and streaming
-- [Phase 02-conversationmanager-decomposition]: invalidateCache() public method on JudgeEvaluator — ConversationHistory onCacheInvalidated callback resets judge cache after compression
-- [Phase 03-mcp-deduplication-orchestrator-assessment]: saveDiscussionLog extracted to DiscussionRunner.ts (not server.ts) to avoid circular imports
-- [Phase 03-mcp-deduplication-orchestrator-assessment]: Orchestrator and IterativeCollaborativeOrchestrator confirmed LEGACY via grep: zero production imports
-- [Phase 03-mcp-deduplication-orchestrator-assessment]: ConsultOrchestrator confirmed ACTIVE — sole production orchestrator for consult tool
-- [Phase 03-mcp-deduplication-orchestrator-assessment]: handleDiscuss, handleContinue, REST /api/discuss all delegate to DiscussionRunner.run() — no direct EventBus/CM/SessionManager construction in server.ts
-- [Phase 03-mcp-deduplication-orchestrator-assessment]: clientAbortSignal option added to DiscussionRunnerOptions for REST client-disconnect abort without external AbortController leak
-- [Phase 03-mcp-deduplication-orchestrator-assessment]: resolvedConfig option allows handleContinue to bypass ConfigCascade with pre-built session config
-- [v1.1 roadmap]: OBSRV-01/02 folded into Phase 5 (Resilience) at coarse granularity — both concern accurate session reporting, natural fit with resilience/fallback instrumentation
-- [Phase 04]: Count completed rounds by filtering Judge guidance delimiters (speaker=Judge, role=user) for currentRound offset in continuations
-- [Phase 04-01]: Filter judge guidance by role=user && speaker=Judge — targeted filter preserving non-judge user entries
-- [Phase 04-01]: Fix INTEG-04 at server.ts call site (slice mergedHistory) rather than changing ContinuationHandler return contract
-- [Phase 05]: Cross-provider fallback pattern: gemini->claude-sonnet-4-5, claude->gemini-2.5-flash, others->gemini-2.5-flash
-- [Phase 05]: Hoist R2 messages before try block so fallback catch can reuse them
-- [Phase 05]: Cost field added to all 3 ConversationManager return paths (normal, degraded, aborted) for complete session cost tracking
-- [Phase 05]: Per-session CostTracker instance created in DiscussionRunner instead of using singleton fallback
-- [Phase 06]: Filter markdown headers at line level before sentence regex — regex captures multi-line content as single sentences
-- [Phase 06]: Store priorGuidance only on non-consensus path — consensus ends discussion, no future rounds
-- [Phase 06-judge-quality]: Used keyPoints instead of non-existent evidence field for R1 summary enrichment in verdict prompts
-- [Phase 06-judge-quality]: detectRubberStamp uses Array<unknown> for tensions type parameter for SynthesisArtifact compatibility
+- [v1.2 roadmap]: 9 backlog fixes grouped into 3 phases at coarse granularity
+- [v1.2 roadmap]: Phase 7 (COST-01, COST-02) — cost data pipeline; both ends of same SessionManager/formatDiscussionResult gap
+- [v1.2 roadmap]: Phase 8 (COST-03, DATA-04, DATA-05) — output completeness; all three are "what callers see in output metadata" fixes
+- [v1.2 roadmap]: Phase 9 (QUAL-05, DATA-01, DATA-02, DATA-03) — data correctness; internal accuracy fixes with no shared plumbing
+- [Phase 07-cost-pipeline]: Remove msgCount*750 heuristic entirely — show unavailable when cost data absent, not a fabricated estimate
+- [Phase 07-cost-pipeline]: Rename estimated_tokens/estimated_cost to tokens.{input,output,total}/cost_usd in JSON formatter for cleaner API semantics
 
 ### Pending Todos
 
@@ -115,6 +78,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-07T02:01:15.283Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-04-07T02:42:59.911Z
+Stopped at: Completed 07-01-PLAN.md
 Resume file: None

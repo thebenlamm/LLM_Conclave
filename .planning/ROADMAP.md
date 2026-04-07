@@ -32,7 +32,7 @@ Full details: `.planning/milestones/v1.1-ROADMAP.md`
 
 ### v1.2 Data Quality & Polish
 
-- [ ] **Phase 7: Cost Pipeline** - Wire CostTracker data through to session manifest and tool response output
+- [x] **Phase 7: Cost Pipeline** - Wire CostTracker data through to session manifest and tool response output (completed 2026-04-07)
 - [ ] **Phase 8: Output Completeness** - Populate outputFiles paths, consensusReached in manifest, and degraded-status banner
 - [ ] **Phase 9: Data Correctness** - Fix duplicate logs, per-response timestamps, provider field naming, and rubber-stamp thin-verdict detection
 
@@ -93,10 +93,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. After a real discuss run, session JSON shows non-zero token counts and a non-zero USD cost in all cost fields
   2. The tool response returned to the MCP caller shows real cost from CostTracker, not a heuristic msgCount * 750 estimate
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 07-01-PLAN.md — Wire CostTracker data into session manifest and replace heuristic formatters
+- [x] 07-01-PLAN.md — Wire CostTracker data into session manifest and replace heuristic formatters
 
 ### Phase 8: Output Completeness
 **Goal**: Callers receive complete, accurate output metadata — file paths populated, degraded status visible, and session manifest exposes outcome fields
@@ -129,6 +129,6 @@ Plans:
 | 4. Conversation Integrity | v1.1 | 2/2 | Complete | 2026-04-07 |
 | 5. Resilience & Observability | v1.1 | 2/2 | Complete | 2026-04-07 |
 | 6. Judge Quality | v1.1 | 2/2 | Complete | 2026-04-07 |
-| 7. Cost Pipeline | v1.2 | 0/1 | Not started | - |
+| 7. Cost Pipeline | v1.2 | 1/1 | Complete   | 2026-04-07 |
 | 8. Output Completeness | v1.2 | 0/? | Not started | - |
 | 9. Data Correctness | v1.2 | 0/? | Not started | - |
