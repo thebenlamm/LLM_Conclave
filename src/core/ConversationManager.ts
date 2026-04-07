@@ -661,41 +661,11 @@ export default class ConversationManager {
         failedAgentsThisRound
       );
 
-      // Check if round should end - BUT ensure all agents have contributed at least once
+      // Check if round should end — respect the selector's decision (D-04).
+      // In dynamic mode, not all agents need to speak every round. The per-discussion
+      // allAgentsContributed check (after judge evaluation) ensures every agent has spoken
+      // at least once across all rounds before consensus can be declared.
       if (!selection.shouldContinue) {
-        const agentsWhoHaventSpoken = this.speakerSelector.getAgentsWhoHaventSpoken()
-          .filter(name => !failedAgentsThisRound.has(name));
-
-        if (agentsWhoHaventSpoken.length > 0 && turnCount < this.agentOrder.length) {
-          // Override: force remaining agents to speak before ending round
-          console.log(`[Round ${this.currentRound}: ${agentsWhoHaventSpoken.length} agent(s) haven't spoken yet, continuing...]`);
-          // Pick the first agent who hasn't spoken
-          const forcedSpeaker = agentsWhoHaventSpoken[0];
-          console.log(`[Forcing turn for ${forcedSpeaker}]`);
-
-          const historyLengthBefore = this.conversationHistory.length;
-          await this.agentExecutor.agentTurn(forcedSpeaker);
-
-          if (this.conversationHistory.length > historyLengthBefore) {
-            const latestEntry = this.conversationHistory[this.conversationHistory.length - 1];
-            if (latestEntry.error) {
-              failedAgentsThisRound.add(forcedSpeaker);
-            } else {
-              lastResponse = latestEntry.content;
-              lastSpeaker = forcedSpeaker;
-              agentsWhoContributedThisRound.add(forcedSpeaker);
-            }
-          } else {
-            // Empty response from forced speaker - treat as failure
-            failedAgentsThisRound.add(forcedSpeaker);
-          }
-
-          this.speakerSelector.recordTurn(forcedSpeaker);
-          turnCount++;
-          continue;
-        }
-
-        // Check if round ended because all remaining agents failed
         if (agentsWhoContributedThisRound.size < this.agentOrder.length - failedAgentsThisRound.size) {
           console.log(`[Round ${this.currentRound} complete: remaining agents unavailable]`);
         } else {
