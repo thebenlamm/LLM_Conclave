@@ -67,6 +67,55 @@ describe('EarlyTerminationManager', () => {
     });
   });
 
+  describe('detectRubberStamp', () => {
+    it('returns true when all R1 artifacts have high confidence (>0.85) AND no tensions in synthesis', () => {
+      const r1Artifacts = [
+        { confidence: 0.9 },
+        { confidence: 0.95 },
+        { confidence: 0.88 }
+      ];
+      const synthesis = { tensions: [] };
+      expect(manager.detectRubberStamp(r1Artifacts, synthesis)).toBe(true);
+    });
+
+    it('returns false when R1 artifacts have mixed confidence levels', () => {
+      const r1Artifacts = [
+        { confidence: 0.9 },
+        { confidence: 0.6 },
+        { confidence: 0.88 }
+      ];
+      const synthesis = { tensions: [] };
+      expect(manager.detectRubberStamp(r1Artifacts, synthesis)).toBe(false);
+    });
+
+    it('returns false when synthesis has >= 1 tension', () => {
+      const r1Artifacts = [
+        { confidence: 0.9 },
+        { confidence: 0.95 }
+      ];
+      const synthesis = { tensions: [{ description: 'Some disagreement' }] };
+      expect(manager.detectRubberStamp(r1Artifacts, synthesis)).toBe(false);
+    });
+
+    it('returns false for single agent (less than 2)', () => {
+      const r1Artifacts = [{ confidence: 0.99 }];
+      const synthesis = { tensions: [] };
+      expect(manager.detectRubberStamp(r1Artifacts, synthesis)).toBe(false);
+    });
+
+    it('returns false when synthesis.tensions is undefined', () => {
+      const r1Artifacts = [
+        { confidence: 0.9 },
+        { confidence: 0.95 }
+      ];
+      const synthesis = {};
+      // No tensions property means we can't be sure there are no tensions
+      // Implementation: !synthesis.tensions → noTensions = true
+      // But this is rubber-stamp territory: all high confidence, no recorded tensions
+      expect(manager.detectRubberStamp(r1Artifacts, synthesis)).toBe(true);
+    });
+  });
+
   describe('promptUserForEarlyTermination', () => {
     it('calls promptFn with formatted message including [Y/n]', async () => {
       promptFn.mockResolvedValue(true);

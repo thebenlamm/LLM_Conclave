@@ -71,4 +71,33 @@ describe('ConsultOrchestrator Early Termination Integration', () => {
     const orchestrator = new ConsultOrchestrator({});
     expect(EarlyTerminationManager).toHaveBeenCalled();
   });
+
+  it('should have detectRubberStamp available on EarlyTerminationManager', () => {
+    // Verify the method exists on the class prototype (unmocked)
+    const { EarlyTerminationManager: RealETM } = jest.requireActual('../../consult/termination/EarlyTerminationManager');
+    const realManager = new RealETM(jest.fn());
+    expect(typeof realManager.detectRubberStamp).toBe('function');
+  });
+
+  it('detectRubberStamp returns true for rubber-stamp consensus (high confidence, no tensions)', () => {
+    const { EarlyTerminationManager: RealETM } = jest.requireActual('../../consult/termination/EarlyTerminationManager');
+    const realManager = new RealETM(jest.fn());
+
+    const result = realManager.detectRubberStamp(
+      [{ confidence: 0.9 }, { confidence: 0.95 }],
+      { tensions: [] }
+    );
+    expect(result).toBe(true);
+  });
+
+  it('detectRubberStamp returns false when tensions exist', () => {
+    const { EarlyTerminationManager: RealETM } = jest.requireActual('../../consult/termination/EarlyTerminationManager');
+    const realManager = new RealETM(jest.fn());
+
+    const result = realManager.detectRubberStamp(
+      [{ confidence: 0.9 }, { confidence: 0.95 }],
+      { tensions: [{ description: 'A tension' }] }
+    );
+    expect(result).toBe(false);
+  });
 });

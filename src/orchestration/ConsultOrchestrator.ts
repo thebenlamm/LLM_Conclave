@@ -547,47 +547,59 @@ export default class ConsultOrchestrator {
           const synthesisConfidence = this.earlyTerminationManager.calculateSynthesisConfidence(synthesisArtifact);
 
           if (this.earlyTerminationManager.meetsEarlyTerminationCriteria(synthesisConfidence, this.confidenceThreshold)) {
-              // Pause health monitor output to keep interactive prompt clean
-              this.healthMonitor.pause();
-              let userAccepts: boolean;
-              try {
-                userAccepts = await this.earlyTerminationManager.promptUserForEarlyTermination(synthesisConfidence);
-              } finally {
-                this.healthMonitor.resume();
-              }
-
-              if (userAccepts) {
-                  // Early termination accepted
-                  if (this.verbose) console.log(chalk.green('✓ Early termination accepted by user. Skipping Rounds 3 & 4.'));
-
-                  // Synthesize verdict from synthesis
-                  verdictArtifact = this.synthesizeVerdictFromSynthesis(synthesisArtifact);
-
-                  // Calculate savings
-                  const estimatedSavings = this.costEstimator.calculateEarlyTerminationSavings(this.agents, 2); // Skipping R3 & R4
-
-                  // Transition directly to Complete
-                  this.stateMachine.transition(ConsultState.Complete);
-
-                  // Return result immediately
-                  return this.createFinalResult({
-                      question,
-                      context,
-                      startTime,
-                      estimate,
-                      agentResponses,
-                      successfulArtifacts,
-                      synthesisArtifact,
-                      verdictArtifact,
-                      debateValueAnalysis: undefined,
-                      earlyTermination: true,
-                      earlyTerminationReason: 'high_confidence_after_synthesis',
-                      estimatedCostSaved: estimatedSavings
-                  });
+              // QUAL-02: Check for rubber-stamp consensus before allowing early termination
+              const isRubberStamped = this.earlyTerminationManager.detectRubberStamp(
+                successfulArtifacts,
+                synthesisArtifact
+              );
+              if (isRubberStamped) {
+                if (this.verbose) console.log(chalk.yellow(
+                  '⚠️ Rubber-stamp detected: all agents agreed at high confidence with no tensions. Continuing to Round 3 for cross-examination.'
+                ));
+                // Fall through to Round 3 — do NOT offer early termination
               } else {
-                  // User declined early termination (AC #4)
-                  earlyTerminationDeclined = true;
-                  if (this.verbose) console.log(chalk.yellow('User declined early termination. Continuing to Round 3.'));
+                // Pause health monitor output to keep interactive prompt clean
+                this.healthMonitor.pause();
+                let userAccepts: boolean;
+                try {
+                  userAccepts = await this.earlyTerminationManager.promptUserForEarlyTermination(synthesisConfidence);
+                } finally {
+                  this.healthMonitor.resume();
+                }
+
+                if (userAccepts) {
+                    // Early termination accepted
+                    if (this.verbose) console.log(chalk.green('✓ Early termination accepted by user. Skipping Rounds 3 & 4.'));
+
+                    // Synthesize verdict from synthesis
+                    verdictArtifact = this.synthesizeVerdictFromSynthesis(synthesisArtifact);
+
+                    // Calculate savings
+                    const estimatedSavings = this.costEstimator.calculateEarlyTerminationSavings(this.agents, 2); // Skipping R3 & R4
+
+                    // Transition directly to Complete
+                    this.stateMachine.transition(ConsultState.Complete);
+
+                    // Return result immediately
+                    return this.createFinalResult({
+                        question,
+                        context,
+                        startTime,
+                        estimate,
+                        agentResponses,
+                        successfulArtifacts,
+                        synthesisArtifact,
+                        verdictArtifact,
+                        debateValueAnalysis: undefined,
+                        earlyTermination: true,
+                        earlyTerminationReason: 'high_confidence_after_synthesis',
+                        estimatedCostSaved: estimatedSavings
+                    });
+                } else {
+                    // User declined early termination (AC #4)
+                    earlyTerminationDeclined = true;
+                    if (this.verbose) console.log(chalk.yellow('User declined early termination. Continuing to Round 3.'));
+                }
               }
           }
       } else if (synthesisArtifact && this.strategy.name === 'explore') {

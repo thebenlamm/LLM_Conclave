@@ -29,6 +29,25 @@ export class EarlyTerminationManager {
   }
 
   /**
+   * Detect rubber-stamp consensus: all agents agree at high confidence
+   * without any recorded tensions or dissent. This signals the agents
+   * may be echoing each other rather than genuinely converging.
+   *
+   * @param round1Artifacts - Array of R1 artifacts with confidence scores
+   * @param synthesis - Synthesis artifact with optional tensions array
+   * @returns true if consensus appears rubber-stamped (all high confidence, no tensions)
+   */
+  detectRubberStamp(
+    round1Artifacts: Array<{ confidence: number }>,
+    synthesis: { tensions?: Array<unknown> }
+  ): boolean {
+    if (round1Artifacts.length < 2) return false;
+    const allHighConfidence = round1Artifacts.every(a => a.confidence > 0.85);
+    const noTensions = !synthesis.tensions || synthesis.tensions.length === 0;
+    return allHighConfidence && noTensions;
+  }
+
+  /**
    * Prompt the user to confirm early termination
    */
   async promptUserForEarlyTermination(confidence: number): Promise<boolean> {
