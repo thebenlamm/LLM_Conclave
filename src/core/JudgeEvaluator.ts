@@ -362,8 +362,13 @@ export default class JudgeEvaluator {
       for (const entry of lastRound.entries) {
         if (entry.role === 'assistant' && entry.speaker !== 'Judge' && !entry.error) {
           // Take first 2 sentences as position summary
-          const sentences = entry.content.match(/[^.!?]*[.!?]/g);
-          const summary = sentences
+          // QUAL-04: Filter out markdown headers before extracting sentences
+          const contentLines = entry.content
+            .split('\n')
+            .filter((line: string) => !line.trimStart().startsWith('#'))
+            .join('\n');
+          const sentences = contentLines.match(/[^.!?]*[.!?]/g);
+          const summary = sentences && sentences.length > 0
             ? sentences.slice(0, 2).join('').trim()
             : entry.content.substring(0, 200).trim();
           agentPositions.push(`${entry.speaker}: ${summary}`);
