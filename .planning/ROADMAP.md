@@ -137,10 +137,10 @@ Plans:
   2. Calling `llm_conclave_status` with no active discussion returns the most recent completed session summary (task, outcome, timestamp)
   3. The tool never errors, never times out, and never returns empty — always a valid structured response
   4. `active-discussion.json` is written on discussion start, updated every heartbeat, and deleted on completion
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] TBD
+- [ ] 10-01-PLAN.md — StatusFileManager lifecycle + llm_conclave_status MCP tool registration and handler
 
 ### Phase 11: Infrastructure Agent Quality
 **Goal**: Fix selector termination bugs in dynamic mode (per-round contribution override, force-remaining-agents) and add lightweight instrumentation (turn analytics, dissent quality check) to verify fixes work
@@ -174,5 +174,5 @@ Plans:
 | 7. Cost Pipeline | v1.2 | 1/1 | Complete   | 2026-04-07 |
 | 8. Output Completeness | v1.2 | 0/1 | Not started | - |
 | 9. Data Correctness | v1.2 | 2/2 | Complete   | 2026-04-07 |
-| 10. Status MCP Tool | v1.2 | 0/? | Not started | - |
+| 10. Status MCP Tool | v1.2 | 0/1 | Not started | - |
 | 11. Infrastructure Agent Quality | v1.2 | 0/? | Not started | - |
