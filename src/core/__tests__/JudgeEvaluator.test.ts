@@ -216,6 +216,61 @@ describe('JudgeEvaluator', () => {
       expect(result.confidence).toBe('LOW');
     });
 
+    it('filters markdown headers from extracted sentences (QUAL-04)', () => {
+      const lastRoundEntries = [
+        { role: 'assistant' as const, speaker: 'Agent1', content: '# Introduction\nThis is the main point. Edge cases matter.' },
+        { role: 'assistant' as const, speaker: 'Agent2', content: '## Section Header\n### Subsection\nActual content here. More content.' },
+      ];
+      const mockHistory = {
+        groupHistoryByRound: jest.fn().mockReturnValue([
+          { round: 1, entries: lastRoundEntries },
+        ]),
+      };
+      const deps = makeDeps({ history: mockHistory as any });
+      const evaluator = new JudgeEvaluator(deps);
+      const result = (evaluator as any).bestEffortJudgeResult();
+      // Should NOT contain markdown headers
+      expect(result.solution).not.toContain('# Introduction');
+      expect(result.solution).not.toContain('## Section Header');
+      expect(result.solution).not.toContain('### Subsection');
+      // Should contain actual content sentences
+      expect(result.solution).toContain('This is the main point.');
+      expect(result.solution).toContain('Actual content here.');
+    });
+
+    it('extracts sentences normally when no markdown headers present (QUAL-04)', () => {
+      const lastRoundEntries = [
+        { role: 'assistant' as const, speaker: 'Agent1', content: 'REST is best. It has great tooling.' },
+      ];
+      const mockHistory = {
+        groupHistoryByRound: jest.fn().mockReturnValue([
+          { round: 1, entries: lastRoundEntries },
+        ]),
+      };
+      const deps = makeDeps({ history: mockHistory as any });
+      const evaluator = new JudgeEvaluator(deps);
+      const result = (evaluator as any).bestEffortJudgeResult();
+      expect(result.solution).toContain('REST is best.');
+      expect(result.solution).toContain('It has great tooling.');
+    });
+
+    it('falls back to substring when all sentences are markdown headers (QUAL-04)', () => {
+      const lastRoundEntries = [
+        { role: 'assistant' as const, speaker: 'Agent1', content: '# Only Headers.\n## Another Header.' },
+      ];
+      const mockHistory = {
+        groupHistoryByRound: jest.fn().mockReturnValue([
+          { round: 1, entries: lastRoundEntries },
+        ]),
+      };
+      const deps = makeDeps({ history: mockHistory as any });
+      const evaluator = new JudgeEvaluator(deps);
+      const result = (evaluator as any).bestEffortJudgeResult();
+      // Falls back to substring(0, 200) since all sentences start with #
+      expect(result.solution).toContain('Agent1:');
+      expect(result.solution).not.toBe('');
+    });
+
     it('returns fallback message when no agent entries in history', () => {
       const mockHistory = {
         groupHistoryByRound: jest.fn().mockReturnValue([
