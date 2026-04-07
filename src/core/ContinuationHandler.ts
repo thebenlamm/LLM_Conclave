@@ -77,12 +77,18 @@ export default class ContinuationHandler {
       followUpTask
     );
 
+    // Filter out orphan judge guidance from the parent session (INTEG-03)
+    const filteredHistory = existingHistory.filter(
+      msg => !(msg.role === 'user' && msg.speaker === 'Judge')
+    );
+
     // Create a system message marking the continuation point
     const continuationMarker: SessionMessage = {
       role: 'system',
       content: '[CONTINUATION FROM PREVIOUS SESSION]',
+      speaker: 'System',
       timestamp: new Date().toISOString(),
-      roundNumber: existingHistory.length,
+      roundNumber: filteredHistory.length,
       isContinuation: true,
     };
 
@@ -90,14 +96,15 @@ export default class ContinuationHandler {
     const userMessage: SessionMessage = {
       role: 'user',
       content: continuationPrompt,
+      speaker: 'System',
       timestamp: new Date().toISOString(),
-      roundNumber: existingHistory.length + 1,
+      roundNumber: filteredHistory.length + 1,
       isContinuation: true,
       continuationContext: followUpTask,
     };
 
     // Return merged history
-    return [...existingHistory, continuationMarker, userMessage];
+    return [...filteredHistory, continuationMarker, userMessage];
   }
 
   /**
@@ -169,25 +176,31 @@ export default class ContinuationHandler {
     originalTask: string,
     previousSolution?: string
   ): SessionMessage[] {
-    // For now, just keep first message, last few messages, and add continuation
+    // Filter out orphan judge guidance before compressing (INTEG-03)
+    const filteredHistory = history.filter(
+      msg => !(msg.role === 'user' && msg.speaker === 'Judge')
+    );
+
+    // Keep first message, last few messages, and add continuation
     const compressed: SessionMessage[] = [];
 
     // Keep initial task
-    if (history.length > 0) {
-      compressed.push(history[0]);
+    if (filteredHistory.length > 0) {
+      compressed.push(filteredHistory[0]);
     }
 
     // Add summary marker
     const summaryMarker: SessionMessage = {
       role: 'system',
-      content: `[${history.length - 2} messages summarized]\n\nKey outcome: ${previousSolution || 'Discussion completed'}`,
+      content: `[${filteredHistory.length - 2} messages summarized]\n\nKey outcome: ${previousSolution || 'Discussion completed'}`,
+      speaker: 'System',
       timestamp: new Date().toISOString(),
       roundNumber: 1,
     };
     compressed.push(summaryMarker);
 
     // Keep last 3 messages
-    const recentMessages = history.slice(-3);
+    const recentMessages = filteredHistory.slice(-3);
     compressed.push(...recentMessages);
 
     // Add continuation context

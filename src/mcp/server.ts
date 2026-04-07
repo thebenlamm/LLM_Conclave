@@ -560,7 +560,9 @@ async function handleContinue(args: {
     rounds: resolvedConfig.max_rounds,
     minRounds: resolvedConfig.min_rounds,
     onProgress,
-    priorHistory: prepared.mergedHistory.map((msg: any) => ({
+    // Drop the last 2 entries (continuation marker + continuation user prompt) from
+    // mergedHistory — the prompt will be re-injected via task: prepared.newTask (INTEG-04)
+    priorHistory: prepared.mergedHistory.slice(0, -2).map((msg: any) => ({
       role: msg.role,
       content: msg.content,
       speaker: msg.speaker || (msg.role === 'user' ? 'System' : 'Assistant'),
