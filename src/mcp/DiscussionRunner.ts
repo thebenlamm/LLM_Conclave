@@ -18,6 +18,7 @@ import { ConfigCascade } from '../config/ConfigCascade.js';
 import { PersonaSystem } from '../config/PersonaSystem.js';
 import ProviderFactory from '../providers/ProviderFactory.js';
 import ProjectContext from '../utils/ProjectContext.js';
+import { CostTracker } from '../core/CostTracker.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 
 /**
@@ -291,7 +292,8 @@ export class DiscussionRunner {
     scopedEventBus.on('error', onError);
     scopedEventBus.on('status', onStatus);
 
-    // 8. ConversationManager construction
+    // 8. ConversationManager construction — per-session CostTracker for cost isolation (OBSRV-01)
+    const costTracker = new CostTracker();
     const conversationManager = new ConversationManager(
       config,
       null,   // memoryManager
@@ -299,7 +301,7 @@ export class DiscussionRunner {
       scopedEventBus,
       dynamic,
       selectorModel,
-      { judgeInstructions }
+      { judgeInstructions, costTracker }
     );
 
     // 9. Timeout/abort setup

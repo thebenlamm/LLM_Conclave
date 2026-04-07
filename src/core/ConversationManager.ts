@@ -302,6 +302,7 @@ export default class ConversationManager {
           degradedSolution = bestEffort.solution;
         }
 
+        const degradedCostSummary = this.costTracker.getSummary();
         return {
           task: task,
           rounds: this.currentRound,
@@ -319,6 +320,14 @@ export default class ConversationManager {
           agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
           degraded: true,
           degradedReason,
+          cost: {
+            totalCost: degradedCostSummary.totalCost,
+            totalTokens: {
+              input: degradedCostSummary.totalTokens.input,
+              output: degradedCostSummary.totalTokens.output,
+            },
+            totalCalls: degradedCostSummary.totalCalls,
+          },
         };
       }
 
@@ -476,6 +485,7 @@ export default class ConversationManager {
         clearTimeout(judgeTimeout);
       }
 
+      const abortedCostSummary = this.costTracker.getSummary();
       return {
         task: task,
         rounds: this.currentRound,
@@ -492,6 +502,14 @@ export default class ConversationManager {
         failedAgentDetails,
         agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
         timedOut: true,
+        cost: {
+          totalCost: abortedCostSummary.totalCost,
+          totalTokens: {
+            input: abortedCostSummary.totalTokens.input,
+            output: abortedCostSummary.totalTokens.output,
+          },
+          totalCalls: abortedCostSummary.totalCalls,
+        },
       };
     }
 
@@ -542,6 +560,9 @@ export default class ConversationManager {
       console.log(`${'─'.repeat(60)}\n`);
     }
 
+    // Build cost data from CostTracker for session persistence (OBSRV-01)
+    const costSummary = this.costTracker.getSummary();
+
     const result = {
       task: task,
       rounds: this.currentRound,
@@ -557,6 +578,14 @@ export default class ConversationManager {
       failedAgents: uniqueFailedAgents,
       failedAgentDetails,
       agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
+      cost: {
+        totalCost: costSummary.totalCost,
+        totalTokens: {
+          input: costSummary.totalTokens.input,
+          output: costSummary.totalTokens.output,
+        },
+        totalCalls: costSummary.totalCalls,
+      },
     };
 
     if (this.eventBus) {

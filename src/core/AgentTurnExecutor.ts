@@ -256,6 +256,15 @@ export default class AgentTurnExecutor {
               agent.provider = fallbackProvider;
               agent.model = fallbackModel;
               console.log(`[${agentName}: Switched from ${originalModel} to ${fallbackModel} for remainder of discussion]`);
+              // Structured fallback event log for observability (RESIL-01)
+              console.log(JSON.stringify({
+                event: 'FALLBACK_EVENT',
+                agent: agentName,
+                originalModel: originalModel,
+                fallbackModel: fallbackModel,
+                reason: errorMsg,
+                timestamp: new Date().toISOString()
+              }));
 
               this.pushAgentResponse(fallbackText, agentName, fallbackModel);
               // Fallback counts as success — reset consecutive failure counter
