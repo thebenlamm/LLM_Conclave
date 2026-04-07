@@ -460,13 +460,45 @@ export default class JudgeEvaluator {
         isRubberStamped = entriesWithChallenge.length < Math.ceil(currentRoundEntries.length / 2);
       }
 
+      // Also detect thin verdicts: agents all agree but reasoning overlaps heavily (generic, non-domain-specific)
+      if (!isRubberStamped && currentRoundEntries.length >= 2) {
+        const contents = currentRoundEntries.map(e => e.content);
+        const extractNgrams = (text: string): Set<string> => {
+          const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+          const ngrams = new Set<string>();
+          for (let i = 0; i <= words.length - 3; i++) {
+            ngrams.add(words.slice(i, i + 3).join(' '));
+          }
+          return ngrams;
+        };
+
+        let pairCount = 0;
+        let highOverlap = 0;
+        for (let i = 0; i < contents.length; i++) {
+          for (let j = i + 1; j < contents.length; j++) {
+            pairCount++;
+            const a = extractNgrams(contents[i]);
+            const b = extractNgrams(contents[j]);
+            if (a.size === 0 || b.size === 0) continue;
+            const smaller = a.size <= b.size ? a : b;
+            const larger = a.size <= b.size ? b : a;
+            let overlap = 0;
+            for (const ng of smaller) { if (larger.has(ng)) overlap++; }
+            if (smaller.size > 0 && overlap / smaller.size >= 0.6) highOverlap++;
+          }
+        }
+        if (pairCount > 0 && highOverlap > pairCount / 2) {
+          isRubberStamped = true;
+        }
+      }
+
       let roundContext = '';
       if (!allAgentsContributed) {
         roundContext = `\n\n⚠️ WARNING: Not all agents have contributed yet. Missing: ${missingAgents.join(', ')}. Consensus CANNOT be declared until all agents have had a chance to speak.`;
       } else if (isExcessiveQuoting) {
         roundContext = `\n\nNote: Agents are quoting each other extensively instead of adding new ideas. In your guidance, tell them: "STOP restating what others said. Reference ideas briefly then ADD something new — a counterargument, an edge case, a concrete implementation detail. If you have nothing new, say so in one sentence."`;
       } else if (isRubberStamped && currentRound <= 2) {
-        roundContext = `\n\nNote: This round's responses showed mostly agreement without substantive challenge. No agent asked probing questions about risks, costs, or implementation feasibility. In your evaluation, treat this as premature consensus. Your guidance should name specific agents and ask them to identify concrete risks or trade-offs.`;
+        roundContext = `\n\nNote: This round's responses showed mostly agreement without substantive challenge — agents appear to be echoing similar reasoning rather than providing independent domain-specific analysis. No agent asked probing questions about risks, costs, or implementation feasibility. In your evaluation, treat this as premature consensus. Your guidance should name specific agents and ask them to identify concrete risks or trade-offs.`;
       } else if (currentRound > 2 && isShallowAgreement) {
         roundContext = `\n\nNote: This is round ${currentRound}. The agents appear to be agreeing superficially. Push them to challenge assumptions, explore edge cases, or identify weaknesses that haven't been addressed.`;
       }

@@ -114,6 +114,44 @@ describe('EarlyTerminationManager', () => {
       // But this is rubber-stamp territory: all high confidence, no recorded tensions
       expect(manager.detectRubberStamp(r1Artifacts, synthesis)).toBe(true);
     });
+
+    it('returns true when all high confidence and thin verdict detected (tensions present but reasoning overlaps)', () => {
+      // All agents have high confidence but provide nearly identical content
+      const repeatedText = 'This approach should improve the system performance significantly. We should implement the caching layer to reduce database calls. The solution will scale well under load.';
+      const r1Artifacts = [
+        { confidence: 0.9, content: repeatedText },
+        { confidence: 0.92, content: repeatedText }
+      ];
+      // Note: tensions ARE present, so original check would return false, but thin verdict fires
+      const synthesis = { tensions: [{ description: 'Minor concern about approach' }] };
+      expect(manager.detectRubberStamp(r1Artifacts, synthesis)).toBe(true);
+    });
+  });
+
+  describe('detectThinVerdict', () => {
+    it('returns false for fewer than 2 agents', () => {
+      expect(manager.detectThinVerdict([])).toBe(false);
+      expect(manager.detectThinVerdict(['Only one agent response here with enough words to matter.'])).toBe(false);
+    });
+
+    it('returns true when agent contents are nearly identical (high overlap)', () => {
+      const text = 'This approach should improve the system performance significantly. We should implement the caching layer to reduce database calls. The solution will scale well under load.';
+      // Same text repeated — maximum overlap
+      expect(manager.detectThinVerdict([text, text])).toBe(true);
+    });
+
+    it('returns false when agents provide distinct domain-specific content', () => {
+      const contentA = 'From a security perspective, the OAuth2 token rotation approach introduces CSRF risk if the redirect URI is not validated. We should use PKCE flow with a code verifier stored in session. The refresh token lifetime should be bounded to 24 hours.';
+      const contentB = 'The database schema needs a composite index on (user_id, created_at) to support the paginated query pattern. Without this, every page fetch triggers a full table scan. Consider partitioning by month for archival workloads.';
+      expect(manager.detectThinVerdict([contentA, contentB])).toBe(false);
+    });
+
+    it('returns true with custom lower threshold', () => {
+      const textA = 'The solution should be implemented carefully. We need to consider performance implications when designing this feature.';
+      const textB = 'The solution should be implemented carefully. We need to think about edge cases when designing this feature.';
+      // These share some overlap — with a low threshold (0.3) should trigger
+      expect(manager.detectThinVerdict([textA, textB], 0.3)).toBe(true);
+    });
   });
 
   describe('promptUserForEarlyTermination', () => {
