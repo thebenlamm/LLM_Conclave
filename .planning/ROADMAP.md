@@ -122,7 +122,11 @@ Plans:
   2. Conversation entries within a discuss session have timestamps that reflect actual response time, not the shared session creation timestamp
   3. ConsultationResult agents array shows provider name (e.g., "anthropic") not model name (e.g., "claude-opus-4-5") in the provider field
   4. Rubber-stamp detection flags high-confidence verdicts where agents supply generic/overlapping reasoning rather than domain-specific analysis
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — Fix duplicate log filenames and populate provider names in ConsultationResult
+- [ ] 09-02-PLAN.md — Add per-response timestamps and enhance thin-verdict rubber-stamp detection
 
 ### Phase 10: Status MCP Tool
 **Goal**: Add `llm_conclave_status` MCP tool — a 0ms filesystem read that returns active discussion status or last completed session. Write `active-discussion.json` during execution via existing heartbeat, delete on completion.
@@ -169,6 +173,6 @@ Plans:
 | 6. Judge Quality | v1.1 | 2/2 | Complete | 2026-04-07 |
 | 7. Cost Pipeline | v1.2 | 1/1 | Complete   | 2026-04-07 |
 | 8. Output Completeness | v1.2 | 0/1 | Not started | - |
-| 9. Data Correctness | v1.2 | 0/? | Not started | - |
+| 9. Data Correctness | v1.2 | 0/2 | Not started | - |
 | 10. Status MCP Tool | v1.2 | 0/? | Not started | - |
 | 11. Infrastructure Agent Quality | v1.2 | 0/? | Not started | - |
