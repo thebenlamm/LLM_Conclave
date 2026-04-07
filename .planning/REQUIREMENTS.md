@@ -27,9 +27,9 @@ All items from backlog — data quality fixes, cost pipeline completion, and qua
 
 ### Infrastructure Agent Quality
 
-- [ ] **INFRA-01**: In dynamic mode, judge consensus declaration is not overridden by per-round contribution checks — consensus stops the discussion
-- [ ] **INFRA-02**: In dynamic mode, when the selector says shouldContinue: false, the round ends without forcing remaining agents to speak
-- [ ] **INFRA-03**: Per-discussion contribution check ensures every agent has spoken at least once across all rounds before allowing consensus
+- [x] **INFRA-01**: In dynamic mode, judge consensus declaration is not overridden by per-round contribution checks — consensus stops the discussion
+- [x] **INFRA-02**: In dynamic mode, when the selector says shouldContinue: false, the round ends without forcing remaining agents to speak
+- [x] **INFRA-03**: Per-discussion contribution check ensures every agent has spoken at least once across all rounds before allowing consensus
 - [ ] **INFRA-04**: Session JSON and tool response include per-agent turn counts and token share percentages
 - [ ] **INFRA-05**: Session JSON includes dissent_quality field ("captured"/"missing"/"not_applicable") and tool response shows a warning when dissent is missing despite disagreement
 

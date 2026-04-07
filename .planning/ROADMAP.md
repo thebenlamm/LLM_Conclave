@@ -155,7 +155,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 11-01-PLAN.md — Fix selector termination: remove force-remaining-agents and fix contribution override in dynamic mode
+- [x] 11-01-PLAN.md — Fix selector termination: remove force-remaining-agents and fix contribution override in dynamic mode
 - [ ] 11-02-PLAN.md — Add turn analytics (per-agent turns + token share) and dissent quality instrumentation
 
 ## Backlog
@@ -176,4 +176,4 @@ Plans:
 | 8. Output Completeness | v1.2 | 0/1 | Not started | - |
 | 9. Data Correctness | v1.2 | 2/2 | Complete   | 2026-04-07 |
 | 10. Status MCP Tool | v1.2 | 1/1 | Complete    | 2026-04-07 |
-| 11. Infrastructure Agent Quality | v1.2 | 0/2 | Not started | - |
+| 11. Infrastructure Agent Quality | v1.2 | 1/2 | In Progress|  |
