@@ -38,6 +38,7 @@ import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 import { ContextLoader } from '../consult/context/ContextLoader.js';
 import { DiscussionRunner } from './DiscussionRunner.js';
+import { StatusFileManager } from './StatusFileManager.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -260,6 +261,14 @@ Example inline JSON:
       },
     },
   },
+  {
+    name: 'llm_conclave_status',
+    description: 'Check the status of any active Conclave discussion, or see the most recent completed session. Instant filesystem read — no LLM calls, never times out.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];
 
 // ============================================================================
@@ -289,6 +298,9 @@ function registerHandlers(server: Server) {
 
         case 'llm_conclave_sessions':
           return await handleSessions(args as any);
+
+        case 'llm_conclave_status':
+          return await handleStatus();
 
         default:
           throw new Error(`Unknown tool: ${name}`);
@@ -630,6 +642,78 @@ async function handleSessions(args: {
         text: output,
       },
     ],
+  };
+}
+
+/**
+ * Handle llm_conclave_status — instant filesystem read, never times out, never errors.
+ * Returns active discussion status if running, or most recent completed session summary.
+ */
+async function handleStatus() {
+  // 1. Check for active discussion via status file
+  const statusFileManager = new StatusFileManager();
+  const active = statusFileManager.readStatus();
+
+  if (active) {
+    const elapsed = active.elapsedMs;
+    const minutes = Math.floor(elapsed / 60000);
+    const seconds = Math.floor((elapsed % 60000) / 1000);
+    const elapsedStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+    let output = `# Active Discussion\n\n`;
+    output += `**Task:** ${active.task}\n`;
+    output += `**Round:** ${active.currentRound}/${active.maxRounds}\n`;
+    output += `**Elapsed:** ${elapsedStr}\n`;
+    output += `**Agents:** ${active.agents.join(', ')}\n`;
+    if (active.currentAgent) {
+      output += `**Currently responding:** ${active.currentAgent}\n`;
+    }
+    output += `\n*Updated: ${active.updatedAt}*\n`;
+
+    // Stale detection: if updatedAt is >2 minutes old, warn caller (per D-03)
+    const updatedAge = Date.now() - new Date(active.updatedAt).getTime();
+    if (updatedAge > 120_000) {
+      output += `\n> **Warning:** Status file is ${Math.floor(updatedAge / 60000)}m old. The discussion process may have crashed.\n`;
+    }
+
+    return {
+      content: [{ type: 'text', text: output }],
+    };
+  }
+
+  // 2. No active discussion — show most recent completed session
+  try {
+    const sessionManager = new SessionManager();
+    const sessions = await sessionManager.listSessions({ limit: 1 });
+
+    if (sessions.length > 0) {
+      const session = sessions[0];
+      const date = new Date(session.timestamp).toLocaleString();
+      const taskPreview = session.task.length > 100
+        ? session.task.substring(0, 100) + '...'
+        : session.task;
+
+      let output = `# No Active Discussion\n\n`;
+      output += `**Last completed:**\n`;
+      output += `- **Task:** ${taskPreview}\n`;
+      output += `- **Completed:** ${date}\n`;
+      output += `- **Consensus:** ${session.consensusReached ? 'Yes' : session.consensusReached === false ? 'No' : 'N/A'}\n`;
+      output += `- **Rounds:** ${session.roundCount} | **Cost:** $${session.cost.toFixed(4)}\n`;
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+    }
+  } catch {
+    // Fall through to no-session response per D-09 — never error
+  }
+
+  // 3. No active discussion, no completed sessions
+  return {
+    content: [{
+      type: 'text',
+      text: '# No Active Discussion\n\nNo discussions running and no completed sessions found. Start one with `llm_conclave_discuss`.',
+    }],
   };
 }
 

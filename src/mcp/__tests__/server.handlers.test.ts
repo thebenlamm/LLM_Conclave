@@ -133,6 +133,16 @@ jest.mock('../../constants.js', () => ({
 
 jest.mock('../../types/consult.js', () => ({}));
 
+// Mock StatusFileManager for llm_conclave_status tests
+const mockReadStatus = jest.fn().mockReturnValue(null);
+jest.mock('../StatusFileManager.js', () => ({
+  StatusFileManager: jest.fn(() => ({
+    readStatus: mockReadStatus,
+    writeStatus: jest.fn(),
+    deleteStatus: jest.fn(),
+  })),
+}));
+
 import { createServer } from '../server';
 
 // Import saveFullDiscussion and formatDiscussionResult for direct testing
@@ -166,20 +176,33 @@ describe('MCP Server Handlers', () => {
   });
 
   describe('ListTools handler', () => {
-    it('returns all 4 tools', async () => {
+    it('returns all 5 tools including llm_conclave_status', async () => {
       mockSetRequestHandler.mockClear();
       createServer();
       const listToolsHandler = mockSetRequestHandler.mock.calls.find(
         (call: any) => call[0] === 'ListToolsRequestSchema'
       )?.[1];
       const result = await listToolsHandler();
-      expect(result.tools).toHaveLength(4);
+      expect(result.tools).toHaveLength(5);
       expect(result.tools.map((t: any) => t.name)).toEqual([
         'llm_conclave_consult',
         'llm_conclave_discuss',
         'llm_conclave_continue',
         'llm_conclave_sessions',
+        'llm_conclave_status',
       ]);
+    });
+
+    it('llm_conclave_status tool has no required properties', async () => {
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const listToolsHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'ListToolsRequestSchema'
+      )?.[1];
+      const result = await listToolsHandler();
+      const statusTool = result.tools.find((t: any) => t.name === 'llm_conclave_status');
+      expect(statusTool).toBeDefined();
+      expect(statusTool.inputSchema.required).toBeUndefined();
     });
   });
 
@@ -978,5 +1001,110 @@ describe('MCP Server Handlers', () => {
         expect(parsed).not.toHaveProperty('estimated_cost');
       });
     });
+
+    describe('handleStatus', () => {
+      beforeEach(() => {
+        mockReadStatus.mockReturnValue(null);
+      });
+
+      it('returns "No Active Discussion" when no status file and no sessions', async () => {
+        const result = await callToolHandler({
+          params: { name: 'llm_conclave_status', arguments: {} },
+        });
+        expect(result.isError).toBeUndefined();
+        expect(result.content[0].text).toContain('No Active Discussion');
+        expect(result.content[0].text).toContain('llm_conclave_discuss');
+      });
+
+      it('returns last completed session summary when no active discussion', async () => {
+        const SessionManager = require('../../core/SessionManager').default;
+        SessionManager.mockImplementation(() => ({
+          listSessions: jest.fn().mockResolvedValue([
+            {
+              id: 'session-xyz',
+              timestamp: new Date('2026-04-07T05:00:00.000Z').toISOString(),
+              task: 'What is the best architecture for this project?',
+              mode: 'consensus',
+              status: 'completed',
+              roundCount: 3,
+              agentCount: 3,
+              cost: 0.0512,
+              consensusReached: true,
+            },
+          ]),
+        }));
+
+        const result = await callToolHandler({
+          params: { name: 'llm_conclave_status', arguments: {} },
+        });
+        expect(result.isError).toBeUndefined();
+        const text = result.content[0].text;
+        expect(text).toContain('No Active Discussion');
+        expect(text).toContain('Last completed');
+        expect(text).toContain('What is the best architecture');
+        expect(text).toContain('Yes'); // consensusReached
+        expect(text).toContain('0.0512');
+      });
+
+      it('returns active discussion status when status file exists', async () => {
+        mockReadStatus.mockReturnValue({
+          active: true as const,
+          task: 'Debate: AI regulation',
+          startTime: new Date(Date.now() - 90000).toISOString(),
+          elapsedMs: 90000,
+          agents: ['Claude', 'GPT-4', 'Gemini'],
+          currentRound: 2,
+          maxRounds: 4,
+          currentAgent: 'Claude',
+          updatedAt: new Date().toISOString(),
+        });
+
+        const result = await callToolHandler({
+          params: { name: 'llm_conclave_status', arguments: {} },
+        });
+        expect(result.isError).toBeUndefined();
+        const text = result.content[0].text;
+        expect(text).toContain('Active Discussion');
+        expect(text).toContain('Debate: AI regulation');
+        expect(text).toContain('2/4');
+        expect(text).toContain('Claude');
+        expect(text).toContain('GPT-4');
+      });
+
+      it('warns when status file is stale (>2 min old)', async () => {
+        const staleTime = new Date(Date.now() - 200_000).toISOString(); // ~3.3 min ago
+        mockReadStatus.mockReturnValue({
+          active: true as const,
+          task: 'Stale task',
+          startTime: new Date(Date.now() - 300_000).toISOString(),
+          elapsedMs: 300_000,
+          agents: ['Agent1'],
+          currentRound: 1,
+          maxRounds: 4,
+          currentAgent: null,
+          updatedAt: staleTime,
+        });
+
+        const result = await callToolHandler({
+          params: { name: 'llm_conclave_status', arguments: {} },
+        });
+        expect(result.content[0].text).toContain('Warning');
+        expect(result.content[0].text).toContain('crashed');
+      });
+
+      it('never errors even if SessionManager throws', async () => {
+        const SessionManager = require('../../core/SessionManager').default;
+        SessionManager.mockImplementation(() => ({
+          listSessions: jest.fn().mockRejectedValue(new Error('disk error')),
+        }));
+
+        const result = await callToolHandler({
+          params: { name: 'llm_conclave_status', arguments: {} },
+        });
+        expect(result.isError).toBeUndefined();
+        expect(result.content[0].text).toContain('No Active Discussion');
+      });
+    });
   });
 });
+
