@@ -53,7 +53,11 @@ Plans:
   4. Session JSON status reads "completed_degraded" (not "completed") when the judge was unavailable during the run
   5. Discuss session JSON files contain non-zero token counts and USD cost after a real run
   6. Consult log aggregate input token count reflects the actual sum across all rounds, not a single-round value
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Structured fallback logging and discuss cost tracking wiring
+- [x] 05-02-PLAN.md — Judge fallback in consult rounds, partial abort results, degraded status, token fix
 
 ### Phase 6: Judge Quality
 **Goal**: The judge produces differentiated, non-redundant synthesis that reflects actual agent progress each round
@@ -74,7 +78,7 @@ Plans:
 | 2. ConversationManager Decomposition | v1.0 | 3/3 | Complete | 2026-04-06 |
 | 3. MCP Deduplication + Orchestrator Assessment | v1.0 | 2/2 | Complete | 2026-04-06 |
 | 4. Conversation Integrity | v1.1 | 0/2 | Not started | - |
-| 5. Resilience & Observability | v1.1 | 0/TBD | Not started | - |
+| 5. Resilience & Observability | v1.1 | 0/2 | Not started | - |
 | 6. Judge Quality | v1.1 | 0/TBD | Not started | - |
 
 ## Backlog — Kept
