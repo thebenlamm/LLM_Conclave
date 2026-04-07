@@ -34,7 +34,7 @@ Full details: `.planning/milestones/v1.1-ROADMAP.md`
 
 - [x] **Phase 7: Cost Pipeline** - Wire CostTracker data through to session manifest and tool response output (completed 2026-04-07)
 - [ ] **Phase 8: Output Completeness** - Populate outputFiles paths, consensusReached in manifest, and degraded-status banner
-- [ ] **Phase 9: Data Correctness** - Fix duplicate logs, per-response timestamps, provider field naming, and rubber-stamp thin-verdict detection
+- [x] **Phase 9: Data Correctness** - Fix duplicate logs, per-response timestamps, provider field naming, and rubber-stamp thin-verdict detection (completed 2026-04-07)
 - [ ] **Phase 10: Status MCP Tool** - Add llm_conclave_status tool with active-discussion.json status file
 - [ ] **Phase 11: Infrastructure Agent Quality** - Fix selector termination in dynamic mode, add turn analytics and dissent instrumentation
 
@@ -122,10 +122,10 @@ Plans:
   2. Conversation entries within a discuss session have timestamps that reflect actual response time, not the shared session creation timestamp
   3. ConsultationResult agents array shows provider name (e.g., "anthropic") not model name (e.g., "claude-opus-4-5") in the provider field
   4. Rubber-stamp detection flags high-confidence verdicts where agents supply generic/overlapping reasoning rather than domain-specific analysis
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 09-01-PLAN.md — Fix duplicate log filenames and populate provider names in ConsultationResult
+- [x] 09-01-PLAN.md — Fix duplicate log filenames and populate provider names in ConsultationResult
 - [x] 09-02-PLAN.md — Add per-response timestamps and enhance thin-verdict rubber-stamp detection
 
 ### Phase 10: Status MCP Tool
@@ -173,6 +173,6 @@ Plans:
 | 6. Judge Quality | v1.1 | 2/2 | Complete | 2026-04-07 |
 | 7. Cost Pipeline | v1.2 | 1/1 | Complete   | 2026-04-07 |
 | 8. Output Completeness | v1.2 | 0/1 | Not started | - |
-| 9. Data Correctness | v1.2 | 1/2 | In Progress|  |
+| 9. Data Correctness | v1.2 | 2/2 | Complete   | 2026-04-07 |
 | 10. Status MCP Tool | v1.2 | 0/? | Not started | - |
 | 11. Infrastructure Agent Quality | v1.2 | 0/? | Not started | - |

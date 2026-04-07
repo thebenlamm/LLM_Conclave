@@ -19,9 +19,9 @@ All items from backlog — data quality fixes, cost pipeline completion, and qua
 
 ### Data Quality
 
-- [ ] **DATA-01**: Consult log files are written once, not twice with consult- and consult-consult- prefixes
+- [x] **DATA-01**: Consult log files are written once, not twice with consult- and consult-consult- prefixes
 - [x] **DATA-02**: Conversation entries within a session have per-response timestamps reflecting actual response time, not the shared session creation timestamp
-- [ ] **DATA-03**: ConsultationResult agents array provider field contains provider name (e.g., "anthropic") not model name (e.g., "claude-opus-4-5")
+- [x] **DATA-03**: ConsultationResult agents array provider field contains provider name (e.g., "anthropic") not model name (e.g., "claude-opus-4-5")
 - [x] **DATA-04**: Discuss session outputFiles fields (transcript, json) are populated with actual file paths after a run
 - [x] **DATA-05**: Session manifest includes consensusReached field so consumers can determine session outcomes without loading full session files
 
@@ -44,9 +44,9 @@ All items from backlog — data quality fixes, cost pipeline completion, and qua
 | DATA-04 | Phase 8 | Complete |
 | DATA-05 | Phase 8 | Complete |
 | QUAL-05 | Phase 9 | Complete |
-| DATA-01 | Phase 9 | Pending |
+| DATA-01 | Phase 9 | Complete |
 | DATA-02 | Phase 9 | Complete |
-| DATA-03 | Phase 9 | Pending |
+| DATA-03 | Phase 9 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 9 total

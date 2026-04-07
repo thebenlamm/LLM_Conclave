@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Data Quality & Polish
 status: unknown
-stopped_at: Completed 09-02-PLAN.md
-last_updated: "2026-04-07T05:38:11.083Z"
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-04-07T05:39:26.313Z"
 progress:
   total_phases: 8
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -55,6 +55,7 @@ Plan: 2 of 2
 | Phase 07-cost-pipeline P01 | 8min | 2 tasks | 3 files |
 | Phase 08-output-completeness P01 | 18 | 3 tasks | 7 files |
 | Phase 09 P02 | 8 | 2 tasks | 7 files |
+| Phase 09-data-correctness P01 | 8 | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Recent decisions affecting current work:
 - [Phase 08-output-completeness]: consensusReached copied from SessionManifest to SessionSummary in updateIndexManifest for listing access
 - [Phase 09]: timestamp field added to DiscussionHistoryEntry type as optional string to surface per-response timing correctly to TypeScript consumers
 - [Phase 09]: JudgeEvaluator duplicates 3-gram thin-verdict logic inline to maintain consult/discuss layer separation from EarlyTerminationManager
+- [Phase 09-data-correctness]: HedgedRequestManager agentConfig.provider must remain agent.model (ProviderFactory routing key, not display name)
+- [Phase 09-data-correctness]: Use .toLowerCase() on getProviderName() for consistent lowercase provider names in display/result fields
 
 ### Pending Todos
 
@@ -84,6 +87,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-07T05:38:11.081Z
-Stopped at: Completed 09-02-PLAN.md
+Last session: 2026-04-07T05:39:26.310Z
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None
