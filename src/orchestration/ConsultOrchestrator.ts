@@ -94,6 +94,9 @@ export default class ConsultOrchestrator {
   private pulseTimestamp: string | undefined;
   private userCancelledViaPulse: boolean = false;
 
+  // Judge degradation tracking (RESIL-04)
+  private judgeDegraded: boolean = false;
+
   // Mode strategy (Epic 4, Story 1)
   private strategy: ModeStrategy;
   private confidenceThreshold: number;
@@ -679,9 +682,14 @@ export default class ConsultOrchestrator {
             verdictArtifact,
             agentResponses
           );
-          
-          // Re-throw to ensure caller knows it failed
-          throw error;
+
+          // Return partial result instead of throwing (RESIL-03)
+          return this.createPartialResult({
+            question, context, startTime, estimate,
+            agentResponses, successfulArtifacts,
+            synthesisArtifact, crossExamArtifact, verdictArtifact,
+            abortReason: error.message,
+          });
       }
 
       if (error?.message?.includes('Cost threshold exceeded')) {
@@ -845,14 +853,15 @@ export default class ConsultOrchestrator {
 
     if (this.verbose) console.log(`⚡ Judge (${this.judgeModel}) synthesizing consensus...`);
 
-    try {
-      const messages: Message[] = [
-        {
-          role: 'user',
-          content: `Question: ${question}\n\nAnalyze the expert perspectives and synthesize consensus.`
-        }
-      ];
+    // Hoist messages before try so fallback catch can access them (RESIL-02)
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: `Question: ${question}\n\nAnalyze the expert perspectives and synthesize consensus.`
+      }
+    ];
 
+    try {
       const response = await judgeAgent.provider.chat(messages, judgeAgent.systemPrompt);
       const duration = Date.now() - startTime;
 
@@ -880,10 +889,30 @@ export default class ConsultOrchestrator {
 
       return artifact;
     } catch (error: any) {
-      if (this.verbose) console.warn(`⚠️ Synthesis failed: ${error.message}`);
-      // In a real scenario, we might want to fail the consultation or degrade gracefully
-      this.stateMachine.transition(ConsultState.Aborted, `Synthesis failed: ${error.message}`);
-      throw error;
+      if (this.verbose) console.warn(`⚠️ Synthesis failed with ${this.judgeModel}: ${error.message}`);
+
+      // Try fallback judge model (cross-provider to avoid correlated failures) (RESIL-02)
+      const fallbackModel = this.judgeModel.includes('gemini') ? 'claude-sonnet-4-5' :
+                             this.judgeModel.includes('claude') ? 'gemini-2.5-flash' :
+                             'gemini-2.5-flash';
+
+      console.log(`[Consult R2: ${this.judgeModel} failed, retrying synthesis with ${fallbackModel}]`);
+
+      try {
+        const fallbackProvider = ProviderFactory.createProvider(fallbackModel, { costTracker: this.costTracker });
+        const response = await fallbackProvider.chat(messages, judgeAgent.systemPrompt);
+        if (response.usage) {
+          this.trackActualCost(response.usage, fallbackModel);
+        }
+        this.judgeDegraded = true;
+        const artifact = ArtifactExtractor.extractSynthesisArtifact(response.text || '');
+        console.log(`[Consult R2: Synthesis completed via fallback ${fallbackModel}]`);
+        return artifact;
+      } catch (fallbackError: any) {
+        console.error(`[Consult R2: Fallback ${fallbackModel} also failed: ${fallbackError.message}]`);
+        this.stateMachine.transition(ConsultState.Aborted, `Synthesis failed: ${error.message}`);
+        throw error;
+      }
     }
   }
 
@@ -1001,8 +1030,32 @@ export default class ConsultOrchestrator {
       return artifact;
 
     } catch (error: any) {
-      if (this.verbose) console.warn(`⚠️ Verdict generation failed: ${error.message}`);
-      throw error;
+      if (this.verbose) console.warn(`⚠️ Verdict generation failed with ${this.judgeModel}: ${error.message}`);
+
+      // Try fallback judge model (cross-provider to avoid correlated failures) (RESIL-02)
+      const fallbackModel = this.judgeModel.includes('gemini') ? 'claude-sonnet-4-5' :
+                             this.judgeModel.includes('claude') ? 'gemini-2.5-flash' :
+                             'gemini-2.5-flash';
+
+      console.log(`[Consult R4: ${this.judgeModel} failed, retrying verdict with ${fallbackModel}]`);
+
+      try {
+        const fallbackProvider = ProviderFactory.createProvider(fallbackModel, { costTracker: this.costTracker });
+        const response = await fallbackProvider.chat([
+          { role: 'user', content: 'Render your final verdict.' }
+        ], judgeAgent.systemPrompt);
+        if (response.usage) {
+          this.trackActualCost(response.usage, fallbackModel);
+        }
+        this.judgeDegraded = true;
+        const rawArtifact = ArtifactExtractor.extractVerdictArtifactWithMode(response.text || '', this.strategy.name);
+        const { _analysis: _, ...artifact } = rawArtifact;
+        console.log(`[Consult R4: Verdict completed via fallback ${fallbackModel}]`);
+        return artifact;
+      } catch (fallbackError: any) {
+        console.error(`[Consult R4: Fallback ${fallbackModel} also failed: ${fallbackError.message}]`);
+        throw error;
+      }
     }
   }
 
@@ -1230,8 +1283,31 @@ export default class ConsultOrchestrator {
       return artifact;
 
     } catch (error: any) {
-      if (this.verbose) console.warn(`⚠️ Cross-Exam Synthesis failed: ${error.message}`);
-      throw error;
+      if (this.verbose) console.warn(`⚠️ Cross-Exam Synthesis failed with ${this.judgeModel}: ${error.message}`);
+
+      // Try fallback judge model (cross-provider to avoid correlated failures) (RESIL-02)
+      const fallbackModel = this.judgeModel.includes('gemini') ? 'claude-sonnet-4-5' :
+                             this.judgeModel.includes('claude') ? 'gemini-2.5-flash' :
+                             'gemini-2.5-flash';
+
+      console.log(`[Consult R3: ${this.judgeModel} failed, retrying cross-exam synthesis with ${fallbackModel}]`);
+
+      try {
+        const fallbackProvider = ProviderFactory.createProvider(fallbackModel, { costTracker: this.costTracker });
+        const response = await fallbackProvider.chat([
+          { role: 'user', content: 'Analyze the cross-examination.' }
+        ], judgeAgent.systemPrompt);
+        if (response.usage) {
+          this.trackActualCost(response.usage, fallbackModel);
+        }
+        this.judgeDegraded = true;
+        const artifact = ArtifactExtractor.extractCrossExamArtifact(response.text || '');
+        console.log(`[Consult R3: Cross-exam synthesis completed via fallback ${fallbackModel}]`);
+        return artifact;
+      } catch (fallbackError: any) {
+        console.error(`[Consult R3: Fallback ${fallbackModel} also failed: ${fallbackError.message}]`);
+        throw error;
+      }
     }
   }
 
@@ -1423,7 +1499,7 @@ export default class ConsultOrchestrator {
    * Helper to construct result object for checkpoints and partial saves
    */
   private constructResultObject(
-      status: 'complete' | 'partial' | 'aborted',
+      status: 'complete' | 'partial' | 'aborted' | 'completed_degraded',
       question: string,
       context: string,
       successfulArtifacts: IndependentArtifact[],
@@ -1477,7 +1553,11 @@ export default class ConsultOrchestrator {
           round4: verdictArtifact || undefined
         },
         consensus: synthesisArtifact?.consensusPoints[0]?.point || "Consultation incomplete",
-        confidence: verdictArtifact?.confidence || 0,
+        confidence: verdictArtifact?.confidence || (
+          successfulArtifacts.length > 0
+            ? successfulArtifacts.reduce((sum, a) => sum + (a.confidence || 0), 0) / successfulArtifacts.length
+            : 0
+        ),
         recommendation: verdictArtifact?.recommendation || "Consultation incomplete",
         reasoning: {},
         concerns: crossExamArtifact?.unresolved || [],
@@ -1554,6 +1634,14 @@ export default class ConsultOrchestrator {
           filtered_rounds: this.verbose ? [] : [3, 4]
       };
 
+      // Calculate actual tokens from agent responses (OBSRV-02: use real values, not estimates)
+      const actualTokens = agentResponses.reduce((acc, resp) => {
+          acc.input += resp.tokens?.input || 0;
+          acc.output += resp.tokens?.output || 0;
+          acc.total += resp.tokens?.total || 0;
+          return acc;
+      }, { input: 0, output: 0, total: 0 });
+
       const result: ConsultationResult = {
         consultationId: this.consultationId,
         timestamp: new Date().toISOString(),
@@ -1596,7 +1684,7 @@ export default class ConsultOrchestrator {
           keyPoints: a.keyPoints,
           confidence: a.confidence
         })),
-        cost: { tokens: { input: estimate.inputTokens, output: estimate.outputTokens, total: estimate.totalTokens }, usd: this.actualCostUsd },
+        cost: { tokens: actualTokens, usd: this.actualCostUsd },
         durationMs,
         // Use strategy prompt versions (Epic 4, Story 1)
         promptVersions: {
@@ -1622,6 +1710,11 @@ export default class ConsultOrchestrator {
         earlyTermination,
         earlyTerminationReason
       };
+
+      // Mark as degraded if judge fallback was used (RESIL-04)
+      if (this.judgeDegraded) {
+        result.status = 'completed_degraded';
+      }
 
       this.eventBus.emitEvent('consultation:completed', {
         consultation_id: this.consultationId,

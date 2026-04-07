@@ -330,7 +330,7 @@ export interface ConsultationResult {
   token_efficiency_stats?: TokenEfficiencyStats;
 
   // Partial results (Epic 2, Story 5)
-  status?: 'complete' | 'partial' | 'aborted'; // Explicit status for file format
+  status?: 'complete' | 'partial' | 'aborted' | 'completed_degraded'; // Explicit status for file format
   completedRoundNames?: string[]; // ["Round1", "Round2"]
   incompleteRoundNames?: string[]; // ["Round3"]
   partialAgents?: AgentResponse[]; // In-progress agents
@@ -347,7 +347,7 @@ export interface TokenEfficiencyStats {
 }
 
 export interface PartialConsultationResult extends ConsultationResult {
-  status: 'partial';
+  status: 'partial' | 'completed_degraded';
   cancellationReason?: string;
 }
 
