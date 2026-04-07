@@ -1,36 +1,41 @@
 # LLM Conclave
 
-A multi-agent LLM collaboration MCP server. Enables multiple LLMs (OpenAI, Anthropic, Google Gemini, xAI Grok, Mistral) to collaboratively solve tasks through structured multi-turn conversation.
+LLM Conclave is an MCP-first multi-agent LLM collaboration server. It lets an MCP client ask multiple models to debate a problem, converge on a recommendation, continue prior sessions, and return either human-readable or structured output.
 
-## Features
+## What It Does
 
-- **Multi-Agent Collaboration**: Configure multiple LLM agents with different models and personas
-- **5 LLM Providers**: OpenAI GPT, Anthropic Claude, xAI Grok, Google Gemini, Mistral AI
-- **MCP Server**: Expose consultation capabilities as tools for any MCP-compatible AI assistant (Claude Code, Claude Desktop, Cursor, VS Code, etc.)
-- **Structured Consultation**: 4-round debate (positions, synthesis, cross-examination, verdict)
-- **Democratic Discussion**: Consensus-driven multi-agent discussions with judge coordination
-- **Dynamic Speaker Selection**: LLM-based speaker selection instead of round-robin
-- **Session Continuation**: Save and continue discussions with follow-up questions
-- **Tool Support**: Agents can read/write files, run commands, and perform real file operations
-- **Context Tax Optimization**: Prompt caching, tool pruning, context editing (35-50% cost reduction)
-- **Cost Tracking**: Automatic per-session cost, token, and latency tracking
-- **Structured Output**: Returns `key_decisions`, `action_items`, `dissent`, `confidence`
-- **Devil's Advocate Mode**: Detects shallow agreement and pushes for genuine analysis
+- Runs structured consultations with a fixed 1-4 round consult flow
+- Runs free-form multi-agent discussions with optional dynamic speaker selection
+- Persists sessions so discussions can be continued later
+- Supports OpenAI, Anthropic, Google Gemini, xAI Grok, and Mistral models
+- Exposes everything as MCP tools, with optional SSE + REST transport
+
+## Requirements
+
+- Node.js 18+ recommended
+- One or more provider API keys:
+  - `OPENAI_API_KEY`
+  - `ANTHROPIC_API_KEY`
+  - `GOOGLE_API_KEY`
+  - `XAI_API_KEY`
+  - `MISTRAL_API_KEY`
+
+You only need keys for the providers you plan to use.
 
 ## Quick Start
 
-### 1. Build
+### 1. Install and Build
 
 ```bash
 npm install
 npm run build
 ```
 
+This produces `dist/src/mcp/server.js`.
+
 ### 2. Configure Your MCP Client
 
-#### Claude Code
-
-Add to `~/.claude/settings.json` or project `.mcp.json`:
+Example config:
 
 ```json
 {
@@ -50,104 +55,100 @@ Add to `~/.claude/settings.json` or project `.mcp.json`:
 }
 ```
 
-#### Claude Desktop
+Ready-to-copy example: [mcp-config-example.json](mcp-config-example.json)
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+### 3. Restart the MCP Client
 
-```json
-{
-  "mcpServers": {
-    "llm-conclave": {
-      "command": "node",
-      "args": ["/absolute/path/to/llm_conclave/dist/src/mcp/server.js"],
-      "env": {
-        "OPENAI_API_KEY": "sk-...",
-        "ANTHROPIC_API_KEY": "sk-ant-...",
-        "GOOGLE_API_KEY": "AIza..."
-      }
-    }
-  }
-}
-```
-
-### 3. Restart Your AI Assistant
-
-Restart Claude Code / Claude Desktop / Cursor to load the MCP server.
+After rebuilding or changing MCP config, restart the client so it picks up the new server binary.
 
 ### 4. Use the Tools
 
-Ask your AI assistant:
+Example prompt to your MCP client:
 
-```
-"Use llm_conclave_consult to get expert consensus on whether
-I should use OAuth or JWT for my authentication system"
+```text
+Use llm_conclave_consult to get expert consensus on whether
+I should use OAuth or JWT for my authentication system.
 ```
 
-## Available MCP Tools
+## MCP Tools
 
 ### `llm_conclave_consult`
 
-Fast 4-round structured consultation with a configurable expert panel (2-5 agents).
+Structured consultation with a 1-4 round flow: positions, synthesis, cross-exam, verdict.
 
-**Default panel:** Security Expert (Claude), Architect (GPT-4o), Pragmatist (Gemini)
+Key parameters:
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `question` | Yes | The question or decision to consult on |
-| `context` | No | File paths (comma-separated) or project directory |
-| `personas` | No | Expert panel: `security`, `performance`, `architect`, `creative`, `skeptic`, `pragmatic`, `qa`, `devops`, `accessibility`, `documentation`. Sets: `@design`, `@backend` |
-| `rounds` | No | 1-4 rounds. 1=opinions, 2=+synthesis, 3=+cross-exam, 4=full |
-| `quick` | No | Quick mode (2 rounds) |
-| `format` | No | `markdown` (default), `json`, or `both` |
+| Parameter | Required | Notes |
+|-----------|----------|-------|
+| `question` | Yes | The decision or question to analyze |
+| `context` | No | File paths or a directory path to load into context |
+| `personas` | No | Comma-separated personas or persona-set references from global config |
+| `rounds` | No | `1` to `4` |
+| `quick` | No | Shortcut for a 2-round consult |
+| `format` | No | `markdown`, `json`, or `both` |
+| `judge_model` | No | Overrides the consult judge model |
+
+Default consult panel if you do not specify personas: Security Expert, Systems Architect, Pragmatic Engineer.
 
 ### `llm_conclave_discuss`
 
-Democratic consensus discussion where agents contribute equally.
+Free-form collaborative discussion with session persistence and optional dynamic speaker selection.
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
+Key parameters:
+
+| Parameter | Required | Notes |
+|-----------|----------|-------|
 | `task` | Yes | The topic or problem to discuss |
-| `personas` | No | Comma-separated personas (see above) |
-| `config` | No | Path to `.llm-conclave.json` or inline JSON agent definitions |
-| `project` | No | Project context path |
-| `rounds` | No | Maximum rounds (default: 4) |
-| `min_rounds` | No | Minimum rounds before early consensus |
-| `dynamic` | No | Enable LLM-based speaker selection |
-| `selector_model` | No | Model for speaker selection (default: gpt-4o-mini) |
-| `judge_model` | No | Judge model (default: gemini-2.5-flash) |
-| `format` | No | `markdown` (default), `json`, or `both`. JSON returns structured output for programmatic consumers |
-| `judge_instructions` | No | Custom instructions appended to the judge's synthesis prompt |
+| `project` | No | File or directory path for project context |
+| `personas` | No | Comma-separated personas |
+| `config` | No | Path to `.llm-conclave.json` or inline JSON agent config |
+| `rounds` | No | Max rounds, default `4` |
+| `min_rounds` | No | Minimum rounds before early consensus, default `2` |
+| `dynamic` | No | Enables LLM-driven speaker selection |
+| `selector_model` | No | Defaults to `gpt-4o-mini` |
+| `judge_model` | No | Overrides the judge model |
+| `timeout` | No | Seconds, default `0` for no timeout |
+| `format` | No | `markdown`, `json`, or `both` |
+| `judge_instructions` | No | Appended to the judge prompt |
+| `context_optimization` | No | Structured reasoning/position split to reduce context cost |
 
 ### `llm_conclave_continue`
 
-Continue a previous discussion with follow-up questions.
+Continue a previous saved discussion.
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `task` | Yes | Follow-up question |
-| `session_id` | No | Session to continue (default: most recent) |
-| `reset` | No | Start fresh with summary only |
+| Parameter | Required | Notes |
+|-----------|----------|-------|
+| `task` | Yes | Follow-up request |
+| `session_id` | No | Defaults to the most recent session |
+| `reset` | No | Start fresh using only the prior summary instead of full history |
 
 ### `llm_conclave_sessions`
 
 List recent sessions that can be continued.
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `limit` | No | Number of sessions (default: 10) |
-| `mode` | No | Filter by mode |
+| Parameter | Required | Notes |
+|-----------|----------|-------|
+| `limit` | No | Default `10` |
+| `mode` | No | `consensus`, `orchestrated`, or `iterative` |
 
 ## Personas
 
-**Built-in:** `security`, `performance`, `architect`, `creative`, `skeptic`, `pragmatic`, `qa`, `devops`, `accessibility`, `documentation`
+Built-in personas:
 
-**Aliases:** `arch`, `sec`, `perf`, `dev`, `ops`, `a11y`, `docs`, `devil`, `practical`, `tester`
+- `security`
+- `performance`
+- `architecture`
+- `creative`
+- `skeptic`
+- `pragmatic`
+- `testing`
+- `devops`
+- `accessibility`
+- `documentation`
 
-**Persona sets** (@ prefix): `@design`, `@backend`, or define custom sets in `~/.llm-conclave/config.json`
+Common aliases are accepted, including `architect`, `arch`, `qa`, `tester`, `docs`, `a11y`, and `sec`.
 
-### Custom Personas
-
-Define in `~/.llm-conclave/config.json`:
+Custom personas and persona sets can be defined in `~/.llm-conclave/config.json`:
 
 ```json
 {
@@ -159,14 +160,16 @@ Define in `~/.llm-conclave/config.json`:
     }
   },
   "persona_sets": {
-    "health": ["healthCoach", "psychologist", "nutritionist"]
+    "health": ["healthCoach", "security"]
   }
 }
 ```
 
-## Custom Agent Configuration
+You can then use `personas: "@health"` or mix sets and built-ins like `@health,architecture`.
 
-Create `.llm-conclave.json` for custom agents:
+## Custom Agent Config
+
+Project-local agent config lives in `.llm-conclave.json`.
 
 ```json
 {
@@ -175,110 +178,86 @@ Create `.llm-conclave.json` for custom agents:
       "model": "gpt-4o",
       "prompt": "You are a senior software architect..."
     },
-    "Critic": {
+    "Reviewer": {
       "model": "claude-sonnet-4-5",
-      "prompt": "You are a critical thinker and devil's advocate..."
-    },
-    "Creative": {
-      "model": "gemini-2.5-pro",
-      "prompt": "You are a creative innovator..."
+      "prompt": "You identify risks and challenge assumptions..."
     }
   }
 }
 ```
 
-Or pass inline JSON via the MCP `config` parameter:
+The `config` parameter on `llm_conclave_discuss` also accepts inline JSON.
 
-```json
-{
-  "tool": "llm_conclave_discuss",
-  "arguments": {
-    "task": "Design auth system",
-    "config": "{\"agents\":{\"Expert\":{\"model\":\"claude-sonnet-4-5\",\"prompt\":\"...\"}}}"
-  }
-}
-```
+## Supported Model Families
 
-## Supported Models
+- OpenAI: `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o`, `gpt-4-turbo`
+- Anthropic: `claude-sonnet-4-5`, `claude-opus-4-5`, `claude-haiku-4-5`
+- Google: `gemini-3-pro`, `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.0-flash`
+- xAI: `grok-3`, `grok-vision-3`
+- Mistral: `mistral-large-latest`, `mistral-small-latest`, `codestral-latest`
 
-| Provider | Models | Env Var |
-|----------|--------|---------|
-| OpenAI | `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o`, `gpt-4-turbo` | `OPENAI_API_KEY` |
-| Anthropic | `claude-sonnet-4-5`, `claude-opus-4-5`, `claude-haiku-4-5` | `ANTHROPIC_API_KEY` |
-| Google | `gemini-3-pro`, `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.0-flash` | `GOOGLE_API_KEY` |
-| xAI | `grok-3`, `grok-vision-3` | `XAI_API_KEY` |
-| Mistral | `mistral-large-latest`, `mistral-small-latest`, `codestral-latest` | `MISTRAL_API_KEY` |
+Shorthand aliases such as `sonnet`, `opus`, `haiku`, `gemini`, `gemini-pro`, and `gemini-flash` are expanded by the provider factory.
 
-You only need API keys for the providers you're using.
+## SSE and REST Mode
 
-## Development
+The built artifact can run as a standard MCP stdio server or as an SSE server.
 
 ```bash
-npm run build          # TypeScript compile
-npm test               # Jest (885 tests, 70 suites)
-npm run test:unit      # Skip integration/live tests
-npm run test:coverage  # With coverage report
-npm run mcp-dev        # Run MCP server in dev mode (ts-node)
+node dist/src/mcp/server.js --sse
 ```
 
-## Architecture
+When running in SSE mode, the server exposes:
 
-```
-src/
-  config/        # ConfigCascade, PersonaSystem
-  consult/       # Consult mode: artifacts, strategies, health, cost, analytics
-  core/          # ConversationManager (judge logic, fallbacks, tool execution)
-  mcp/           # MCP server (SSE transport, consult/discuss/continue/sessions tools)
-  orchestration/ # Orchestrators per mode + ConsultStateMachine
-  providers/     # LLM providers (Claude, OpenAI, Gemini, Grok, Mistral)
-  tools/         # Tool registry, ToolPruningInstructions
-  types/         # Shared TypeScript interfaces
-```
+- `GET /sse`
+- `POST /messages`
+- `POST /api/discuss`
+- `GET /health`
 
-## Documentation
-
-- [MCP Server Setup](docs/MCP_SERVER.md) - Detailed setup and usage guide
-- [Planned Features](docs/PLANNED_FEATURES.md) - Roadmap and future plans
-- [Resume Feature Design](docs/RESUME_FEATURE_DESIGN.md) - Session continuation architecture
-- [Context Tax Optimization](docs/plans/2026-02-12-context-tax-optimization.md) - Cost optimization design
-
-## REST API
-
-When running as an SSE server, a REST endpoint is available alongside the MCP protocol for programmatic consumers that don't need the full MCP SDK.
+Example REST request:
 
 ```bash
 curl -X POST http://localhost:3100/api/discuss \
   -H 'Content-Type: application/json' \
-  -d '{"task": "Review this architecture decision", "rounds": 2}'
+  -d '{"task":"Review this architecture decision","rounds":2}'
 ```
 
-**Response:** JSON with `summary`, `key_decisions`, `action_items`, `dissent`, `confidence`, `agents`, `session_id`, etc.
+If `CONCLAVE_API_KEY` is set, `POST /api/discuss` requires `Authorization: Bearer <key>`.
 
-**Authentication:** Set `CONCLAVE_API_KEY` env var to require `Authorization: Bearer <key>` header. If unset, no auth is required (localhost default).
+## Development
 
-Accepts all `llm_conclave_discuss` parameters in the JSON body. Response is always JSON (the `format` parameter is ignored; use the MCP tool for markdown output).
-
-## Programmatic Usage (Python)
-
-### Suppress httpx logging noise
-
-The MCP Python SDK uses httpx internally, which logs every HTTP request at INFO level. Add before calling:
-
-```python
-import logging
-logging.getLogger("httpx").setLevel(logging.WARNING)
+```bash
+npm run build
+npm test -- --runInBand --watchman=false
+npm run test:coverage -- --runInBand --watchman=false
+npm run mcp-dev
 ```
 
-## Troubleshooting
+Current local snapshot from `2026-04-07`:
 
-**"MCP server not found"**: Verify the path in your MCP config is absolute and you've run `npm run build`.
+- `78` test suites total
+- `1,048` tests total
+- `76` suites and `1,028` tests passing in the sandbox
+- The remaining failures are artifact-store tests that try to write under `~/.llm-conclave`, which the sandbox blocks
 
-**API errors**: Check that API keys are set in the MCP config `env` section.
+## Architecture
 
-**"Unknown model"**: Verify model names match the supported models table above.
+```text
+src/
+  config/        Config cascade and persona system
+  consult/       Consult-mode analysis, formatting, cost, health, analytics
+  core/          Conversation lifecycle, judge, sessions, history, artifacts
+  mcp/           MCP server, transports, REST endpoint, discussion runner
+  orchestration/ Orchestrators and state machines
+  providers/     Provider adapters for all supported LLM families
+  tools/         Tool registry and tool-pruning logic
+  types/         Shared TypeScript types
+  utils/         Context, logging, token, and config helpers
+```
 
-**MCP code changes not picked up**: After rebuilding, restart your AI assistant. MCP processes are cached per session.
+## Documentation
 
-## License
-
-ISC
+- [docs/MCP_SERVER.md](docs/MCP_SERVER.md)
+- [docs/PLANNED_FEATURES.md](docs/PLANNED_FEATURES.md)
+- [docs/RESUME_FEATURE_DESIGN.md](docs/RESUME_FEATURE_DESIGN.md)
+- [docs/plans/2026-02-12-context-tax-optimization.md](docs/plans/2026-02-12-context-tax-optimization.md)
+- [TEST_COVERAGE_ANALYSIS.md](TEST_COVERAGE_ANALYSIS.md)

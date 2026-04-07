@@ -68,14 +68,17 @@ describe('PersonaSystem', () => {
       expect(persona!.name).toBe('Pragmatic Engineer');
     });
 
-    it('should have QA persona (note: "testing" alias maps to "qa" but no qa key exists)', () => {
-      // The personas object has key 'testing' but PERSONA_ALIASES maps 'testing' -> 'qa'
-      // This is a known design issue - test the actual workaround
-      // Get it directly through listPersonas
-      const personas = PersonaSystem.listPersonas();
-      const qaPersona = personas.find(p => p.name === 'Quality Assurance Expert');
-      expect(qaPersona).toBeDefined();
-      expect(qaPersona!.model).toBe('gpt-4o');
+    it('should have testing persona', () => {
+      const persona = PersonaSystem.getPersona('testing');
+      expect(persona).toBeDefined();
+      expect(persona!.name).toBe('Quality Assurance Expert');
+      expect(persona!.model).toBe('gpt-4o');
+    });
+
+    it('should resolve qa alias to the testing persona', () => {
+      const persona = PersonaSystem.getPersona('qa');
+      expect(persona).toBeDefined();
+      expect(persona!.name).toBe('Quality Assurance Expert');
     });
 
     it('should have devops persona', () => {
@@ -115,9 +118,10 @@ describe('PersonaSystem', () => {
       ['devils-advocate', 'skeptic'],
       ['practical', 'pragmatic'],
       ['engineer', 'pragmatic'],
-      ['tester', 'qa'],
-      ['testing', 'qa'],
-      ['quality', 'qa'],
+      ['qa', 'testing'],
+      ['tester', 'testing'],
+      ['testing', 'testing'],
+      ['quality', 'testing'],
     ];
 
     aliasTests.forEach(([alias, canonical]) => {

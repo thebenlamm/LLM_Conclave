@@ -128,9 +128,10 @@ const PERSONA_ALIASES: Record<string, string> = {
   'devils-advocate': 'skeptic',
   'practical': 'pragmatic',
   'engineer': 'pragmatic',
-  'tester': 'qa',
-  'testing': 'qa',
-  'quality': 'qa',
+  'qa': 'testing',
+  'tester': 'testing',
+  'testing': 'testing',
+  'quality': 'testing',
 };
 
 export class PersonaSystem {

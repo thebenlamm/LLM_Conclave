@@ -21,7 +21,7 @@ This document outlines potential features and enhancements for the LLM Conclave 
 **Status:** Completed
 **Priority:** High
 
-Removed all CLI-specific code. LLM Conclave is now MCP-only. Deleted `index.ts`, `src/commands/`, `src/cli/` (ModeDetector, ConsultConsoleLogger), `src/interactive/`, `src/init/`, `src/server/`, `src/templates/`. Moved `ConfigCascade` and `PersonaSystem` to `src/config/`. ~8,500 lines removed, 885 tests remain passing.
+Removed all CLI-specific code. LLM Conclave is now MCP-only. Deleted `index.ts`, `src/commands/`, `src/cli/` (ModeDetector, ConsultConsoleLogger), `src/interactive/`, `src/init/`, `src/server/`, `src/templates/`. Moved `ConfigCascade` and `PersonaSystem` to `src/config/`. Current snapshot: 78 suites and 1,048 tests, with only sandbox-blocked artifact-store tests failing locally.
 
 ---
 
