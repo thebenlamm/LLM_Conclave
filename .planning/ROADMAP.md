@@ -58,7 +58,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 03-01-PLAN.md — DiscussionRunner extraction + orchestrator legacy assessment
-- [ ] 03-02-PLAN.md — Rewrite all 3 handlers to delegate to DiscussionRunner
+- [x] 03-02-PLAN.md — Rewrite all 3 handlers to delegate to DiscussionRunner
 
 ## Progress
 

@@ -589,4 +589,5 @@ export interface ConsultOrchestratorOptions {
   geminiCaching?: boolean;
   agents?: Agent[];
   costTracker?: CostTracker;
+  judgeModel?: string;
 }

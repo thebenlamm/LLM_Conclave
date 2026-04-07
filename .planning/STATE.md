@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 03-mcp-deduplication-orchestrator-assessment 03-01-PLAN.md
-last_updated: "2026-04-06T17:03:38.237Z"
+stopped_at: Completed 03-mcp-deduplication-orchestrator-assessment 03-02-PLAN.md
+last_updated: "2026-04-06T17:12:49.627Z"
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -53,6 +53,7 @@ Plan: 2 of 2
 | Phase 02-conversationmanager-decomposition P02 | 7 | 1 tasks | 3 files |
 | Phase 02-conversationmanager-decomposition P03 | 14 | 1 tasks | 3 files |
 | Phase 03-mcp-deduplication-orchestrator-assessment P01 | 7 | 2 tasks | 4 files |
+| Phase 03-mcp-deduplication-orchestrator-assessment P02 | 7m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,9 @@ Recent decisions affecting current work:
 - [Phase 03-mcp-deduplication-orchestrator-assessment]: saveDiscussionLog extracted to DiscussionRunner.ts (not server.ts) to avoid circular imports
 - [Phase 03-mcp-deduplication-orchestrator-assessment]: Orchestrator and IterativeCollaborativeOrchestrator confirmed LEGACY via grep: zero production imports
 - [Phase 03-mcp-deduplication-orchestrator-assessment]: ConsultOrchestrator confirmed ACTIVE — sole production orchestrator for consult tool
+- [Phase 03-mcp-deduplication-orchestrator-assessment]: handleDiscuss, handleContinue, REST /api/discuss all delegate to DiscussionRunner.run() — no direct EventBus/CM/SessionManager construction in server.ts
+- [Phase 03-mcp-deduplication-orchestrator-assessment]: clientAbortSignal option added to DiscussionRunnerOptions for REST client-disconnect abort without external AbortController leak
+- [Phase 03-mcp-deduplication-orchestrator-assessment]: resolvedConfig option allows handleContinue to bypass ConfigCascade with pre-built session config
 
 ### Pending Todos
 
@@ -93,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-06T17:03:38.235Z
-Stopped at: Completed 03-mcp-deduplication-orchestrator-assessment 03-01-PLAN.md
+Last session: 2026-04-06T17:12:49.625Z
+Stopped at: Completed 03-mcp-deduplication-orchestrator-assessment 03-02-PLAN.md
 Resume file: None

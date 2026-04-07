@@ -22,16 +22,16 @@ Requirements for this refactoring milestone. Each maps to roadmap phases.
 
 ### MCP Server Deduplication
 
-- [ ] **MCP-01**: Extract `DiscussionRunner` abstraction encapsulating shared orchestration setup (config resolution, persona application, judge creation, EventBus wiring, ConversationManager construction, abort/timeout, progress heartbeat, session saving)
-- [ ] **MCP-02**: Rewrite `handleDiscuss` to delegate to `DiscussionRunner`
-- [ ] **MCP-03**: Rewrite REST `/api/discuss` endpoint to delegate to `DiscussionRunner`
-- [ ] **MCP-04**: Rewrite `handleContinue` to delegate to `DiscussionRunner` (with prior history injection as configuration point)
+- [x] **MCP-01**: Extract `DiscussionRunner` abstraction encapsulating shared orchestration setup (config resolution, persona application, judge creation, EventBus wiring, ConversationManager construction, abort/timeout, progress heartbeat, session saving)
+- [x] **MCP-02**: Rewrite `handleDiscuss` to delegate to `DiscussionRunner`
+- [x] **MCP-03**: Rewrite REST `/api/discuss` endpoint to delegate to `DiscussionRunner`
+- [x] **MCP-04**: Rewrite `handleContinue` to delegate to `DiscussionRunner` (with prior history injection as configuration point)
 
 ### Orchestrator Assessment
 
-- [ ] **ORCH-01**: Audit usage of `Orchestrator` class — determine if actively used or legacy
-- [ ] **ORCH-02**: Audit usage of `IterativeCollaborativeOrchestrator` — determine if actively used or legacy
-- [ ] **ORCH-03**: Based on audit, either define minimal shared interface (`AgentPool` + typed history) or deprecate unused orchestrators
+- [x] **ORCH-01**: Audit usage of `Orchestrator` class — determine if actively used or legacy
+- [x] **ORCH-02**: Audit usage of `IterativeCollaborativeOrchestrator` — determine if actively used or legacy
+- [x] **ORCH-03**: Based on audit, either define minimal shared interface (`AgentPool` + typed history) or deprecate unused orchestrators
 
 ### CostTracker Fixes
 
@@ -87,13 +87,13 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | CONV-01 | Phase 2 | Complete |
 | CONV-02 | Phase 2 | Complete |
 | CONV-03 | Phase 2 | Complete |
-| MCP-01 | Phase 3 | Pending |
-| MCP-02 | Phase 3 | Pending |
-| MCP-03 | Phase 3 | Pending |
-| MCP-04 | Phase 3 | Pending |
-| ORCH-01 | Phase 3 | Pending |
-| ORCH-02 | Phase 3 | Pending |
-| ORCH-03 | Phase 3 | Pending |
+| MCP-01 | Phase 3 | Complete |
+| MCP-02 | Phase 3 | Complete |
+| MCP-03 | Phase 3 | Complete |
+| MCP-04 | Phase 3 | Complete |
+| ORCH-01 | Phase 3 | Complete |
+| ORCH-02 | Phase 3 | Complete |
+| ORCH-03 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 19 total

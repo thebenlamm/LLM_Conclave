@@ -99,6 +99,10 @@ const TOOLS: Tool[] = [
           description: 'Output format',
           default: 'markdown',
         },
+        judge_model: {
+          type: 'string',
+          description: 'Model for judge/synthesis rounds (default: gpt-4o). Useful when a provider is unavailable.',
+        },
       },
       required: ['question'],
     },
@@ -314,8 +318,9 @@ async function handleConsult(args: {
   rounds?: number;
   quick?: boolean;
   format?: string;
+  judge_model?: string;
 }, server: Server) {
-  const { question, context: contextPath, personas, rounds, quick = false, format = 'markdown' } = args;
+  const { question, context: contextPath, personas, rounds, quick = false, format = 'markdown', judge_model } = args;
   const maxRounds = rounds ? Math.min(4, Math.max(1, rounds)) : (quick ? 2 : 4);
 
   // Progress heartbeat covers context loading AND consultation execution.
@@ -358,6 +363,7 @@ async function handleConsult(args: {
       maxRounds,
       verbose: false,
       agents,
+      ...(judge_model && { judgeModel: judge_model }),
     });
 
     // Execute consultation (this is asynchronous and may take time)

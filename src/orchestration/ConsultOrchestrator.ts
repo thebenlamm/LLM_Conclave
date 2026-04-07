@@ -111,6 +111,7 @@ export default class ConsultOrchestrator {
   private geminiCacheManager: GeminiCacheManager | null = null;
   private _externalAgents?: Agent[];
   private costTracker: CostTracker;
+  private judgeModel: string;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     // Core configuration
@@ -126,6 +127,7 @@ export default class ConsultOrchestrator {
     this.loadedContext = options.loadedContext;
     this._externalAgents = options.agents;
     this.costTracker = options.costTracker ?? CostTracker.getInstance();
+    this.judgeModel = options.judgeModel ?? 'gpt-4o';
 
     // Initialize component groups
     this.initializeCoreComponents();
@@ -830,8 +832,8 @@ export default class ConsultOrchestrator {
     const startTime = Date.now();
     const judgeAgent = {
       name: 'Judge (Synthesis)',
-      model: 'gpt-4o',
-      provider: ProviderFactory.createProvider('gpt-4o', { costTracker: this.costTracker }),
+      model: this.judgeModel,
+      provider: ProviderFactory.createProvider(this.judgeModel, { costTracker: this.costTracker }),
       systemPrompt: this.strategy.getSynthesisPrompt(artifacts)
     };
 
@@ -841,7 +843,7 @@ export default class ConsultOrchestrator {
       round: 2
     });
 
-    if (this.verbose) console.log(`⚡ Judge (GPT-4o) synthesizing consensus...`);
+    if (this.verbose) console.log(`⚡ Judge (${this.judgeModel}) synthesizing consensus...`);
 
     try {
       const messages: Message[] = [
@@ -897,7 +899,7 @@ export default class ConsultOrchestrator {
   ): Promise<VerdictArtifact> {
     const startTime = Date.now();
     
-    if (this.verbose) console.log(`⚡ Judge (GPT-4o) generating Final Verdict...`);
+    if (this.verbose) console.log(`⚡ Judge (${this.judgeModel}) generating Final Verdict...`);
 
     // Apply filtering to R2 & R3 artifacts if not verbose (Round 4 Filter)
     let filteredSynthesis = synthesisArtifact;
@@ -931,8 +933,8 @@ export default class ConsultOrchestrator {
 
     const judgeAgent = {
       name: 'Judge (Verdict)',
-      model: 'gpt-4o',
-      provider: ProviderFactory.createProvider('gpt-4o', { costTracker: this.costTracker }),
+      model: this.judgeModel,
+      provider: ProviderFactory.createProvider(this.judgeModel, { costTracker: this.costTracker }),
       systemPrompt: this.strategy.getVerdictPrompt({
         round1: round1Artifacts,
         round2: filteredSynthesis,
@@ -1182,13 +1184,13 @@ export default class ConsultOrchestrator {
         throw new Error("All agents failed in Round 3 Cross-Exam");
     }
 
-    if (this.verbose) console.log(`⚡ Judge (GPT-4o) synthesizing Cross-Examination...`);
+    if (this.verbose) console.log(`⚡ Judge (${this.judgeModel}) synthesizing Cross-Examination...`);
 
     // 2. Judge Synthesis
     const judgeAgent = {
       name: 'Judge (Cross-Exam)',
-      model: 'gpt-4o',
-      provider: ProviderFactory.createProvider('gpt-4o', { costTracker: this.costTracker }),
+      model: this.judgeModel,
+      provider: ProviderFactory.createProvider(this.judgeModel, { costTracker: this.costTracker }),
       systemPrompt: this.strategy.getCrossExamSynthesisPrompt(agentResponses, synthesisArtifact)
     };
 
