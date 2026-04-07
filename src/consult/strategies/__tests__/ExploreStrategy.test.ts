@@ -212,6 +212,49 @@ describe('ExploreStrategy', () => {
       expect(prompt).toContain('_analysis');
       expect(prompt).toContain('Fill the "_analysis" field FIRST');
     });
+
+    it('should contain Attribute Perspectives instruction (QUAL-01)', () => {
+      const prompt = strategy.getVerdictPrompt(mockCollection);
+
+      expect(prompt).toMatch(/Attribute Perspectives/);
+    });
+
+    it('should include agent names in bold for R1 summary (QUAL-01)', () => {
+      const collection: ArtifactCollection = {
+        round1: [
+          {
+            artifactType: 'independent',
+            schemaVersion: '1.0',
+            agentId: 'CreativeBot',
+            roundNumber: 1,
+            position: 'Think outside the box',
+            keyPoints: ['Innovation first'],
+            rationale: 'Creativity wins',
+            confidence: 0.7,
+            proseExcerpt: 'Creative...',
+            createdAt: new Date().toISOString()
+          }
+        ],
+        round2: {
+          artifactType: 'synthesis',
+          schemaVersion: '1.0',
+          roundNumber: 2,
+          consensusPoints: [],
+          tensions: [],
+          priorityOrder: [],
+          createdAt: new Date().toISOString()
+        }
+      };
+
+      const prompt = strategy.getVerdictPrompt(collection);
+      expect(prompt).toContain('**CreativeBot**');
+    });
+
+    it('should include championed_by field in recommendation schema (QUAL-01)', () => {
+      const prompt = strategy.getVerdictPrompt(mockCollection);
+
+      expect(prompt).toContain('championed_by');
+    });
   });
 
   describe('shouldTerminateEarly', () => {

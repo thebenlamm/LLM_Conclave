@@ -227,7 +227,7 @@ Use the following schema:
    */
   getVerdictPrompt(allArtifacts: ArtifactCollection): string {
     const r1Summary = allArtifacts.round1
-      .map(a => `- ${a.agentId}: ${a.position} (Confidence: ${a.confidence})`)
+      .map(a => `- **${a.agentId}** (Confidence: ${a.confidence}): ${a.position}\n  Key arguments: ${a.keyPoints?.join('; ') || 'None provided'}`)
       .join('\n');
 
     const r2Summary = allArtifacts.round2
@@ -281,6 +281,7 @@ ${r3Summary}
    - Medium (0.7-0.9): General agreement but some minor dissent.
    - Low (<0.7): Major unresolved tensions or significant dissent.
 4. **Document Dissent**: Explicitly list who disagrees and why.
+5. **Preserve Agent Attribution**: Your recommendation MUST reference which agent(s) contributed each key insight. Do NOT collapse distinct strategies into a generic summary. If Agent A recommended approach X and Agent B recommended approach Y, name them explicitly in your recommendation even if you favor one over the other.
 
 ${COMMON_JSON_INSTRUCTION}
 Use the following schema:
@@ -290,6 +291,9 @@ Use the following schema:
   "recommendation": "The final authoritative answer (single, definitive recommendation)",
   "confidence": 0.0-1.0,
   "evidence": ["Key supporting point 1", "Key supporting point 2 (survived challenge)"],
+  "per_agent_contributions": [
+    {"agent": "Agent Name", "key_insight": "Their most distinctive contribution", "adopted": true}
+  ],
   "dissent": [
     {
       "agent": "Agent Name",

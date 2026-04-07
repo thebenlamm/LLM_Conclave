@@ -214,6 +214,69 @@ describe('ConvergeStrategy', () => {
       expect(prompt).toContain('_analysis');
       expect(prompt).toContain('Fill the "_analysis" field FIRST');
     });
+
+    it('should contain Preserve Agent Attribution instruction (QUAL-01)', () => {
+      const prompt = strategy.getVerdictPrompt(mockCollection);
+
+      expect(prompt).toMatch(/Preserve Agent Attribution/);
+    });
+
+    it('should include per-agent R1 positions with key arguments (QUAL-01)', () => {
+      const collection: ArtifactCollection = {
+        round1: [
+          {
+            artifactType: 'independent',
+            schemaVersion: '1.0',
+            agentId: 'SecurityBot',
+            roundNumber: 1,
+            position: 'Use defense-in-depth',
+            keyPoints: ['Layer multiple controls', 'Assume breach'],
+            rationale: 'Modern security requires layers',
+            confidence: 0.9,
+            proseExcerpt: 'Defense-in-depth...',
+            createdAt: new Date().toISOString()
+          },
+          {
+            artifactType: 'independent',
+            schemaVersion: '1.0',
+            agentId: 'PerfBot',
+            roundNumber: 1,
+            position: 'Optimize for speed',
+            keyPoints: ['Cache aggressively', 'Minimize round trips'],
+            rationale: 'Speed is UX',
+            confidence: 0.85,
+            proseExcerpt: 'Speed...',
+            createdAt: new Date().toISOString()
+          }
+        ],
+        round2: {
+          artifactType: 'synthesis',
+          schemaVersion: '1.0',
+          roundNumber: 2,
+          consensusPoints: [],
+          tensions: [],
+          priorityOrder: [],
+          createdAt: new Date().toISOString()
+        }
+      };
+
+      const prompt = strategy.getVerdictPrompt(collection);
+
+      // Should include agent name in bold
+      expect(prompt).toContain('**SecurityBot**');
+      expect(prompt).toContain('**PerfBot**');
+      // Should include key arguments from keyPoints
+      expect(prompt).toContain('Layer multiple controls');
+      expect(prompt).toContain('Cache aggressively');
+    });
+
+    it('should include per_agent_contributions in JSON schema (QUAL-01)', () => {
+      const prompt = strategy.getVerdictPrompt(mockCollection);
+
+      expect(prompt).toContain('per_agent_contributions');
+      expect(prompt).toContain('key_insight');
+      expect(prompt).toContain('"adopted"');
+    });
   });
 
   describe('shouldTerminateEarly', () => {

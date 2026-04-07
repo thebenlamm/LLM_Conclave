@@ -214,7 +214,7 @@ Use the following schema:
    */
   getVerdictPrompt(allArtifacts: ArtifactCollection): string {
     const r1Summary = allArtifacts.round1
-      .map(a => `- ${a.agentId}: ${a.position}`)
+      .map(a => `- **${a.agentId}**: ${a.position}`)
       .join('\n');
 
     const r2Summary = allArtifacts.round2
@@ -248,6 +248,7 @@ ${r3Summary}
 2. **Explain Trade-offs**: What are the pros/cons of each?
 3. **Identify Synergies**: Can any options be combined?
 4. **Provide Context**: When might each option be best?
+5. **Attribute Perspectives**: Each recommendation option MUST name which agent(s) originally proposed or championed it. Do NOT present options as anonymous — the user needs to know which model's reasoning backs each option.
 
 ${COMMON_JSON_INSTRUCTION}
 Use the following schema:
@@ -260,7 +261,8 @@ Use the following schema:
       "description": "What this approach entails",
       "pros": ["Advantage 1", "Advantage 2"],
       "cons": ["Disadvantage 1", "Disadvantage 2"],
-      "best_when": "Scenario where this option shines"
+      "best_when": "Scenario where this option shines",
+      "championed_by": ["Agent Name"]
     }
   ],
   "synergies": ["Ways options can be combined"],
