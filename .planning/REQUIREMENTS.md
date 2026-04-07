@@ -1,61 +1,54 @@
-# Requirements: LLM Conclave Refactoring
+# Requirements: LLM Conclave v1.1
 
 **Defined:** 2026-04-06
-**Core Value:** Every refactoring must reduce ongoing friction for future changes without breaking existing behavior.
+**Core Value:** Multi-LLM collaboration with reliable, maintainable infrastructure.
 
-## v1 Requirements
+## v1.1 Requirements
 
-Requirements for this refactoring milestone. Each maps to roadmap phases.
+Bug fixes and quality improvements discovered via live session audit.
 
-### Type Safety
+### Conversation Integrity
 
-- [x] **TYPE-01**: Define `DiscussionHistoryEntry` type capturing all 10+ fields currently accessed on history entries
-- [x] **TYPE-02**: Replace `any[]` conversation history in ConversationManager with typed `DiscussionHistoryEntry[]`
-- [x] **TYPE-03**: Type the `config` parameter in ConversationManager constructor (replace `any` with `Config` + extensions)
-- [x] **TYPE-04**: Remove dead `msg.name` accesses in `server.ts` (lines 950 and 1099)
+- [ ] **INTEG-01**: Speaker attribution in continuation sessions is correct — speaker field matches the actual agent that generated the content in all rounds
+- [ ] **INTEG-02**: Conversation content does not contain wrong speaker name prefixes — agent responses have no cross-contaminated speaker labels
+- [ ] **INTEG-03**: Orphan judge guidance from parent session is stripped before building continuation context
+- [ ] **INTEG-04**: Continuation task prompt is injected exactly once, not duplicated
+- [x] **INTEG-05**: currentRound metadata stays in sync with actual conversation history length across continuations
 
-### ConversationManager Decomposition
+### Resilience & Fallbacks
 
-- [x] **CONV-01**: Extract `ConversationHistory` class owning `groupHistoryByRound()`, `prepareMessagesForAgent()`, `prepareMessagesWithBudget()`, `compressHistory()`, `formatEntryAsMessage()`, and round compression
-- [x] **CONV-02**: Extract `AgentTurnExecutor` class owning single-agent call cycle (retry, empty-response retry, connection-error retry, model fallback, circuit breaker, abort bridging)
-- [x] **CONV-03**: Extract `JudgeEvaluator` class owning `judgeEvaluate()`, `conductFinalVote()`, `bestEffortJudgeResult()`, `buildCaseFile()`, `prepareJudgeContext()`, shallow-agreement/quoting/rubber-stamp detection, and judge model fallback
+- [ ] **RESIL-01**: Model fallback events are logged with original model, fallback model, and reason when an agent silently substitutes
+- [ ] **RESIL-02**: Consult synthesis/cross-exam/verdict rounds fall back to alternative models when judge model fails instead of aborting
+- [ ] **RESIL-03**: Aborted consults with complete round-1 data report partial confidence and include agent perspectives in the result
+- [ ] **RESIL-04**: Session status reflects degraded quality when judge was unavailable (e.g., "completed_degraded" instead of "completed")
 
-### MCP Server Deduplication
+### Quality & Intelligence
 
-- [x] **MCP-01**: Extract `DiscussionRunner` abstraction encapsulating shared orchestration setup (config resolution, persona application, judge creation, EventBus wiring, ConversationManager construction, abort/timeout, progress heartbeat, session saving)
-- [x] **MCP-02**: Rewrite `handleDiscuss` to delegate to `DiscussionRunner`
-- [x] **MCP-03**: Rewrite REST `/api/discuss` endpoint to delegate to `DiscussionRunner`
-- [x] **MCP-04**: Rewrite `handleContinue` to delegate to `DiscussionRunner` (with prior history injection as configuration point)
+- [ ] **QUAL-01**: Verdict synthesis preserves differentiated strategies and actionable advice instead of collapsing to a generic one-liner
+- [ ] **QUAL-02**: Consult early termination checks for rubber-stamp agreement before accepting high-confidence synthesis
+- [ ] **QUAL-03**: Judge re-evaluates agent progress each round instead of emitting identical guidance in consecutive rounds
+- [ ] **QUAL-04**: bestEffortJudgeResult skips markdown headers when extracting representative sentences from agent responses
 
-### Orchestrator Assessment
+### Observability
 
-- [x] **ORCH-01**: Audit usage of `Orchestrator` class — determine if actively used or legacy
-- [x] **ORCH-02**: Audit usage of `IterativeCollaborativeOrchestrator` — determine if actively used or legacy
-- [x] **ORCH-03**: Based on audit, either define minimal shared interface (`AgentPool` + typed history) or deprecate unused orchestrators
-
-### CostTracker Fixes
-
-- [x] **COST-01**: Fix double-logging bug in `LLMProvider.chat()` (catch + finally both log to CostTracker)
-- [x] **COST-02**: Update stale pricing data (models with $0 pricing: gemini-3-pro, grok-3, gemini-exp-1206)
-- [x] **COST-03**: Add `readonly` modifier to `CostTracker.pricing` to prevent runtime mutation
-- [x] **COST-04**: Scope CostTracker per consultation instead of global singleton (pass via constructor/options)
-
-### Test Safety Net
-
-- [x] **TEST-01**: Add integration tests for judge evaluation path with context compression (prerequisite for CONV-03 extraction)
+- [ ] **OBSRV-01**: Discuss sessions track and persist cost data (tokens, calls, USD) to session JSON — no more all-zero cost fields
+- [ ] **OBSRV-02**: Consult log aggregate input token count sums all rounds correctly instead of showing 28-52 tokens
 
 ## v2 Requirements
 
 Deferred to future milestone. Tracked but not in current roadmap.
 
-### Testing
+### Data Quality (from backlog)
 
-- **TEST-02**: Add integration tests for MCP handler continuation flow
-- **TEST-03**: Increase test coverage for IterativeCollaborativeOrchestrator
+- **DATA-01**: Duplicate consult log file naming (consult-consult- prefix doubling)
+- **DATA-02**: Per-response timestamps (all entries share session start time)
+- **DATA-03**: Provider field stores model name instead of provider name
+- **DATA-04**: outputFiles fields always empty
+- **DATA-05**: consensusReached missing from session manifest
 
-### Further Cleanup
+### Further Cleanup (from v1.0)
 
-- **CLEAN-01**: Extract `PARTICIPATION_REQUIREMENT` and `STRUCTURED_OUTPUT_INSTRUCTION` from PersonaSystem into constants
+- **CLEAN-01**: Extract PARTICIPATION_REQUIREMENT and STRUCTURED_OUTPUT_INSTRUCTION from PersonaSystem into constants
 - **CLEAN-02**: Reduce `: any` annotations across remaining files (currently 225 total)
 - **CLEAN-03**: Consolidate fallback model selection logic (duplicated in ConversationManager and judge methods)
 
@@ -63,43 +56,37 @@ Deferred to future milestone. Tracked but not in current roadmap.
 
 | Feature | Reason |
 |---------|--------|
-| New LLM providers | Refactoring only — no new functionality |
-| Consult subdomain restructuring | Already well-organized with clear boundaries |
+| New LLM providers | Bug fixes only — no new functionality |
 | MCP tool schema changes | Callers must not notice any difference |
-| Performance optimization | Not the goal unless it falls out naturally |
-| Framework/runtime migration | TypeScript + Node.js stays |
-| UI or CLI changes | Transport layer stays the same |
-| ContinuationHandler model availability stub | Known incomplete stub at `ContinuationHandler.ts:248-258` — not part of the 5 key findings, fix separately |
+| Consult subdomain restructuring | Already well-organized |
+| Delete legacy orchestrators | Deprecated in v1.0, not urgent to remove |
+| CostTracker threading through DiscussionRunner | Tech debt from v1.0, singleton fallback works fine |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TYPE-01 | Phase 1 | Complete |
-| TYPE-02 | Phase 1 | Complete |
-| TYPE-03 | Phase 1 | Complete |
-| TYPE-04 | Phase 1 | Complete |
-| COST-01 | Phase 1 | Complete |
-| COST-02 | Phase 1 | Complete |
-| COST-03 | Phase 1 | Complete |
-| COST-04 | Phase 1 | Complete |
-| TEST-01 | Phase 2 | Complete |
-| CONV-01 | Phase 2 | Complete |
-| CONV-02 | Phase 2 | Complete |
-| CONV-03 | Phase 2 | Complete |
-| MCP-01 | Phase 3 | Complete |
-| MCP-02 | Phase 3 | Complete |
-| MCP-03 | Phase 3 | Complete |
-| MCP-04 | Phase 3 | Complete |
-| ORCH-01 | Phase 3 | Complete |
-| ORCH-02 | Phase 3 | Complete |
-| ORCH-03 | Phase 3 | Complete |
+| INTEG-01 | Phase 4 | Pending |
+| INTEG-02 | Phase 4 | Pending |
+| INTEG-03 | Phase 4 | Pending |
+| INTEG-04 | Phase 4 | Pending |
+| INTEG-05 | Phase 4 | Complete |
+| RESIL-01 | Phase 5 | Pending |
+| RESIL-02 | Phase 5 | Pending |
+| RESIL-03 | Phase 5 | Pending |
+| RESIL-04 | Phase 5 | Pending |
+| OBSRV-01 | Phase 5 | Pending |
+| OBSRV-02 | Phase 5 | Pending |
+| QUAL-01 | Phase 6 | Pending |
+| QUAL-02 | Phase 6 | Pending |
+| QUAL-03 | Phase 6 | Pending |
+| QUAL-04 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 19 total
-- Mapped to phases: 19
+- v1.1 requirements: 15 total
+- Mapped to phases: 15
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-06*
-*Last updated: 2026-04-06 after initial definition*
+*Last updated: 2026-04-06 after roadmap creation*

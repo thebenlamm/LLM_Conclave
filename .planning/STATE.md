@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
+milestone: v1.1
+milestone_name: Bug Fixes & Quality
 status: unknown
-stopped_at: Completed 03-mcp-deduplication-orchestrator-assessment 03-02-PLAN.md
-last_updated: "2026-04-06T17:12:49.627Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-04-07T01:25:04.639Z"
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_phases: 8
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 1
 ---
 
 # Project State
@@ -18,17 +18,17 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-04-06)
 
-**Core value:** Every refactoring must reduce ongoing friction for future changes without breaking existing behavior.
-**Current focus:** Phase 03 — mcp-deduplication-orchestrator-assessment
+**Core value:** Multi-LLM collaboration with reliable, maintainable infrastructure.
+**Current focus:** Phase 04 — conversation-integrity
 
 ## Current Position
 
-Phase: 03 (mcp-deduplication-orchestrator-assessment) — EXECUTING
+Phase: 04 (conversation-integrity) — EXECUTING
 Plan: 2 of 2
 
 ## Performance Metrics
 
-**Velocity:**
+**v1.1 Velocity:**
 
 - Total plans completed: 0
 - Average duration: -
@@ -40,12 +40,12 @@ Plan: 2 of 2
 |-------|-------|-------|----------|
 | - | - | - | - |
 
-**Recent Trend:**
-
-- Last 5 plans: -
-- Trend: -
-
 *Updated after each plan completion*
+
+**v1.0 Reference (for calibration):**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
 | Phase 01-foundation P01 | 8 | 2 tasks | 5 files |
 | Phase 01-foundation P02 | 4 | 2 tasks | 4 files |
 | Phase 01-foundation P03 | 18 | 2 tasks | 12 files |
@@ -54,6 +54,7 @@ Plan: 2 of 2
 | Phase 02-conversationmanager-decomposition P03 | 14 | 1 tasks | 3 files |
 | Phase 03-mcp-deduplication-orchestrator-assessment P01 | 7 | 2 tasks | 4 files |
 | Phase 03-mcp-deduplication-orchestrator-assessment P02 | 7m | 2 tasks | 2 files |
+| Phase 04 P02 | 2min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -86,17 +87,19 @@ Recent decisions affecting current work:
 - [Phase 03-mcp-deduplication-orchestrator-assessment]: handleDiscuss, handleContinue, REST /api/discuss all delegate to DiscussionRunner.run() — no direct EventBus/CM/SessionManager construction in server.ts
 - [Phase 03-mcp-deduplication-orchestrator-assessment]: clientAbortSignal option added to DiscussionRunnerOptions for REST client-disconnect abort without external AbortController leak
 - [Phase 03-mcp-deduplication-orchestrator-assessment]: resolvedConfig option allows handleContinue to bypass ConfigCascade with pre-built session config
+- [v1.1 roadmap]: OBSRV-01/02 folded into Phase 5 (Resilience) at coarse granularity — both concern accurate session reporting, natural fit with resilience/fallback instrumentation
+- [Phase 04]: Count completed rounds by filtering Judge guidance delimiters (speaker=Judge, role=user) for currentRound offset in continuations
 
 ### Pending Todos
 
-None yet.
+None.
 
 ### Blockers/Concerns
 
-- Phase 2 (ConversationManager decomposition) may need additional test coverage for the judge evaluation path before refactoring — see PROJECT.md constraint "Test-first for risky paths"
+None.
 
 ## Session Continuity
 
-Last session: 2026-04-06T17:12:49.625Z
-Stopped at: Completed 03-mcp-deduplication-orchestrator-assessment 03-02-PLAN.md
+Last session: 2026-04-07T01:25:04.636Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
