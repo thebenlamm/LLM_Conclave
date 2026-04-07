@@ -93,6 +93,7 @@ export default class SessionManager {
       agentCount: session.agents.length,
       cost: session.cost.totalCost,
       parentSessionId: session.parentSessionId,
+      consensusReached: session.consensusReached,
     };
 
     manifest.sessions.unshift(summary); // Add to beginning

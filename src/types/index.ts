@@ -420,6 +420,7 @@ export interface SessionSummary {
   agentCount: number;
   cost: number;
   parentSessionId?: string;
+  consensusReached?: boolean;
 }
 
 export interface SessionIndexManifest {
