@@ -26,8 +26,8 @@ Bug fixes and quality improvements discovered via live session audit.
 
 - [ ] **QUAL-01**: Verdict synthesis preserves differentiated strategies and actionable advice instead of collapsing to a generic one-liner
 - [ ] **QUAL-02**: Consult early termination checks for rubber-stamp agreement before accepting high-confidence synthesis
-- [ ] **QUAL-03**: Judge re-evaluates agent progress each round instead of emitting identical guidance in consecutive rounds
-- [ ] **QUAL-04**: bestEffortJudgeResult skips markdown headers when extracting representative sentences from agent responses
+- [x] **QUAL-03**: Judge re-evaluates agent progress each round instead of emitting identical guidance in consecutive rounds
+- [x] **QUAL-04**: bestEffortJudgeResult skips markdown headers when extracting representative sentences from agent responses
 
 ### Observability
 
@@ -79,8 +79,8 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | OBSRV-02 | Phase 5 | Complete |
 | QUAL-01 | Phase 6 | Pending |
 | QUAL-02 | Phase 6 | Pending |
-| QUAL-03 | Phase 6 | Pending |
-| QUAL-04 | Phase 6 | Pending |
+| QUAL-03 | Phase 6 | Complete |
+| QUAL-04 | Phase 6 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 15 total

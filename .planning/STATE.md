@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Bug Fixes & Quality
 status: unknown
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-04-07T01:45:10.334Z"
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-04-07T02:00:24.237Z"
 progress:
   total_phases: 8
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 6
+  completed_plans: 5
 ---
 
 # Project State
@@ -19,11 +19,11 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-06)
 
 **Core value:** Multi-LLM collaboration with reliable, maintainable infrastructure.
-**Current focus:** Phase 05 — resilience-observability
+**Current focus:** Phase 06 — judge-quality
 
 ## Current Position
 
-Phase: 05 (resilience-observability) — EXECUTING
+Phase: 06 (judge-quality) — EXECUTING
 Plan: 2 of 2
 
 ## Performance Metrics
@@ -58,6 +58,7 @@ Plan: 2 of 2
 | Phase 04-conversation-integrity P01 | 3min | 2 tasks | 3 files |
 | Phase 05 P02 | 4min | 2 tasks | 2 files |
 | Phase 05 P01 | 4min | 2 tasks | 5 files |
+| Phase 06 P02 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Hoist R2 messages before try block so fallback catch can reuse them
 - [Phase 05]: Cost field added to all 3 ConversationManager return paths (normal, degraded, aborted) for complete session cost tracking
 - [Phase 05]: Per-session CostTracker instance created in DiscussionRunner instead of using singleton fallback
+- [Phase 06]: Filter markdown headers at line level before sentence regex — regex captures multi-line content as single sentences
+- [Phase 06]: Store priorGuidance only on non-consensus path — consensus ends discussion, no future rounds
 
 ### Pending Todos
 
@@ -109,6 +112,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-07T01:45:10.331Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-04-07T02:00:24.234Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None
