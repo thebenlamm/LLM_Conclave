@@ -39,7 +39,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 **Plans:** 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Fix speaker attribution, orphan judge guidance, and duplicate task prompt in ContinuationHandler
+- [x] 04-01-PLAN.md — Fix speaker attribution, orphan judge guidance, and duplicate task prompt in ContinuationHandler
 - [x] 04-02-PLAN.md — Fix currentRound metadata drift after priorHistory injection
 
 ### Phase 5: Resilience & Observability

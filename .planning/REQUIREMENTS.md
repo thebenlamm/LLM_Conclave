@@ -9,10 +9,10 @@ Bug fixes and quality improvements discovered via live session audit.
 
 ### Conversation Integrity
 
-- [ ] **INTEG-01**: Speaker attribution in continuation sessions is correct — speaker field matches the actual agent that generated the content in all rounds
-- [ ] **INTEG-02**: Conversation content does not contain wrong speaker name prefixes — agent responses have no cross-contaminated speaker labels
-- [ ] **INTEG-03**: Orphan judge guidance from parent session is stripped before building continuation context
-- [ ] **INTEG-04**: Continuation task prompt is injected exactly once, not duplicated
+- [x] **INTEG-01**: Speaker attribution in continuation sessions is correct — speaker field matches the actual agent that generated the content in all rounds
+- [x] **INTEG-02**: Conversation content does not contain wrong speaker name prefixes — agent responses have no cross-contaminated speaker labels
+- [x] **INTEG-03**: Orphan judge guidance from parent session is stripped before building continuation context
+- [x] **INTEG-04**: Continuation task prompt is injected exactly once, not duplicated
 - [x] **INTEG-05**: currentRound metadata stays in sync with actual conversation history length across continuations
 
 ### Resilience & Fallbacks
@@ -66,10 +66,10 @@ Deferred to future milestone. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INTEG-01 | Phase 4 | Pending |
-| INTEG-02 | Phase 4 | Pending |
-| INTEG-03 | Phase 4 | Pending |
-| INTEG-04 | Phase 4 | Pending |
+| INTEG-01 | Phase 4 | Complete |
+| INTEG-02 | Phase 4 | Complete |
+| INTEG-03 | Phase 4 | Complete |
+| INTEG-04 | Phase 4 | Complete |
 | INTEG-05 | Phase 4 | Complete |
 | RESIL-01 | Phase 5 | Pending |
 | RESIL-02 | Phase 5 | Pending |

@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Bug Fixes & Quality
 status: unknown
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-04-07T01:25:04.639Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-04-07T01:26:22.174Z"
 progress:
   total_phases: 8
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -55,6 +55,7 @@ Plan: 2 of 2
 | Phase 03-mcp-deduplication-orchestrator-assessment P01 | 7 | 2 tasks | 4 files |
 | Phase 03-mcp-deduplication-orchestrator-assessment P02 | 7m | 2 tasks | 2 files |
 | Phase 04 P02 | 2min | 1 tasks | 2 files |
+| Phase 04-conversation-integrity P01 | 3min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,8 @@ Recent decisions affecting current work:
 - [Phase 03-mcp-deduplication-orchestrator-assessment]: resolvedConfig option allows handleContinue to bypass ConfigCascade with pre-built session config
 - [v1.1 roadmap]: OBSRV-01/02 folded into Phase 5 (Resilience) at coarse granularity — both concern accurate session reporting, natural fit with resilience/fallback instrumentation
 - [Phase 04]: Count completed rounds by filtering Judge guidance delimiters (speaker=Judge, role=user) for currentRound offset in continuations
+- [Phase 04-01]: Filter judge guidance by role=user && speaker=Judge — targeted filter preserving non-judge user entries
+- [Phase 04-01]: Fix INTEG-04 at server.ts call site (slice mergedHistory) rather than changing ContinuationHandler return contract
 
 ### Pending Todos
 
@@ -100,6 +103,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-07T01:25:04.636Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-04-07T01:26:22.172Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
