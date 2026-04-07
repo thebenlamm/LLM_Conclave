@@ -46,6 +46,8 @@ export default class JudgeEvaluator {
   // Judge discussion caching — owned by this class
   private cachedRecentDiscussion: string = '';
   private lastJudgeCacheRound: number = 0;
+  // QUAL-03: Track prior round guidance to prevent duplicate judge directions
+  private priorGuidance: string[] = [];
 
   constructor(private deps: JudgeEvaluatorDeps) {}
 
@@ -394,6 +396,7 @@ export default class JudgeEvaluator {
   invalidateCache(): void {
     this.cachedRecentDiscussion = '';
     this.lastJudgeCacheRound = 0;
+    this.priorGuidance = [];
   }
 
   /**
@@ -527,9 +530,19 @@ If NO (no genuine consensus), provide SPECIFIC, CHALLENGING guidance. Name agent
 
 Your guidance should FORCE new insights, not just encourage more discussion. Always name specific agents and give them specific tasks.`;
 
+      // QUAL-03: Inject prior round guidance so the judge doesn't repeat itself
+      let priorGuidanceBlock = '';
+      if (this.priorGuidance.length > 0) {
+        const priorText = this.priorGuidance
+          .map((g, i) => `Round ${i + 1}: ${g.substring(0, 500)}`)
+          .join('\n');
+        priorGuidanceBlock = `\n\nYour PREVIOUS guidance to agents (DO NOT repeat these — give NEW, DIFFERENT direction):\n${priorText}\n\nYou MUST provide guidance that differs from what you said before. If agents followed your prior guidance, acknowledge progress and push them further. If they ignored it, escalate with more specific instructions.`;
+      }
+
+      const judgePromptWithHistory = `${judgePrompt}${priorGuidanceBlock}`;
       const finalJudgePrompt = this.deps.judgeInstructions
-        ? `${judgePrompt}\n\nADDITIONAL INSTRUCTIONS FROM CALLER:\n${this.deps.judgeInstructions}`
-        : judgePrompt;
+        ? `${judgePromptWithHistory}\n\nADDITIONAL INSTRUCTIONS FROM CALLER:\n${this.deps.judgeInstructions}`
+        : judgePromptWithHistory;
 
       const messages = [
         {
@@ -564,6 +577,9 @@ Your guidance should FORCE new insights, not just encourage more discussion. Alw
           confidence: structured.confidence
         };
       }
+
+      // QUAL-03: Store guidance for next round to prevent duplicate directions
+      this.priorGuidance.push(text);
 
       return {
         consensusReached: false,
