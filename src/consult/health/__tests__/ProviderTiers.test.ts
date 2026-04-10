@@ -21,7 +21,8 @@ describe('ProviderTiers', () => {
       expect(PROVIDER_TIER_MAP['gpt-4o']).toBe(ProviderTier.Tier1);
       expect(PROVIDER_TIER_MAP['claude-sonnet-4-5']).toBe(ProviderTier.Tier1);
       expect(PROVIDER_TIER_MAP['gpt-4']).toBe(ProviderTier.Tier2);
-      expect(PROVIDER_TIER_MAP['mistral-large']).toBe(ProviderTier.Tier3);
+      expect(PROVIDER_TIER_MAP['mistral-large-latest']).toBe(ProviderTier.Tier3);
+      expect(PROVIDER_TIER_MAP['grok-3']).toBe(ProviderTier.Tier1);
     });
   });
 

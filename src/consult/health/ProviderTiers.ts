@@ -29,7 +29,8 @@ export const PROVIDER_TIER_MAP: Record<string, ProviderTier> = {
   'gemini-2.0-flash': ProviderTier.Tier2,
   'gpt-3.5-turbo': ProviderTier.Tier3,
   'gpt-4.1-nano': ProviderTier.Tier3,
-  'mistral-large': ProviderTier.Tier3
+  'mistral-large-latest': ProviderTier.Tier3,
+  'grok-3': ProviderTier.Tier1
 };
 
 /**
@@ -58,8 +59,8 @@ export const CHEAP_HEALTH_CHECK_MODEL: Record<string, string> = {
   'gemini-1.5-pro': 'gemini-2.0-flash',
 
   // Mistral/Others
-  'mistral-large': 'mistral-large', // No cheaper variant
-  'grok-beta': 'grok-beta' // No cheaper variant
+  'mistral-large-latest': 'mistral-small-latest',
+  'grok-3': 'grok-3' // No cheaper variant
 };
 
 /**

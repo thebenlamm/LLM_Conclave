@@ -219,8 +219,22 @@ export class ArtifactExtractor {
 
     try {
       return JSON.parse(jsonText);
-    } catch (error) {
-      throw new Error(`Failed to parse JSON artifact: ${(error as Error).message}`);
+    } catch (_firstError) {
+      // LLMs (especially Mistral) may emit raw control characters inside JSON
+      // string values. Escape unescaped control chars within strings and retry.
+      try {
+        const sanitized = jsonText.replace(/"(?:[^"\\]|\\.)*"/g, (match) =>
+          match.replace(/[\x00-\x1F\x7F]/g, (ch) => {
+            if (ch === '\t') return '\\t';
+            if (ch === '\n') return '\\n';
+            if (ch === '\r') return '\\r';
+            return '';
+          })
+        );
+        return JSON.parse(sanitized);
+      } catch (error) {
+        throw new Error(`Failed to parse JSON artifact: ${(error as Error).message}`);
+      }
     }
   }
 }
