@@ -28,6 +28,36 @@ describe('ArtifactExtractor', () => {
       const invalid = '{ "key": "value" '; // missing brace
       expect(() => (ArtifactExtractor as any).extractJSON(invalid)).toThrow();
     });
+
+    it('sanitizes raw newlines inside JSON string values', () => {
+      const broken = '{"key": "line1\nline2"}';
+      const result = (ArtifactExtractor as any).extractJSON(broken);
+      expect(result).toEqual({ key: 'line1\nline2' });
+    });
+
+    it('sanitizes raw tabs and carriage returns inside JSON string values', () => {
+      const broken = '{"key": "col1\tcol2\r"}';
+      const result = (ArtifactExtractor as any).extractJSON(broken);
+      expect(result).toEqual({ key: 'col1\tcol2\r' });
+    });
+
+    it('strips NUL and other control characters from string values', () => {
+      const broken = '{"key": "hello\x01world"}';
+      const result = (ArtifactExtractor as any).extractJSON(broken);
+      expect(result).toEqual({ key: 'helloworld' });
+    });
+
+    it('does not corrupt valid JSON with escaped sequences', () => {
+      const valid = '{"key": "has \\n escaped newline"}';
+      const result = (ArtifactExtractor as any).extractJSON(valid);
+      expect(result).toEqual({ key: 'has \n escaped newline' });
+    });
+
+    it('preserves structural newlines between JSON tokens', () => {
+      const formatted = '{\n  "key": "value",\n  "num": 42\n}';
+      const result = (ArtifactExtractor as any).extractJSON(formatted);
+      expect(result).toEqual({ key: 'value', num: 42 });
+    });
   });
 
   describe('extractIndependentArtifact', () => {

@@ -20,6 +20,7 @@ export enum ProviderTier {
 
 export const PROVIDER_TIER_MAP: Record<string, ProviderTier> = {
   'claude-sonnet-4-5': ProviderTier.Tier1,
+  'claude-opus-4-5': ProviderTier.Tier1,
   'gpt-4o': ProviderTier.Tier1,
   'gpt-4.1': ProviderTier.Tier1,
   'gemini-2.5-pro': ProviderTier.Tier1,
@@ -42,6 +43,7 @@ export const CHEAP_HEALTH_CHECK_MODEL: Record<string, string> = {
   'claude-sonnet-4-5': 'claude-haiku-4',
   'claude-sonnet-3.5': 'claude-haiku-4',
   'claude-opus-4': 'claude-haiku-4',
+  'claude-opus-4-5': 'claude-haiku-4',
   'claude-haiku-4': 'claude-haiku-4', // Already cheapest
 
   // OpenAI family -> Use cheapest variant
