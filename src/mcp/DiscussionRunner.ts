@@ -73,8 +73,14 @@ export interface DiscussionResult {
 /**
  * Renders conversation history as markdown transcript (grouped by round).
  * Used by saveDiscussionLog below.
+ *
+ * Phase 15.2 (Task 1): error: true entries are no longer silently dropped.
+ * They render inline as a FAILED block consuming the existing failedAgents
+ * aggregation populated by ConversationManager (errorDetails / agent / model).
+ * This preserves transcript reading order so failures appear at the position
+ * the failed turn occupied in conversationHistory.
  */
-function renderTranscriptMarkdown(conversationHistory: any[]): string {
+export function renderTranscriptMarkdown(conversationHistory: any[]): string {
   let output = '';
   let currentRound = 0;
   let emittedFirstRound = false;
@@ -82,12 +88,24 @@ function renderTranscriptMarkdown(conversationHistory: any[]): string {
   for (const msg of conversationHistory) {
     const speaker = msg.speaker || 'Unknown';
     if (speaker === 'System') continue;
-    if (msg.error) continue;
 
     if (!emittedFirstRound && speaker !== 'Judge') {
       currentRound = 1;
       output += `### Round ${currentRound}\n\n`;
       emittedFirstRound = true;
+    }
+
+    if (msg.error) {
+      // Phase 15.2 — inline FAILED block. ≤4 lines per failed turn.
+      const details = msg.errorDetails || 'unknown';
+      const isPersonaImpersonation = details === 'persona-impersonation';
+      const reasonLine = isPersonaImpersonation
+        ? `> reason: persona impersonation (Phase 15.1 guard)`
+        : `> reason: provider failure`;
+      output += `> **[FAILED] ${speaker}** (${msg.model || 'unknown'})\n`;
+      output += `> error: ${details}\n`;
+      output += `${reasonLine}\n\n`;
+      continue;
     }
 
     if (speaker === 'Judge') {
