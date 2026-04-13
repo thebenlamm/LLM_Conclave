@@ -832,6 +832,36 @@ function renderTranscriptMarkdown(conversationHistory: any[]): string {
 }
 
 /**
+ * Render the Realized Panel block listing actual models per agent.
+ * Surfaces silent fallback by marking substituted agents with their original model and reason.
+ * Always rendered (transparency by default) — shows "(all models as configured)" when none substituted.
+ * Phase 12-03.
+ */
+function renderRealizedPanel(
+  agentsConfig: Record<string, { model: string }> | undefined,
+  substitutions: Record<string, { original: string; fallback: string; reason: string }> | undefined
+): string {
+  if (!agentsConfig || Object.keys(agentsConfig).length === 0) return '';
+  const lines: string[] = ['## Realized Panel', ''];
+  const subs = substitutions || {};
+  const hadAnySub = Object.keys(subs).length > 0;
+  for (const [name, cfg] of Object.entries(agentsConfig)) {
+    const sub = subs[name];
+    if (sub) {
+      lines.push(`- ${name}: ${sub.fallback} [substituted from ${sub.original} — ${sub.reason}]`);
+    } else {
+      lines.push(`- ${name}: ${cfg.model}`);
+    }
+  }
+  if (!hadAnySub) {
+    lines.push('');
+    lines.push('_(all models as configured)_');
+  }
+  lines.push('');
+  return lines.join('\n') + '\n';
+}
+
+/**
  * Format a brief summary for MCP response (keeps context small)
  */
 function formatDiscussionResult(result: any, logFilePath: string, sessionId?: string, options?: { includeTranscript?: boolean }): string {
@@ -851,6 +881,8 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   } = result;
 
   let output = `# Discussion Summary\n\n`;
+  // Realized Panel — surfaces actual models per agent, marking any substitutions (Phase 12-03)
+  output += renderRealizedPanel(result.agents_config, agentSubstitutions);
   output += `**Task:** ${task}\n\n`;
 
   // Report degradation with per-agent error details (not just names)
@@ -1053,9 +1085,22 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
     reason: sub.reason,
   }));
 
+  // Realized Panel — structured per-agent actual vs configured models (Phase 12-03)
+  const realizedPanel = Object.entries(result.agents_config || {}).map(([name, cfg]: [string, any]) => {
+    const sub = (agentSubstitutions as Record<string, any>)?.[name];
+    return {
+      agent: name,
+      actual_model: sub ? sub.fallback : cfg.model,
+      configured_model: cfg.model,
+      substituted: !!sub,
+      substitution_reason: sub?.reason,
+    };
+  });
+
   return {
     task,
     summary: solution || null,
+    realized_panel: realizedPanel,
     key_decisions: keyDecisions,
     action_items: actionItems,
     dissent,

@@ -354,6 +354,9 @@ export default class ConversationManager {
           failedAgents: degradedFailedAgents,
           failedAgentDetails: degradedFailedDetails,
           agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
+          agents_config: Object.fromEntries(
+            Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
+          ),
           degraded: true,
           degradedReason,
           turn_analytics: {
@@ -565,6 +568,9 @@ export default class ConversationManager {
         failedAgents: [...new Set(failedAgentsList)],
         failedAgentDetails,
         agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
+        agents_config: Object.fromEntries(
+          Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
+        ),
         timedOut: true,
         turn_analytics: {
           per_agent: abortSortedAgents.map(([name, turns]) => ({
@@ -686,6 +692,9 @@ export default class ConversationManager {
       failedAgents: uniqueFailedAgents,
       failedAgentDetails,
       agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
+      agents_config: Object.fromEntries(
+        Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
+      ),
       turn_analytics,
       dissent_quality,
       cost: {
