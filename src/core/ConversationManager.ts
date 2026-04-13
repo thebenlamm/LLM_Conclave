@@ -1040,6 +1040,13 @@ export default class ConversationManager {
 
       // Execute agent turn and capture response
       const historyLengthBefore = this.conversationHistory.length;
+      // Phase 15.2 Task 3 — guard is wired here but currently never trips within
+      // a single dynamic round because `this.terminated` is only set AFTER
+      // judgeEvaluate in the outer loop (see line ~585). If a future refactor
+      // moves judge evaluation inside runDynamicRound (e.g. incremental consensus
+      // checking), this guard becomes the primary termination barrier. Do not
+      // remove — the invariant "no agent turn runs once terminated is true"
+      // depends on it.
       await this.runAgentTurnGuarded(agentName);
 
       // Phase 13 — record per-agent turn + token stats and report.
