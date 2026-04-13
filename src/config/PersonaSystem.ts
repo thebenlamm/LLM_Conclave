@@ -80,7 +80,9 @@ IMPORTANT PARTICIPATION RULES:
 8. NEVER quote other agents at length. Reference their ideas briefly ("As X noted, ...") then ADD NEW VALUE. Repeating what others said wastes everyone's time and tokens.
 9. Keep responses focused and concise. Long responses that restate the discussion are less valuable than short responses that advance it.
 
-Your unique perspective is why you're here. Don't waste it on empty agreement or verbose repetition.`;
+Your unique perspective is why you're here. Don't waste it on empty agreement or verbose repetition.
+
+Speak only as yourself. Never prefix your response with another advisor's name (e.g. \`**Tech Ethicist:**\`), never produce content attributed to the Judge, and never invent additional advisor personas that were not configured for this session. If you want to refer to another advisor, use plain prose ("Security Expert argued that…"), not a role-prefix that looks like their turn.`;
 
 /**
  * Instruction appended when contextOptimization is enabled.
