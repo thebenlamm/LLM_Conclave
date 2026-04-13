@@ -990,5 +990,52 @@ describe('ConversationManager Quality Tests', () => {
       expect(result.finalConfidence).toBe('HIGH');
       expect(result.confidenceReasoning.toLowerCase()).toContain('machinery clean');
     });
+
+    // -----------------------------------------------------------------------
+    // Gap closure (post-verification): exercise the REAL
+    // ConversationHistory.getCompressedHistoryFor end-to-end through a
+    // round-2 loop, asserting that the compression refresh does not throw
+    // the classic `provider.toUpperCase is not a function` TypeError that
+    // was previously masked by a swallowing try/catch.
+    // -----------------------------------------------------------------------
+    it('Test 9: round 2 exercises real getCompressedHistoryFor without compression refresh warning', async () => {
+      // Restore the prototype spy so this test hits the REAL method.
+      getCompressedSpy.mockRestore();
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        const { cm, judge } = createSetup({
+          agent1Responses: ['Round 1 take from Agent1', 'Round 2 take from Agent1'],
+          agent2Responses: ['Round 1 take from Agent2', 'Round 2 take from Agent2'],
+          judgeResponses: [
+            'No consensus yet. Continue.',
+            buildConsensusText({ summary: 'Final after round 2', confidence: 'MEDIUM' }),
+          ],
+          maxRounds: 2,
+          minRounds: 0,
+        });
+
+        // Should not throw. NODE_ENV=test in the executor also re-throws any
+        // swallowed compression error, so a shape regression would surface here.
+        await expect(
+          cm.startConversation('Integration: real compression wiring', judge)
+        ).resolves.toBeDefined();
+
+        const compressionWarnings = warnSpy.mock.calls.filter(args =>
+          args.some(
+            a => typeof a === 'string' && a.includes('compression refresh failed')
+          )
+        );
+        expect(compressionWarnings).toEqual([]);
+      } finally {
+        warnSpy.mockRestore();
+        // Re-install the spy so the afterEach restore remains valid for
+        // sibling tests that may re-enter (defensive; jest runs sequentially).
+        getCompressedSpy = jest
+          .spyOn(ConversationHistoryClass.prototype, 'getCompressedHistoryFor')
+          .mockResolvedValue([]);
+      }
+    });
   });
 });

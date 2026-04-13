@@ -396,7 +396,15 @@ export default class ConversationHistory {
     // Compute the threshold from the minimum TPM ceiling across active agents.
     let minTpm = Number.POSITIVE_INFINITY;
     for (const cfgAgent of Object.values(agents)) {
-      const provider = cfgAgent.provider || inferProviderFromModel(cfgAgent.model);
+      // Belt-and-suspenders: callers historically passed the ConversationManager
+      // agent map whose `.provider` is an LLMProvider *instance*, not a string.
+      // That tripped `provider.toUpperCase()` inside tpmLimits and — hidden by a
+      // swallowing try/catch — silently disabled compression. Coerce non-string
+      // providers through the model-based inference path.
+      const provider =
+        typeof cfgAgent.provider === 'string' && cfgAgent.provider.length > 0
+          ? cfgAgent.provider
+          : inferProviderFromModel(cfgAgent.model);
       const limit = getTpmLimit(provider, cfgAgent.model, options.tpmOverrides);
       if (limit < minTpm) minTpm = limit;
     }

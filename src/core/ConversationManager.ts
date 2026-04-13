@@ -1,5 +1,5 @@
 import ProviderFactory from '../providers/ProviderFactory';
-import { preFlightTpmCheck } from '../providers/tpmLimits.js';
+import { preFlightTpmCheck, inferProviderFromModel } from '../providers/tpmLimits.js';
 import ConversationHistory from './ConversationHistory.js';
 import AgentTurnExecutor from './AgentTurnExecutor.js';
 import JudgeEvaluator from './JudgeEvaluator.js';
@@ -355,14 +355,33 @@ export default class ConversationManager {
       // sliding-window path. The raw `conversationHistory` array is left intact
       // (compression is non-destructive — see ConversationHistory.ts:405).
       if (this.currentRound >= 2) {
+        // Build a string-provider shape for ConversationHistory. `this.agents`
+        // stores `.provider` as an LLMProvider *instance*, but
+        // getCompressedHistoryFor expects a provider-name string for TPM
+        // resolution. Pass model only and let inferProviderFromModel derive
+        // the provider name — this is the authoritative mapping.
+        const agentsForCompression: Record<string, { model: string; provider: string }> = {};
+        for (const [agentName, agent] of Object.entries(this.agents)) {
+          const model = (agent as any)?.model;
+          if (typeof model !== 'string' || model.length === 0) continue;
+          agentsForCompression[agentName] = {
+            model,
+            provider: inferProviderFromModel(model),
+          };
+        }
         try {
-          await this.history.getCompressedHistoryFor(this.agents, {
+          await this.history.getCompressedHistoryFor(agentsForCompression, {
             taskRouter: this.taskRouter ?? undefined,
             config: (this.config as any)?.compression,
             tpmOverrides: (this.config as any)?.tpmOverrides,
           });
         } catch (err: any) {
           console.warn(`[ConversationManager] compression refresh failed: ${err?.message || err}`);
+          // Surface regressions in dev/test so a silent swallow can't hide
+          // another shape mismatch like the one that motivated this fix.
+          if (process.env.NODE_ENV === 'test' || process.env.LLM_CONCLAVE_STRICT_COMPRESSION === '1') {
+            throw err;
+          }
         }
       }
 
