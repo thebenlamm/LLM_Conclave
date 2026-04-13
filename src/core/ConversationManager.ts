@@ -1,4 +1,5 @@
 import ProviderFactory from '../providers/ProviderFactory';
+import { preFlightTpmCheck } from '../providers/tpmLimits.js';
 import ConversationHistory from './ConversationHistory.js';
 import AgentTurnExecutor from './AgentTurnExecutor.js';
 import JudgeEvaluator from './JudgeEvaluator.js';
@@ -190,6 +191,22 @@ export default class ConversationManager {
    * @returns {Object} - Final result with consensus and history
    */
   async startConversation(task: string, judge: any, projectContext: any = null) {
+    // Pre-flight TPM guard (Phase 12) — fail fast before any LLM call,
+    // before any history seeding, and before any run:start event so a
+    // pre-flight failure produces no session side effects. Matches the
+    // CostTracker pre-flight gate pattern: abort before work begins.
+    // Throws PreFlightTpmError on violation; MCP discuss handler catches.
+    const projectContextText: string | undefined =
+      projectContext && typeof projectContext.formatContext === 'function'
+        ? projectContext.formatContext()
+        : (typeof projectContext === 'string' ? projectContext : undefined);
+    preFlightTpmCheck(
+      this.agents,
+      task,
+      projectContextText,
+      (this.config as any)?.tpmOverrides
+    );
+
     console.log(`\n${'='.repeat(80)}`);
     console.log(`TASK: ${task}`);
     console.log(`${'='.repeat(80)}\n`);

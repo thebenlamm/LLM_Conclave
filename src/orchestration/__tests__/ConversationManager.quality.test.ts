@@ -329,4 +329,83 @@ describe('ConversationManager Quality Tests', () => {
       expect(ProviderFactory.createProvider).toHaveBeenCalledWith('claude-sonnet-4-5');
     });
   });
+
+  // =========================================================================
+  // Pre-flight TPM check (Phase 12)
+  // =========================================================================
+  describe('pre-flight TPM check (Phase 12)', () => {
+    const ORIGINAL_OPENAI_TPM = process.env.LLM_CONCLAVE_TPM_OPENAI;
+
+    afterEach(() => {
+      if (ORIGINAL_OPENAI_TPM === undefined) {
+        delete process.env.LLM_CONCLAVE_TPM_OPENAI;
+      } else {
+        process.env.LLM_CONCLAVE_TPM_OPENAI = ORIGINAL_OPENAI_TPM;
+      }
+    });
+
+    it('throws PreFlightTpmError when an agent exceeds its provider TPM ceiling', async () => {
+      // Force OpenAI TPM ceiling to a tiny value so any non-empty prompt+task busts it
+      process.env.LLM_CONCLAVE_TPM_OPENAI = '5';
+
+      const { cm, judge, mockAgent1Chat } = createSetup({
+        agent1Responses: ['Should never be called'],
+        agent2Responses: ['Should never be called'],
+        judgeResponses: ['Should never be called'],
+        maxRounds: 1,
+      });
+
+      const { PreFlightTpmError } = require('../../providers/tpmLimits');
+
+      await expect(cm.startConversation('A reasonably long task description that has plenty of tokens', judge))
+        .rejects.toBeInstanceOf(PreFlightTpmError);
+
+      // No agent calls should have happened
+      expect(mockAgent1Chat).not.toHaveBeenCalled();
+    });
+
+    it('PreFlightTpmError carries per-agent violations including the offending model', async () => {
+      process.env.LLM_CONCLAVE_TPM_OPENAI = '5';
+
+      const { cm, judge } = createSetup({
+        agent1Responses: ['x'],
+        agent2Responses: ['x'],
+        judgeResponses: ['x'],
+        maxRounds: 1,
+      });
+
+      const { PreFlightTpmError } = require('../../providers/tpmLimits');
+
+      try {
+        await cm.startConversation('A reasonably long task description that has plenty of tokens', judge);
+        throw new Error('Expected PreFlightTpmError');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(PreFlightTpmError);
+        expect(Array.isArray(err.violations)).toBe(true);
+        const offending = err.violations.find((v: any) => v.model === 'gpt-4o');
+        expect(offending).toBeTruthy();
+        expect(offending.provider).toBe('openai');
+        expect(offending.tpmLimit).toBe(5);
+        expect(offending.estimatedInputTokens).toBeGreaterThan(5);
+      }
+    });
+
+    it('happy path: pre-flight passes when all agents are under the TPM ceiling', async () => {
+      // No env override — defaults are 30K (openai) and 40K (anthropic), well above test prompts
+      const { cm, judge, mockAgent1Chat } = createSetup({
+        agent1Responses: ['Agent1 thoughts on this matter'],
+        agent2Responses: ['Agent2 disagrees with Agent1'],
+        judgeResponses: [
+          buildConsensusText({ summary: 'Agreed solution' }),
+        ],
+        maxRounds: 1,
+      });
+
+      const result = await cm.startConversation('Short task', judge);
+
+      // Pre-flight did not block — at least one agent ran
+      expect(mockAgent1Chat).toHaveBeenCalled();
+      expect(result).toBeTruthy();
+    });
+  });
 });

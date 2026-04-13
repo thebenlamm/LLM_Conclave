@@ -38,6 +38,7 @@ import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 import { ContextLoader } from '../consult/context/ContextLoader.js';
 import { DiscussionRunner } from './DiscussionRunner.js';
+import { PreFlightTpmError } from '../providers/tpmLimits.js';
 import { StatusFileManager } from './StatusFileManager.js';
 
 // ============================================================================
@@ -306,6 +307,35 @@ function registerHandlers(server: Server) {
           throw new Error(`Unknown tool: ${name}`);
       }
     } catch (error: any) {
+      // Pre-flight TPM guard (Phase 12) — return a structured tool_error
+      // listing the three user-actionable options instead of a raw stack trace.
+      // No auto-substitution: the run aborts before any LLM call.
+      if (error instanceof PreFlightTpmError) {
+        const lines = [
+          '# Pre-Flight TPM Check Failed',
+          '',
+          'One or more agents would exceed their provider TPM (tokens-per-minute) limit on round 1:',
+          '',
+          ...error.violations.map(v =>
+            `- **${v.agentName}** (${v.model}, ${v.provider}): ~${v.estimatedInputTokens} tokens > ${v.tpmLimit} TPM limit`
+          ),
+          '',
+          '## Options',
+          '1. **Trim prompt** — shorten the task or project context for the offending agent(s)',
+          '2. **Switch model** — use a model with a higher TPM ceiling (e.g. Claude or Gemini)',
+          '3. **Accept substitution** — rerun without `strict_models` to allow silent fallback (not recommended for transparency)',
+        ];
+        return {
+          content: [
+            {
+              type: 'text',
+              text: lines.join('\n'),
+            },
+          ],
+          isError: true,
+        };
+      }
+
       return {
         content: [
           {
