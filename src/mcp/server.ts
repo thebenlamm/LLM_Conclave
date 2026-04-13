@@ -923,8 +923,14 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
     keyDecisions = [],
     actionItems = [],
     dissent = [],
-    confidence = 'MEDIUM'
   } = result;
+
+  // Phase 13 Plan 04 — single source of truth for confidence. Header, body, and
+  // the JSON output all read `result.finalConfidence`. The old legacy
+  // `result.confidence` field is a fallback only for callers that haven't been
+  // migrated yet — do NOT add new reads of it.
+  const finalConfidence: string = result.finalConfidence || result.confidence || 'MEDIUM';
+  const confidenceReasoning: string | undefined = result.confidenceReasoning;
 
   let output = `# Discussion Summary\n\n`;
   // Realized Panel — surfaces actual models per agent, marking any substitutions (Phase 12-03)
@@ -960,7 +966,10 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   const roundsDisplay = consensusReached
     ? `${rounds}/${maxRounds || rounds} (consensus reached early)`
     : `${rounds}/${maxRounds || rounds}`;
-  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'} | **Confidence:** ${confidence}\n\n`;
+  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'} | **Confidence:** ${finalConfidence}\n\n`;
+  if (confidenceReasoning) {
+    output += `_Confidence reasoning: ${confidenceReasoning}_\n\n`;
+  }
 
   // List participating agents (excluding failed ones)
   if (conversationHistory && conversationHistory.length > 0) {
@@ -1093,11 +1102,14 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
     keyDecisions = [],
     actionItems = [],
     dissent = [],
-    confidence = 'MEDIUM',
     timedOut = false,
     degraded = false,
     degradedReason,
   } = result;
+
+  // Phase 13 Plan 04 — single confidence source. See formatDiscussionResult.
+  const finalConfidence: string = result.finalConfidence || result.confidence || 'MEDIUM';
+  const confidenceReasoning: string | undefined = result.confidenceReasoning;
 
   // Extract participating agents (excluding failed, system, judge)
   const agents: Array<{ name: string; model?: string }> = [];
@@ -1150,7 +1162,9 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
     key_decisions: keyDecisions,
     action_items: actionItems,
     dissent,
-    confidence: confidence.toLowerCase(),
+    confidence: finalConfidence.toLowerCase(),
+    final_confidence: finalConfidence,
+    confidence_reasoning: confidenceReasoning,
     consensus_reached: consensusReached,
     rounds: { completed: rounds, max: maxRounds || rounds },
     agents,

@@ -62,7 +62,16 @@ export class MarkdownFormatter implements IOutputFormatter {
     }
 
     lines.push(`**Question:** ${result.question}`);
-    lines.push(`**Confidence:** ${Math.round(result.confidence * 100)}%`);
+    // Phase 13 Plan 04 — prefer reconciled finalConfidence when populated;
+    // otherwise fall back to the numeric consult confidence. One source per line.
+    if (result.finalConfidence) {
+      lines.push(`**Confidence:** ${result.finalConfidence} (numeric: ${Math.round(result.confidence * 100)}%)`);
+      if (result.confidenceReasoning) {
+        lines.push(`_${result.confidenceReasoning}_`);
+      }
+    } else {
+      lines.push(`**Confidence:** ${Math.round(result.confidence * 100)}%`);
+    }
     lines.push('');
 
     // Use "Independent Opinions" when no synthesis occurred (single round)

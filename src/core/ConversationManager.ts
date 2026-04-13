@@ -6,6 +6,7 @@ import JudgeEvaluator from './JudgeEvaluator.js';
 import { EventBus } from './EventBus';
 import { SpeakerSelector, AgentInfo, AgentTurnStats, FairnessContext } from './SpeakerSelector';
 import TurnDistributionReporter from './TurnDistributionReporter.js';
+import { reconcileConfidence, MachinerySignals, Confidence } from './ConfidenceReconciler.js';
 import { TaskRouter } from './TaskRouter';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
 import { DiscussionHistoryEntry, Config } from '../types/index.js';
@@ -65,6 +66,11 @@ export default class ConversationManager {
   private turnsThisRound: Record<string, number> = {};
   private turnsOverall: Record<string, number> = {};
   private tokensByAgent: Record<string, number> = {};
+
+  // Phase 13 Plan 04 — set whenever any agent trips the fairness_alarm event.
+  // Consumed by buildMachinerySignals() so the ConfidenceReconciler caps at LOW
+  // when turn balance was violated during the run.
+  private fairnessAlarmFired: boolean = false;
 
   constructor(
     config: Config,
@@ -148,9 +154,17 @@ export default class ConversationManager {
       });
       this.eventBus.on('fairness_alarm', (evt: any) => {
         const p = evt?.payload || evt;
+        this.fairnessAlarmFired = true;
         console.warn(
           `[Fairness alarm r${p.round}] ${p.agent} at ${Math.round(p.tokenShare * 100)}% (threshold ${Math.round(p.threshold * 100)}%)`
         );
+      });
+    }
+    // Phase 13 Plan 04 — always track fairness alarms (not just in streamOutput mode)
+    // so the reconciler can see them in MCP mode too. Separate listener with no logging.
+    if (this.eventBus && !this.streamOutput) {
+      this.eventBus.on('fairness_alarm', () => {
+        this.fairnessAlarmFired = true;
       });
     }
 
@@ -409,11 +423,16 @@ export default class ConversationManager {
           this.conversationHistory.filter((msg: any) => msg.error === true).map((msg: any) => msg.speaker)
         )];
 
+        // Phase 13 Plan 04 — build machinery signals for the degraded judge call.
+        const degradedMachinery = this.buildMachinerySignals(true, degradedReason);
+
         // Attempt judge summary of whatever exists
         let degradedSolution: string;
+        let degradedJudgeConfidence: Confidence | undefined;
         try {
-          const voteResult = await this.judgeEvaluator.conductFinalVote(judge);
+          const voteResult = await this.judgeEvaluator.conductFinalVote(judge, degradedMachinery);
           degradedSolution = voteResult.solution;
+          degradedJudgeConfidence = this.normalizeConfidence(voteResult.confidence);
         } catch {
           const bestEffort = this.judgeEvaluator.bestEffortJudgeResult();
           degradedSolution = bestEffort.solution;
@@ -438,6 +457,9 @@ export default class ConversationManager {
         }
         const degradedSortedAgents = Object.entries(degradedTurnCounts).sort((a, b) => b[1] - a[1]);
 
+        // Phase 13 Plan 04 — reconcile machinery signals with whatever the judge reported.
+        const degradedReconciled = reconcileConfidence(degradedMachinery, degradedJudgeConfidence);
+
         return {
           task: task,
           rounds: this.currentRound,
@@ -448,7 +470,9 @@ export default class ConversationManager {
           keyDecisions: [] as string[],
           actionItems: [] as string[],
           dissent: [degradedReason],
-          confidence: 'LOW',
+          confidence: degradedReconciled.finalConfidence,
+          finalConfidence: degradedReconciled.finalConfidence,
+          confidenceReasoning: degradedReconciled.confidenceReasoning,
           conversationHistory: this.conversationHistory,
           failedAgents: degradedFailedAgents,
           failedAgentDetails: degradedFailedDetails,
@@ -495,7 +519,10 @@ export default class ConversationManager {
         this.eventBus.emitEvent('agent:thinking', { agent: 'Judge', model: judge.model });
       }
 
-      const judgeResult = await this.judgeEvaluator.judgeEvaluate(judge);
+      // Phase 13 Plan 04 — supply machinery signals so the judge cannot
+      // produce HIGH confidence on a degraded run.
+      const preJudgeMachinery = this.buildMachinerySignals(false);
+      const judgeResult = await this.judgeEvaluator.judgeEvaluate(judge, preJudgeMachinery);
 
       // Hard enforcement: Check if all active agents have contributed (don't trust LLM judge alone)
       // Exclude agents disabled by circuit breaker — they can't contribute
@@ -616,13 +643,19 @@ export default class ConversationManager {
       let dissent: string[] = [`Discussion was interrupted (${abortReason})`];
       let confidence: string = 'LOW';
 
+      // Phase 13 Plan 04 — mark the run as aborted so the reconciler caps at LOW
+      // and the judge sees degraded signals in its prompt.
+      const abortedMachinery = this.buildMachinerySignals(true, String(abortReason));
+      let abortedJudgeConfidence: Confidence | undefined;
+
       try {
-        const voteResult = await this.judgeEvaluator.conductFinalVote(judge);
+        const voteResult = await this.judgeEvaluator.conductFinalVote(judge, abortedMachinery);
         solution = voteResult.solution;
         keyDecisions = voteResult.keyDecisions;
         actionItems = voteResult.actionItems;
         dissent = [...(voteResult.dissent || []), `Discussion was interrupted after ${this.currentRound}/${this.maxRounds} rounds (${abortReason})`];
         confidence = voteResult.confidence;
+        abortedJudgeConfidence = this.normalizeConfidence(voteResult.confidence);
         console.log(`[Judge summary succeeded despite timeout]`);
       } catch (judgeError: any) {
         console.error(`[Judge summary failed after timeout: ${judgeError.message}]`);
@@ -652,6 +685,9 @@ export default class ConversationManager {
       }
       const abortSortedAgents = Object.entries(abortTurnCounts).sort((a, b) => b[1] - a[1]);
 
+      // Phase 13 Plan 04 — reconcile with machinery-aborted signals.
+      const abortedReconciled = reconcileConfidence(abortedMachinery, abortedJudgeConfidence);
+
       return {
         task: task,
         rounds: this.currentRound,
@@ -663,6 +699,8 @@ export default class ConversationManager {
         actionItems,
         dissent,
         confidence,
+        finalConfidence: abortedReconciled.finalConfidence,
+        confidenceReasoning: abortedReconciled.confidenceReasoning,
         conversationHistory: this.conversationHistory,
         failedAgents: [...new Set(failedAgentsList)],
         failedAgentDetails,
@@ -701,7 +739,8 @@ export default class ConversationManager {
         this.eventBus.emitEvent('status', { message: 'Max rounds reached. Conducting final vote.' });
       }
 
-      const voteResult = await this.judgeEvaluator.conductFinalVote(judge);
+      const finalVoteMachinery = this.buildMachinerySignals(false);
+      const voteResult = await this.judgeEvaluator.conductFinalVote(judge, finalVoteMachinery);
       finalSolution = voteResult.solution;
       keyDecisions = voteResult.keyDecisions;
       actionItems = voteResult.actionItems;
@@ -777,6 +816,15 @@ export default class ConversationManager {
       dissent_quality = substantiveDissent.length > 0 ? 'captured' : 'missing';
     }
 
+    // Phase 13 Plan 04 — reconcile machinery signals with the judge's confidence
+    // for the happy-path return. Machinery flags are computed against the actual
+    // run state (fairness alarms, per-agent coverage, completed rounds).
+    const happyPathMachinery = this.buildMachinerySignals(false);
+    const happyReconciled = reconcileConfidence(
+      happyPathMachinery,
+      this.normalizeConfidence(confidence)
+    );
+
     const result = {
       task: task,
       rounds: this.currentRound,
@@ -788,6 +836,8 @@ export default class ConversationManager {
       actionItems: actionItems,
       dissent: dissent,
       confidence: confidence,
+      finalConfidence: happyReconciled.finalConfidence,
+      confidenceReasoning: happyReconciled.confidenceReasoning,
       conversationHistory: this.conversationHistory,
       failedAgents: uniqueFailedAgents,
       failedAgentDetails,
@@ -1050,6 +1100,54 @@ export default class ConversationManager {
       console.warn('[ConversationManager] dissent scorer failed in degraded path:', err);
       return 'insufficient_data';
     }
+  }
+
+  /**
+   * Phase 13 Plan 04 — build MachinerySignals from existing run state.
+   * Consumed by ConfidenceReconciler immediately before every return path so
+   * the final result carries a single reconciled finalConfidence value.
+   *
+   * @param degraded Whether this is a degraded/aborted return path. Forces
+   *                 aborted=true so the reconciler caps at LOW.
+   * @param degradedReason Optional human-readable reason (included in reasoning).
+   */
+  private buildMachinerySignals(degraded: boolean, degradedReason?: string): MachinerySignals {
+    // All configured agents, including those disabled by the circuit breaker —
+    // the reconciler's "all agents spoke" rule is about the user's configured panel,
+    // not what happened to be alive mid-run.
+    const configuredAgents = Object.keys(this.agents);
+    const allSpoke = configuredAgents.length > 0
+      && configuredAgents.every(a => (this.turnsOverall[a] || 0) > 0);
+
+    // Round completeness — fraction of the configured max_rounds that actually ran.
+    // Using max_rounds as denominator is a conservative estimate: a run that hits
+    // early consensus on round 2 of 3 still counts as roundCompleteness=2/3, which
+    // matches the intent (the judge didn't get to stress-test until round 3).
+    // Clamped to [0, 1].
+    const denom = this.maxRounds > 0 ? this.maxRounds : 1;
+    const completeness = Math.min(1, Math.max(0, this.currentRound / denom));
+
+    return {
+      aborted: degraded,
+      abortReason: degradedReason,
+      allAgentsSpoke: allSpoke,
+      turnBalanceOk: !this.fairnessAlarmFired,
+      roundCompleteness: completeness,
+    };
+  }
+
+  /**
+   * Normalize a free-form confidence string (from the judge) into the
+   * LOW/MEDIUM/HIGH enum used by ConfidenceReconciler. Anything unrecognized
+   * returns undefined so the reconciler falls back to its MEDIUM default.
+   */
+  private normalizeConfidence(raw: unknown): Confidence | undefined {
+    if (typeof raw !== 'string') return undefined;
+    const upper = raw.trim().toUpperCase();
+    if (upper === 'HIGH' || upper === 'MEDIUM' || upper === 'LOW') {
+      return upper;
+    }
+    return undefined;
   }
 
   // groupHistoryByRound, getHistoryTokenThreshold, compressHistory,

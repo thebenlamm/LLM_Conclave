@@ -294,6 +294,15 @@ export interface ConsultationResult {
   // Final Results
   consensus: string;
   confidence: number;
+  /**
+   * Phase 13 — Plan 04: reconciled machinery-vs-judge confidence band.
+   * Optional on ConsultationResult because consult-mode uses a separate numeric
+   * `confidence` (0-1) computed by ConsultOrchestrator; the reconciler primarily
+   * targets the discuss-mode Trollix incident. When populated, output formatters
+   * should prefer this field over the numeric one for display.
+   */
+  finalConfidence?: 'LOW' | 'MEDIUM' | 'HIGH';
+  confidenceReasoning?: string;
   recommendation: string;
   reasoning: Record<string, string>;
   concerns: string[];

@@ -228,6 +228,50 @@ export interface ValidationResult {
   content: string;
 }
 
+/**
+ * Phase 13 — Plan 04: single source of truth for confidence in discuss-mode runs.
+ * `finalConfidence` is the reconciled output of machinery signals + judge self-report
+ * (see src/core/ConfidenceReconciler.ts). All output formatters MUST read this field
+ * instead of computing confidence independently — that disagreement was the Trollix
+ * incident (header ABORTED / table LOW / body HIGH simultaneously).
+ */
+export type FinalConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export interface DiscussionResult {
+  task: string;
+  rounds: number;
+  maxRounds: number;
+  minRounds: number;
+  consensusReached: boolean;
+  solution: string | null;
+  keyDecisions: string[];
+  actionItems: string[];
+  dissent: string[];
+  /** @deprecated — use `finalConfidence` (reconciled). Retained for session-file compatibility. */
+  confidence: string;
+  /** Reconciled confidence — single source of truth for all output formatters. */
+  finalConfidence: FinalConfidence;
+  /** Human-readable explanation of how finalConfidence was derived. */
+  confidenceReasoning: string;
+  conversationHistory: DiscussionHistoryEntry[];
+  failedAgents: string[];
+  failedAgentDetails: Record<string, { error: string; model: string }>;
+  agentSubstitutions: Record<string, { original: string; fallback: string; reason: string }>;
+  agents_config: Record<string, { model: string }>;
+  turn_analytics: {
+    per_agent: Array<{ name: string; turns: number; token_share_pct: number }>;
+  };
+  dissent_quality: 'captured' | 'missing' | 'not_applicable' | 'insufficient_data';
+  cost: {
+    totalCost: number;
+    totalTokens: { input: number; output: number };
+    totalCalls: number;
+  };
+  degraded?: boolean;
+  degradedReason?: string;
+  timedOut?: boolean;
+}
+
 export interface OrchestrationResult {
   task: string;
   classification: TaskClassification;
