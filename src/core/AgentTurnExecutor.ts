@@ -1,6 +1,7 @@
 import ProviderFactory from '../providers/ProviderFactory.js';
 import TokenCounter from '../utils/TokenCounter.js';
 import { ContextOptimizer } from '../utils/ContextOptimizer.js';
+import { detectImpersonation } from './personaBoundary.js';
 import type { DiscussionHistoryEntry, Config } from '../types/index.js';
 import type ConversationHistory from './ConversationHistory.js';
 import type { EventBus } from './EventBus.js';
@@ -142,6 +143,74 @@ export default class AgentTurnExecutor {
 
         // Strip leading speaker name prefix if LLM echoed it back (prevents compounding prefixes)
         text = text.replace(prefixPattern, '').trim();
+
+        // Phase 15.1: Persona boundary enforcement. If the stripped text still
+        // begins with another advisor's role-prefix (e.g. `**Tech Ethicist:...**`)
+        // or a Judge-attributed block, retry ONCE with an explicit reminder
+        // injected into a local history copy, then error-push on persistent
+        // failure. The existing failedAgents aggregator in ConversationManager
+        // already picks up errorDetails='persona-impersonation'.
+        if (text && text.length > 0) {
+          const allAgentNames = Object.keys(this.deps.agents);
+          const { offender } = detectImpersonation(text, agentName, allAgentNames);
+          if (offender !== null) {
+            console.warn(
+              `⚠️ [AgentTurnExecutor] ${agentName} impersonated "${offender}" — retrying once with reminder`
+            );
+
+            // Build a LOCAL history copy with an injected reminder. Do NOT
+            // mutate the shared conversationHistory — the original offending
+            // turn must not persist if the retry succeeds.
+            const reminderNote =
+              `Your previous response began with an impersonation of \`${offender}\`. ` +
+              `Respond again as \`${agentName}\` only. Do not prefix your response with ` +
+              `any other advisor's name or the Judge role. Use plain prose if you need to ` +
+              `reference another advisor.`;
+            const retryLocalMessages = messages.map((m: any) => ({ ...m }));
+            retryLocalMessages.push({ role: 'user', content: reminderNote });
+
+            const { controller: impController, cleanup: impCleanup } =
+              this.createCallAbortController();
+            let impResponse;
+            try {
+              const impOpts = { ...this.getChatOptions(agentName), signal: impController.signal };
+              impResponse = await agent.provider.chat(retryLocalMessages, agent.systemPrompt, impOpts);
+            } finally {
+              impCleanup();
+            }
+            let impText = typeof impResponse === 'string' ? impResponse : (impResponse.text ?? '');
+            impText = impText.replace(prefixPattern, '').trim();
+
+            const retryCheck = detectImpersonation(impText, agentName, allAgentNames);
+            if (impText && impText.length > 0 && retryCheck.offender === null) {
+              // Retry succeeded — adopt the clean text and continue normal flow.
+              text = impText;
+            } else {
+              // Persistent impersonation (or empty retry). Error-push via the
+              // same terminal shape used by the catch block at ~line 345.
+              console.warn(
+                `⚠️ [AgentTurnExecutor] ${agentName} persona retry failed (offender=${retryCheck.offender ?? 'empty'}) — marking turn as errored`
+              );
+              if (this.deps.eventBus) {
+                this.deps.eventBus.emitEvent('error', {
+                  message: `${agentName} persona boundary violation (offender=${offender})`,
+                  context: 'persona_impersonation'
+                });
+              }
+              this.deps.conversationHistory.push({
+                role: 'assistant',
+                content: `[${agentName} unavailable: persona boundary violation — impersonated ${offender}]`,
+                speaker: agentName,
+                model: agent.model,
+                error: true,
+                errorDetails: 'persona-impersonation',
+                timestamp: new Date().toISOString()
+              });
+              this.recordAgentFailure(agentName, 'persona-impersonation');
+              return;
+            }
+          }
+        }
 
         if (text && text.length > 0) break; // Got a valid response
 
