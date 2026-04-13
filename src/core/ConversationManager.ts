@@ -4,7 +4,8 @@ import ConversationHistory from './ConversationHistory.js';
 import AgentTurnExecutor from './AgentTurnExecutor.js';
 import JudgeEvaluator from './JudgeEvaluator.js';
 import { EventBus } from './EventBus';
-import { SpeakerSelector, AgentInfo } from './SpeakerSelector';
+import { SpeakerSelector, AgentInfo, AgentTurnStats, FairnessContext } from './SpeakerSelector';
+import TurnDistributionReporter from './TurnDistributionReporter.js';
 import { TaskRouter } from './TaskRouter';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
 import { DiscussionHistoryEntry, Config } from '../types/index.js';
@@ -58,6 +59,12 @@ export default class ConversationManager {
 
   // History manipulation delegate — owns grouping, compression, message preparation
   private history!: ConversationHistory;
+
+  // Phase 13 — turn distribution observability + per-agent counters
+  private turnDistributionReporter: TurnDistributionReporter;
+  private turnsThisRound: Record<string, number> = {};
+  private turnsOverall: Record<string, number> = {};
+  private tokensByAgent: Record<string, number> = {};
 
   constructor(
     config: Config,
@@ -124,6 +131,28 @@ export default class ConversationManager {
 
     // Wire history back into agentExecutor now that it's created
     (this.agentExecutor as any).deps.history = this.history;
+
+    // Phase 13 — turn distribution reporter + console listener (non-MCP only).
+    this.turnDistributionReporter = new TurnDistributionReporter();
+    if (this.streamOutput && this.eventBus) {
+      // streamOutput=true is the existing CLI/non-MCP signal (MCP discuss
+      // handler constructs CM with streamOutput=false to avoid stdout pollution
+      // on the MCP stdio transport).
+      this.eventBus.on('turn_distribution_updated', (evt: any) => {
+        const payload = evt?.payload || evt;
+        if (!payload?.perAgent) return;
+        const parts = payload.perAgent.map(
+          (a: any) => `${a.name}:${a.turns}(${Math.round(a.tokenShare * 100)}%)`
+        );
+        console.log(`[Turns r${payload.round}] ${parts.join(' ')}`);
+      });
+      this.eventBus.on('fairness_alarm', (evt: any) => {
+        const p = evt?.payload || evt;
+        console.warn(
+          `[Fairness alarm r${p.round}] ${p.agent} at ${Math.round(p.tokenShare * 100)}% (threshold ${Math.round(p.threshold * 100)}%)`
+        );
+      });
+    }
 
     // Create JudgeEvaluator with all judge dependencies.
     // Must be created after agentExecutor and history are available.
@@ -300,12 +329,47 @@ export default class ConversationManager {
         this.eventBus.emitEvent('round:start', { round: this.currentRound });
       }
 
+      // Phase 13 — round boundary resets for fairness + observability state.
+      this.turnsThisRound = {};
+      if (this.speakerSelector) {
+        this.speakerSelector.resetForRound();
+      }
+      this.turnDistributionReporter.resetForRound(this.currentRound);
+
+      // Phase 13 — for round 2+, prime the compressed history. This refreshes
+      // the running summary cache inside ConversationHistory and exercises the
+      // sliding-window path. The raw `conversationHistory` array is left intact
+      // (compression is non-destructive — see ConversationHistory.ts:405).
+      if (this.currentRound >= 2) {
+        try {
+          await this.history.getCompressedHistoryFor(this.agents, {
+            taskRouter: this.taskRouter ?? undefined,
+            config: (this.config as any)?.compression,
+            tpmOverrides: (this.config as any)?.tpmOverrides,
+          });
+        } catch (err: any) {
+          console.warn(`[ConversationManager] compression refresh failed: ${err?.message || err}`);
+        }
+      }
+
       // Each agent takes a turn - either dynamic or round-robin
       if (this.dynamicSelection && this.speakerSelector) {
         await this.runDynamicRound(task);
       } else {
         for (const agentName of this.agentOrder) {
+          const historyLenBefore = this.conversationHistory.length;
           await this.agentExecutor.agentTurn(agentName);
+          // Phase 13 — record per-agent turn + token stats and report.
+          this.recordAgentTurnStats(agentName, historyLenBefore);
+          this.turnDistributionReporter.report(
+            Object.keys(this.agents).map(name => ({
+              name,
+              turns: this.turnsOverall[name] || 0,
+              tokens: this.tokensByAgent[name] || 0,
+            })),
+            this.currentRound,
+            this.eventBus
+          );
         }
       }
 
@@ -401,7 +465,7 @@ export default class ConversationManager {
               token_share_pct: degradedTokenShare[name] || 0,
             })),
           },
-          dissent_quality: 'not_applicable' as const,
+          dissent_quality: this.computeDegradedDissentQuality(degradedSortedAgents, [degradedReason]),
           cost: {
             totalCost: degradedCostSummary.totalCost,
             totalTokens: {
@@ -614,7 +678,7 @@ export default class ConversationManager {
             token_share_pct: abortTokenShare[name] || 0,
           })),
         },
-        dissent_quality: 'not_applicable' as const,
+        dissent_quality: this.computeDegradedDissentQuality(abortSortedAgents, dissent),
         cost: {
           totalCost: abortedCostSummary.totalCost,
           totalTokens: {
@@ -703,7 +767,7 @@ export default class ConversationManager {
     };
 
     // Determine dissent quality (D-15, D-16)
-    let dissent_quality: 'captured' | 'missing' | 'not_applicable';
+    let dissent_quality: 'captured' | 'missing' | 'not_applicable' | 'insufficient_data';
     if (consensusReached) {
       dissent_quality = 'not_applicable';
     } else {
@@ -803,6 +867,12 @@ export default class ConversationManager {
         break;
       }
 
+      // Phase 13 — build fairness context from per-agent counters.
+      const fairnessContext: FairnessContext = {
+        stats: this.buildAgentTurnStats(),
+        totalTurnsThisRound: Object.values(this.turnsThisRound).reduce((a, b) => a + b, 0),
+      };
+
       // Select next speaker
       const selection = await this.speakerSelector.selectNextSpeaker(
         this.conversationHistory,
@@ -810,7 +880,8 @@ export default class ConversationManager {
         lastResponse,
         this.currentRound,
         task,
-        failedAgentsThisRound
+        failedAgentsThisRound,
+        fairnessContext
       );
 
       // Check if round should end — respect the selector's decision (D-04).
@@ -846,6 +917,18 @@ export default class ConversationManager {
       // Execute agent turn and capture response
       const historyLengthBefore = this.conversationHistory.length;
       await this.agentExecutor.agentTurn(agentName);
+
+      // Phase 13 — record per-agent turn + token stats and report.
+      this.recordAgentTurnStats(agentName, historyLengthBefore);
+      this.turnDistributionReporter.report(
+        Object.keys(this.agents).map(name => ({
+          name,
+          turns: this.turnsOverall[name] || 0,
+          tokens: this.tokensByAgent[name] || 0,
+        })),
+        this.currentRound,
+        this.eventBus
+      );
 
       // Get the response that was just added
       if (this.conversationHistory.length > historyLengthBefore) {
@@ -900,6 +983,73 @@ export default class ConversationManager {
     // Note: persistent failure tracking is now handled by the circuit breaker
     // in recordAgentFailure() — agents are disabled after 2 consecutive failures
     // regardless of error type (context overflow, rate limit, empty response, etc.)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 13 — fairness + observability helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Increment per-agent turn counters and accumulate token estimate from
+   * the most-recently-appended history entry (if any belongs to `agentName`
+   * and is not an error). Token proxy matches the existing degraded-path
+   * formula at line ~367: `Math.ceil(content.length / 4)`.
+   */
+  private recordAgentTurnStats(agentName: string, historyLenBefore: number): void {
+    if (this.conversationHistory.length <= historyLenBefore) return;
+    const latest = this.conversationHistory[this.conversationHistory.length - 1];
+    if (!latest || latest.error || latest.speaker !== agentName) return;
+
+    this.turnsThisRound[agentName] = (this.turnsThisRound[agentName] || 0) + 1;
+    this.turnsOverall[agentName] = (this.turnsOverall[agentName] || 0) + 1;
+    const tokenEstimate = Math.ceil((latest.content?.length || 0) / 4);
+    this.tokensByAgent[agentName] = (this.tokensByAgent[agentName] || 0) + tokenEstimate;
+  }
+
+  /**
+   * Build a stats map suitable for SpeakerSelector.FairnessContext.
+   * tokenShare is computed over the running per-agent totals.
+   */
+  private buildAgentTurnStats(): Record<string, AgentTurnStats> {
+    const totalTokens = Object.values(this.tokensByAgent).reduce((a, b) => a + b, 0) || 1;
+    const stats: Record<string, AgentTurnStats> = {};
+    for (const name of Object.keys(this.agents)) {
+      stats[name] = {
+        turnsThisRound: this.turnsThisRound[name] || 0,
+        turnsOverall: this.turnsOverall[name] || 0,
+        tokenShare: (this.tokensByAgent[name] || 0) / totalTokens,
+      };
+    }
+    return stats;
+  }
+
+  /**
+   * Phase 13 — replace the hardcoded `'not_applicable'` literal in the
+   * degraded / aborted return paths with a computed value:
+   *
+   *   - `'insufficient_data'` when fewer than 2 agents actually spoke.
+   *   - Otherwise reuse the existing inline dissent-quality heuristic
+   *     (substantive dissent strings → `'captured'`, else `'missing'`).
+   *
+   * Note: the codebase has no dedicated dissent scorer module — the existing
+   * scoring lives inline in the success path at ~line 706. We replicate that
+   * heuristic here rather than reach into another file (single-file scope).
+   */
+  private computeDegradedDissentQuality(
+    sortedAgents: Array<[string, number]>,
+    dissent: string[] = []
+  ): 'captured' | 'missing' | 'insufficient_data' {
+    const agentsWhoSpoke = sortedAgents.filter(([, turns]) => turns > 0);
+    if (agentsWhoSpoke.length < 2) return 'insufficient_data';
+    try {
+      const substantive = dissent.filter(
+        d => d && d.toLowerCase() !== 'none' && d.length > 10
+      );
+      return substantive.length > 0 ? 'captured' : 'missing';
+    } catch (err) {
+      console.warn('[ConversationManager] dissent scorer failed in degraded path:', err);
+      return 'insufficient_data';
+    }
   }
 
   // groupHistoryByRound, getHistoryTokenThreshold, compressHistory,

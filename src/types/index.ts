@@ -341,7 +341,7 @@ export interface SessionManifest {
   turn_analytics?: {
     per_agent: Array<{ name: string; turns: number; token_share_pct: number }>;
   };
-  dissent_quality?: 'captured' | 'missing' | 'not_applicable';
+  dissent_quality?: 'captured' | 'missing' | 'not_applicable' | 'insufficient_data';
 
   // Phase 12-02: agent model substitutions (e.g., GPT-4o → claude-sonnet-4-5
   // after a 429). Always present (empty object when no substitutions occurred)
