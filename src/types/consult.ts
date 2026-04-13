@@ -303,6 +303,11 @@ export interface ConsultationResult {
   // Substitutions (Epic 2, Story 3)
   substitutions?: ProviderSubstitution[];
 
+  // Agent substitutions surfaced from ConversationManager (Phase 12).
+  // Plain object keyed by agent name; empty {} when no substitutions occurred.
+  // Consumed by MarkdownFormatter / JsonLdFormatter to render the Realized Panel.
+  agentSubstitutions?: Record<string, { original: string; fallback: string; reason: string }>;
+
   // Metadata
   cost: CostSummary;
   durationMs: number;

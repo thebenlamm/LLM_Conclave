@@ -54,6 +54,37 @@ describe('Formatters', () => {
       expect(output).toContain('**Duration:** 5.0s');
     });
 
+    it('should render Realized Panel with "(all models as configured)" when no substitutions', () => {
+      const formatter = new MarkdownFormatter();
+      const output = formatter.format(mockResult);
+
+      expect(output).toContain('## Realized Panel');
+      expect(output).toContain('- Agent 1: model-1');
+      expect(output).toContain('_(all models as configured)_');
+      // Panel must come BEFORE other sections
+      expect(output.indexOf('## Realized Panel')).toBeLessThan(output.indexOf('## Consensus'));
+    });
+
+    it('should render Realized Panel with substitution markers when agents were substituted', () => {
+      const resultWithSub: ConsultationResult = {
+        ...mockResult,
+        agents: [
+          { name: 'Agent 1', model: 'gpt-4o', provider: 'openai' },
+          { name: 'Agent 2', model: 'claude-sonnet-4-5', provider: 'anthropic' },
+        ],
+        agentSubstitutions: {
+          'Agent 1': { original: 'gpt-4o', fallback: 'claude-sonnet-4-5', reason: 'TPM limit exceeded' },
+        },
+      };
+      const formatter = new MarkdownFormatter();
+      const output = formatter.format(resultWithSub);
+
+      expect(output).toContain('## Realized Panel');
+      expect(output).toContain('- Agent 1: claude-sonnet-4-5 [substituted from gpt-4o — TPM limit exceeded]');
+      expect(output).toContain('- Agent 2: claude-sonnet-4-5');
+      expect(output).not.toContain('_(all models as configured)_');
+    });
+
     it('should render degraded-status banner when result.status is completed_degraded', () => {
       const degradedResult = { ...mockResult, status: 'completed_degraded' as const };
       const formatter = new MarkdownFormatter();
@@ -112,6 +143,39 @@ describe('Formatters', () => {
       expect(parsed.confidence).toBe(0.85);
       expect(parsed.cost.tokens.total).toBe(300);
       expect(parsed.prompt_versions.independent_prompt_version).toBe('1.0');
+    });
+
+    it('should include realized_panel array reflecting actual vs configured models', () => {
+      const resultWithSub: ConsultationResult = {
+        ...mockResult,
+        agents: [
+          { name: 'Agent 1', model: 'gpt-4o', provider: 'openai' },
+          { name: 'Agent 2', model: 'claude-sonnet-4-5', provider: 'anthropic' },
+        ],
+        agentSubstitutions: {
+          'Agent 1': { original: 'gpt-4o', fallback: 'claude-sonnet-4-5', reason: 'TPM limit exceeded' },
+        },
+      };
+      const formatter = new JsonLdFormatter();
+      const parsed = JSON.parse(formatter.format(resultWithSub));
+
+      expect(parsed.realized_panel).toHaveLength(2);
+      expect(parsed.realized_panel[0]).toEqual({
+        agent: 'Agent 1',
+        actual_model: 'claude-sonnet-4-5',
+        configured_model: 'gpt-4o',
+        substituted: true,
+        substitution_reason: 'TPM limit exceeded',
+      });
+      expect(parsed.realized_panel[1]).toMatchObject({
+        agent: 'Agent 2',
+        actual_model: 'claude-sonnet-4-5',
+        configured_model: 'claude-sonnet-4-5',
+        substituted: false,
+      });
+      expect(parsed.agent_substitutions).toEqual({
+        'Agent 1': { original: 'gpt-4o', fallback: 'claude-sonnet-4-5', reason: 'TPM limit exceeded' },
+      });
     });
 
     it('should convert perspective fields to snake_case', () => {

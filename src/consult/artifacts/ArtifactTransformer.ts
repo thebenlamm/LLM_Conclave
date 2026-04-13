@@ -398,6 +398,18 @@ export class ArtifactTransformer {
         cross_exam_prompt_version: result.promptVersions.crossExamPromptVersion,
         verdict_prompt_version: result.promptVersions.verdictPromptVersion
       },
+      // Realized Panel — structured per-agent actual vs configured models (Phase 12-03)
+      realized_panel: (result.agents || []).map(a => {
+        const sub = (result.agentSubstitutions || {})[a.name];
+        return {
+          agent: a.name,
+          actual_model: sub ? sub.fallback : a.model,
+          configured_model: a.model,
+          substituted: !!sub,
+          substitution_reason: sub?.reason,
+        };
+      }),
+      agent_substitutions: result.agentSubstitutions || {},
       early_termination: result.earlyTermination,
       early_termination_reason: result.earlyTerminationReason,
       scrubbing_report: result.scrubbingReport

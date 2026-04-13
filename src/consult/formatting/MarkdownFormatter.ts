@@ -7,11 +7,41 @@ export class MarkdownFormatter implements IOutputFormatter {
   /**
    * Format the consultation result as Markdown
    */
+  /**
+   * Render the Realized Panel block — actual models per agent, with substitution markers.
+   * Always rendered for transparency by default (Phase 12-03).
+   */
+  private renderRealizedPanel(result: ConsultationResult): string[] {
+    const out: string[] = [];
+    if (!result.agents || result.agents.length === 0) return out;
+    const subs = result.agentSubstitutions || {};
+    const hadAnySub = Object.keys(subs).length > 0;
+    out.push('## Realized Panel');
+    out.push('');
+    for (const agent of result.agents) {
+      const sub = subs[agent.name];
+      if (sub) {
+        out.push(`- ${agent.name}: ${sub.fallback} [substituted from ${sub.original} — ${sub.reason}]`);
+      } else {
+        out.push(`- ${agent.name}: ${agent.model}`);
+      }
+    }
+    if (!hadAnySub) {
+      out.push('');
+      out.push('_(all models as configured)_');
+    }
+    out.push('');
+    return out;
+  }
+
   public format(result: ConsultationResult): string {
     const lines: string[] = [];
 
     lines.push('# Consultation Summary');
     lines.push('');
+
+    // Realized Panel — surfaces actual models per agent (Phase 12-03)
+    lines.push(...this.renderRealizedPanel(result));
 
     // Degraded results banner (judge fallback occurred)
     if (result.status === 'completed_degraded') {
