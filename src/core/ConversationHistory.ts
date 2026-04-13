@@ -1,6 +1,29 @@
+import { encode } from 'gpt-tokenizer';
 import { ContextOptimizer } from '../utils/ContextOptimizer.js';
 import TokenCounter from '../utils/TokenCounter.js';
+import { getTpmLimit, inferProviderFromModel } from '../providers/tpmLimits.js';
 import type { DiscussionHistoryEntry, Config } from '../types/index.js';
+
+// Type-only import — avoid hard runtime dependency so tests can inject mocks.
+import type { TaskRouter } from './TaskRouter.js';
+
+/**
+ * Phase 13 compression knobs. All optional; defaults are applied inline.
+ */
+export interface CompressionConfig {
+  /** Number of most-recent messages to keep verbatim. Default 6. */
+  recentWindowSize?: number;
+  /** Regenerate the running summary only every K new turns. Default 4. */
+  summaryRefreshEveryNTurns?: number;
+  /** Fraction of the minimum active-provider TPM ceiling that triggers compression. Default 0.5. */
+  thresholdRatio?: number;
+}
+
+const DEFAULT_COMPRESSION_CONFIG: Required<CompressionConfig> = {
+  recentWindowSize: 6,
+  summaryRefreshEveryNTurns: 4,
+  thresholdRatio: 0.5,
+};
 
 /**
  * Owns all history manipulation for a conversation session.
@@ -16,6 +39,12 @@ export default class ConversationHistory {
   // Performance optimizations: message caching
   private messageCache: any[] = [];
   private lastCacheUpdateIndex: number = 0;
+
+  // Phase 13 — sliding-window compression state
+  private _runningSummary: string | null = null;
+  private _summaryCoversUpToIndex: number = 0;
+  private _turnsSinceLastSummaryRefresh: number = 0;
+  private _lastSeenEntriesLength: number = 0;
 
   /**
    * @param entries - Shared reference to ConversationManager.conversationHistory.
@@ -308,5 +337,148 @@ export default class ConversationHistory {
     }
 
     return truncated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 13 — Sliding-window compression with running summary
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Phase 13 — sliding-window compression. Closes the unbounded-history-replay
+   * TPM blowup identified in the Trollix run (562K input / 40K output, 14:1 ratio).
+   *
+   * Returns a compressed view of the conversation history for downstream agent
+   * prompt assembly. Below the configured token threshold this returns the raw
+   * history unchanged. Above the threshold, older messages are replaced with a
+   * single running summary block and only the last N messages are kept verbatim.
+   *
+   * The running summary is regenerated only every K new turns; intervening
+   * calls reuse the cached summary. The raw entries array is NEVER mutated.
+   *
+   * Summarization is routed via the injected TaskRouter (cheapest healthy
+   * provider). If no router is supplied or the router fails, falls back to a
+   * deterministic non-LLM rollup of the older messages.
+   *
+   * @param agents - Active agent panel; provider/model used to compute the
+   *   minimum TPM ceiling that gates compression activation.
+   * @param options - taskRouter (optional), config (optional knobs), tpmOverrides.
+   */
+  async getCompressedHistoryFor(
+    agents: Record<string, { model: string; provider?: string }>,
+    options: {
+      taskRouter?: TaskRouter;
+      config?: CompressionConfig;
+      tpmOverrides?: Record<string, number>;
+    } = {}
+  ): Promise<DiscussionHistoryEntry[]> {
+    const cfg: Required<CompressionConfig> = {
+      recentWindowSize: options.config?.recentWindowSize ?? DEFAULT_COMPRESSION_CONFIG.recentWindowSize,
+      summaryRefreshEveryNTurns:
+        options.config?.summaryRefreshEveryNTurns ?? DEFAULT_COMPRESSION_CONFIG.summaryRefreshEveryNTurns,
+      thresholdRatio: options.config?.thresholdRatio ?? DEFAULT_COMPRESSION_CONFIG.thresholdRatio,
+    };
+
+    // Track how many new entries have appeared since the last call so we can
+    // increment the refresh counter without coupling to ConversationManager's
+    // push site (Plan 03 will wire the explicit hook).
+    const delta = this.entries.length - this._lastSeenEntriesLength;
+    if (delta > 0) {
+      this._turnsSinceLastSummaryRefresh += delta;
+      this._lastSeenEntriesLength = this.entries.length;
+    }
+
+    // Compute total estimated input tokens for the assembled history.
+    const totalTokens = this.entries.reduce(
+      (sum, e) => sum + encode(`${e.speaker}: ${e.content}`).length,
+      0
+    );
+
+    // Compute the threshold from the minimum TPM ceiling across active agents.
+    let minTpm = Number.POSITIVE_INFINITY;
+    for (const cfgAgent of Object.values(agents)) {
+      const provider = cfgAgent.provider || inferProviderFromModel(cfgAgent.model);
+      const limit = getTpmLimit(provider, cfgAgent.model, options.tpmOverrides);
+      if (limit < minTpm) minTpm = limit;
+    }
+    const threshold = Number.isFinite(minTpm) ? minTpm * cfg.thresholdRatio : Number.POSITIVE_INFINITY;
+
+    // Below threshold: return the raw history unchanged (immutable copy).
+    if (totalTokens < threshold) {
+      return this.entries.slice();
+    }
+
+    // Above threshold: ensure the running summary is fresh, then assemble.
+    const olderEnd = Math.max(0, this.entries.length - cfg.recentWindowSize);
+    await this._refreshSummaryIfDue(olderEnd, cfg, options.taskRouter);
+
+    const summaryEntry: DiscussionHistoryEntry = {
+      role: 'user',
+      content: this._runningSummary || '',
+      speaker: 'System',
+      compressed: true,
+    };
+
+    const recent = this.entries.slice(olderEnd);
+    return [summaryEntry, ...recent];
+  }
+
+  /**
+   * Refresh `_runningSummary` if the refresh counter has reached K, OR if no
+   * summary has been generated yet. Otherwise reuses the cached summary.
+   * Falls back to a deterministic rollup if the TaskRouter is unavailable
+   * or returns null.
+   */
+  private async _refreshSummaryIfDue(
+    olderEnd: number,
+    cfg: Required<CompressionConfig>,
+    taskRouter?: TaskRouter
+  ): Promise<void> {
+    const needsInitial = this._runningSummary === null;
+    const dueByCounter = this._turnsSinceLastSummaryRefresh >= cfg.summaryRefreshEveryNTurns;
+
+    if (!needsInitial && !dueByCounter) {
+      return; // cached summary is still fresh
+    }
+
+    const olderMessages = this.entries.slice(0, olderEnd);
+    if (olderMessages.length === 0) {
+      this._runningSummary = '';
+      this._summaryCoversUpToIndex = 0;
+      this._turnsSinceLastSummaryRefresh = 0;
+      return;
+    }
+
+    const oldMessagesAsText = olderMessages
+      .map(e => `${e.speaker}: ${e.content}`)
+      .join('\n\n');
+
+    const prompt =
+      'Summarize the following multi-agent discussion turns into a dense bullet list ' +
+      "preserving each agent's positions, disagreements, and decisions. " +
+      'Output only the bullets, no preamble.\n\n<turns>\n' +
+      oldMessagesAsText +
+      '\n</turns>';
+
+    let summary: string | null = null;
+    if (taskRouter && typeof (taskRouter as any).route === 'function') {
+      try {
+        summary = await (taskRouter as any).route('summarize', prompt);
+      } catch {
+        summary = null;
+      }
+    }
+
+    if (!summary || summary.trim().length === 0) {
+      // Deterministic non-LLM fallback rollup.
+      const parts = olderMessages.map(e => {
+        const text = `${e.speaker}: ${e.content}`;
+        return text.length > 200 ? text.slice(0, 200) : text;
+      });
+      summary = `Earlier turns (${olderMessages.length} messages): ` + parts.join(' | ');
+    }
+
+    this._runningSummary = summary;
+    this._summaryCoversUpToIndex = olderEnd;
+    this._turnsSinceLastSummaryRefresh = 0;
   }
 }
