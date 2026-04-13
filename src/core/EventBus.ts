@@ -29,7 +29,10 @@ export type EventType =
   | 'cost:gate_triggered'
   // Dynamic Speaker Selection Events
   | 'speaker:selected'
-  | 'speaker:handoff';
+  | 'speaker:handoff'
+  // Phase 13 — Real-time turn distribution observability
+  | 'turn_distribution_updated'
+  | 'fairness_alarm';
 
 export interface ConclaveEvent {
   type: EventType;
