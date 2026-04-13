@@ -24,6 +24,36 @@ export interface AgentInfo {
 }
 
 /**
+ * Phase 13 — fairness configuration injected at construction time.
+ * Read from `.llm-conclave.json` under `speakerFairness`.
+ */
+export interface FairnessConfig {
+  /** Agents with turnsThisRound > maxTurnRatio * mean are excluded. Default 2.5. */
+  maxTurnRatio?: number;
+  /** After this many regular turns, force a zero-turn agent if any exist. Default numAgents * 2. */
+  forcedRotationAfter?: number;
+}
+
+/**
+ * Per-agent turn statistics passed to selectNextSpeaker for fairness decisions.
+ */
+export interface AgentTurnStats {
+  turnsThisRound: number;
+  turnsOverall: number;
+  tokenShare: number; // 0..1
+}
+
+/**
+ * Optional fairness context passed to selectNextSpeaker.
+ * Phase 13 — fairness extensions; legacy callers without per-agent stats
+ * fall back to pre-Phase-13 behavior.
+ */
+export interface FairnessContext {
+  stats: Record<string, AgentTurnStats>;
+  totalTurnsThisRound: number;
+}
+
+/**
  * Dynamic speaker selection using LLM-based analysis.
  *
  * Inspired by AutoGen's SelectorGroupChat pattern, this selector:
@@ -48,6 +78,10 @@ export class SpeakerSelector {
   private consecutiveFailures: number = 0;
   private circuitBreakerOpen: boolean = false;
 
+  // Phase 13 fairness state
+  private fairnessConfig: FairnessConfig;
+  private _forcedRotationUsedThisRound: boolean = false;
+
   // Abort signal for cancellation (threaded from ConversationManager)
   abortSignal?: AbortSignal;
 
@@ -60,13 +94,15 @@ export class SpeakerSelector {
   constructor(
     agentInfos: AgentInfo[],
     selectorModel: string = DEFAULT_SELECTOR_MODEL,
-    eventBus?: EventBus
+    eventBus?: EventBus,
+    fairnessConfig?: FairnessConfig
   ) {
     this.agentInfos = agentInfos;
     this.selectorModel = selectorModel;
     this.provider = ProviderFactory.createProvider(selectorModel);
     this.turnHistory = [];
     this.eventBus = eventBus;
+    this.fairnessConfig = fairnessConfig ?? {};
   }
 
   /**
@@ -80,6 +116,15 @@ export class SpeakerSelector {
     // Reset circuit breaker to give model a chance in new round
     this.circuitBreakerOpen = false;
     this.consecutiveFailures = 0;
+    this._forcedRotationUsedThisRound = false;
+  }
+
+  /**
+   * Phase 13 — clear the per-round forced-rotation flag.
+   * Called by ConversationManager at the start of each new round (Plan 03 wires this).
+   */
+  resetForRound(): void {
+    this._forcedRotationUsedThisRound = false;
   }
 
   /**
@@ -251,11 +296,47 @@ export class SpeakerSelector {
     lastResponse: string | null,
     currentRound: number,
     task: string,
-    excludeAgents: Set<string> = new Set()
+    excludeAgents: Set<string> = new Set(),
+    fairnessContext?: FairnessContext
   ): Promise<SpeakerSelectionResult> {
     const allAgents = this.agentInfos
       .map(a => a.name)
       .filter(name => !excludeAgents.has(name));
+
+    // Phase 13 — Forced rotation check (highest priority when fairness context provided).
+    // After `forcedRotationAfter` regular turns, if any agent has zero turns this round,
+    // force the next turn to a zero-turn agent (one forced rotation per round max).
+    if (fairnessContext && !this._forcedRotationUsedThisRound) {
+      const threshold =
+        this.fairnessConfig.forcedRotationAfter ?? allAgents.length * 2;
+      if (fairnessContext.totalTurnsThisRound >= threshold) {
+        const zeroTurnAgents = allAgents.filter(
+          a => (fairnessContext.stats[a]?.turnsThisRound ?? 0) === 0
+        );
+        if (zeroTurnAgents.length > 0) {
+          this._forcedRotationUsedThisRound = true;
+          const chosen = zeroTurnAgents[0];
+          console.warn(
+            `[SpeakerSelector] ⚠️ forced rotation: picking ${chosen} (zero turns this round) after ${fairnessContext.totalTurnsThisRound} turns`
+          );
+          if (this.eventBus) {
+            this.eventBus.emitEvent('speaker:selected', {
+              speaker: chosen,
+              reason: 'Phase 13 forced rotation (fairness)',
+              confidence: 1.0,
+              round: currentRound
+            });
+          }
+          return {
+            nextSpeaker: chosen,
+            reason: `Phase 13 forced rotation: ${chosen} had zero turns this round`,
+            handoffRequested: false,
+            shouldContinue: true,
+            confidence: 1.0
+          };
+        }
+      }
+    }
 
     if (allAgents.length === 0) {
       return {
@@ -372,6 +453,34 @@ export class SpeakerSelector {
       candidates = allAgents.filter(name => name !== lastSpeaker);
     }
 
+    // Phase 13 — max_turn_ratio cap: exclude agents whose turnsThisRound exceeds
+    // (maxTurnRatio × mean) so monopolizers fall out of the candidate list.
+    // If exclusion empties the list, fall back to the unfiltered candidates.
+    if (fairnessContext) {
+      const ratio = this.fairnessConfig.maxTurnRatio ?? 2.5;
+      const turns = candidates.map(
+        a => fairnessContext.stats[a]?.turnsThisRound ?? 0
+      );
+      const mean = turns.length > 0 ? turns.reduce((a, b) => a + b, 0) / turns.length : 0;
+      const cap = ratio * mean;
+      if (mean > 0) {
+        const filtered = candidates.filter(
+          a => (fairnessContext.stats[a]?.turnsThisRound ?? 0) <= cap
+        );
+        if (filtered.length > 0 && filtered.length < candidates.length) {
+          const dropped = candidates.filter(a => !filtered.includes(a));
+          console.warn(
+            `[SpeakerSelector] ⚠️ max_turn_ratio cap excluded: ${dropped.join(', ')} (cap=${cap.toFixed(2)}, mean=${mean.toFixed(2)})`
+          );
+          candidates = filtered;
+        } else if (filtered.length === 0) {
+          console.warn(
+            `[SpeakerSelector] ⚠️ max_turn_ratio cap would empty candidate list; falling back to full list`
+          );
+        }
+      }
+    }
+
     // Optimization: If only 1 valid candidate remains (binary choice resolved), pick them automatically
     // This saves an LLM call when the choice is deterministic (e.g. 2-person debate)
     if (candidates.length === 1) {
@@ -401,7 +510,8 @@ export class SpeakerSelector {
       lastSpeaker,
       lastResponse,
       currentRound,
-      task
+      task,
+      fairnessContext
     );
 
     if (this.eventBus) {
@@ -457,13 +567,26 @@ export class SpeakerSelector {
     lastSpeaker: string | null,
     lastResponse: string | null,
     currentRound: number,
-    task: string
+    task: string,
+    fairnessContext?: FairnessContext
   ): Promise<SpeakerSelectionResult> {
     // Build agent descriptions
     const agentDescriptions = this.agentInfos
       .filter(a => availableAgents.includes(a.name))
       .map(a => `- ${a.name} (${a.model}): ${a.expertise}`)
       .join('\n');
+
+    // Phase 13 — diversity table: live turn distribution + soft-nudge instruction.
+    let diversityTable = '';
+    if (fairnessContext) {
+      const rows = availableAgents
+        .map(a => {
+          const s = fairnessContext.stats[a] ?? { turnsThisRound: 0, turnsOverall: 0, tokenShare: 0 };
+          return `| ${a} | ${s.turnsThisRound} | ${s.turnsOverall} | ${(s.tokenShare * 100).toFixed(1)}% |`;
+        })
+        .join('\n');
+      diversityTable = `\nTurn distribution so far:\n\n| Agent | Turns this round | Total turns | Token share |\n|---|---|---|---|\n${rows}\n\nFavor under-represented voices when they have relevant context.\n`;
+    }
 
     // Get recent conversation context (last 3 messages)
     const recentContext = conversationHistory
@@ -475,7 +598,7 @@ export class SpeakerSelector {
     const prompt = `Select the next speaker for a multi-agent debate.
 
 TASK: ${task}
-
+${diversityTable}
 AVAILABLE AGENTS:
 ${agentDescriptions}
 
@@ -553,6 +676,24 @@ OR
         }
       }
 
+      // Phase 13 — when fairnessContext is provided, fall back to round-robin
+      // (fewest turns this round, ties broken by fewest overall, then stable order)
+      // instead of ending the round. Legacy callers (no stats) keep prior behavior.
+      if (fairnessContext) {
+        console.warn('[SpeakerSelector] ⚠️ parse-failure fallback: round-robin pick (fewest turns this round)');
+        const pick = this.roundRobinPick(availableAgents, fairnessContext);
+        if (pick) {
+          this.consecutiveFailures = 0;
+          return {
+            nextSpeaker: pick,
+            reason: 'Phase 13 parse-failure fallback: round-robin (fewest turns this round)',
+            handoffRequested: false,
+            shouldContinue: true,
+            confidence: 0.5
+          };
+        }
+      }
+
       // Fallback: end round to prevent "zombie round" token waste
       // When selector fails repeatedly, it's better to end the round than continue randomly
       console.warn('Speaker selector failed to parse response, ending round');
@@ -584,6 +725,20 @@ OR
         });
       }
 
+      // Phase 13 — round-robin fallback on API error if fairnessContext is provided
+      if (fairnessContext) {
+        const pick = this.roundRobinPick(availableAgents, fairnessContext);
+        if (pick) {
+          return {
+            nextSpeaker: pick,
+            reason: 'Phase 13 API-error fallback: round-robin (fewest turns this round)',
+            handoffRequested: false,
+            shouldContinue: true,
+            confidence: 0.3
+          };
+        }
+      }
+
       // Fallback: end round to prevent "zombie round" token waste
       return {
         nextSpeaker: '',
@@ -593,6 +748,25 @@ OR
         confidence: 0.0
       };
     }
+  }
+
+  /**
+   * Phase 13 — pick the agent with the fewest turns this round.
+   * Tie-break: fewest turns overall, then stable insertion order.
+   */
+  private roundRobinPick(
+    eligible: string[],
+    fairnessContext: FairnessContext
+  ): string | null {
+    if (eligible.length === 0) return null;
+    const sorted = [...eligible].sort((a, b) => {
+      const sa = fairnessContext.stats[a] ?? { turnsThisRound: 0, turnsOverall: 0, tokenShare: 0 };
+      const sb = fairnessContext.stats[b] ?? { turnsThisRound: 0, turnsOverall: 0, tokenShare: 0 };
+      if (sa.turnsThisRound !== sb.turnsThisRound) return sa.turnsThisRound - sb.turnsThisRound;
+      if (sa.turnsOverall !== sb.turnsOverall) return sa.turnsOverall - sb.turnsOverall;
+      return eligible.indexOf(a) - eligible.indexOf(b);
+    });
+    return sorted[0];
   }
 
   /**
