@@ -331,7 +331,7 @@ export default class ConversationManager {
 
       // Phase 13 — round boundary resets for fairness + observability state.
       this.turnsThisRound = {};
-      if (this.speakerSelector) {
+      if (this.speakerSelector && typeof this.speakerSelector.resetForRound === 'function') {
         this.speakerSelector.resetForRound();
       }
       this.turnDistributionReporter.resetForRound(this.currentRound);

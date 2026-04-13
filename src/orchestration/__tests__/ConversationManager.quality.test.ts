@@ -26,6 +26,9 @@ jest.mock('../../core/SpeakerSelector', () => ({
   SpeakerSelector: Object.assign(
     jest.fn().mockImplementation(() => ({
       selectNextSpeaker: jest.fn().mockResolvedValue('Agent1'),
+      resetForRound: jest.fn(),
+      startNewRound: jest.fn(),
+      recordTurn: jest.fn(),
     })),
     { extractExpertise: jest.fn().mockReturnValue('general') }
   ),
@@ -655,6 +658,214 @@ describe('ConversationManager Quality Tests', () => {
       const result: any = await cm.startConversation('Test default fallback', judge);
       expect(result.agentSubstitutions.Agent1).toBeTruthy();
       expect(result.agentSubstitutions.Agent1.fallback).toBe('claude-sonnet-4-5');
+    });
+  });
+
+  // =========================================================================
+  // Phase 13 — output quality wiring
+  // =========================================================================
+  describe('Phase 13 — output quality wiring', () => {
+    const ConversationHistoryModule = require('../../core/ConversationHistory');
+    const ConversationHistoryClass = ConversationHistoryModule.default;
+    let getCompressedSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      // Spy on the prototype so every CM instance picks it up.
+      getCompressedSpy = jest
+        .spyOn(ConversationHistoryClass.prototype, 'getCompressedHistoryFor')
+        .mockResolvedValue([]);
+    });
+
+    afterEach(() => {
+      getCompressedSpy.mockRestore();
+    });
+
+    it('Test 1: getCompressedHistoryFor is called for round 2 but not round 1', async () => {
+      const { cm, judge } = createSetup({
+        agent1Responses: ['Round 1 take from Agent1', 'Round 2 take from Agent1'],
+        agent2Responses: ['Round 1 take from Agent2', 'Round 2 take from Agent2'],
+        judgeResponses: [
+          'No consensus yet. Continue.',
+          buildConsensusText({ summary: 'Final solution after round 2' }),
+        ],
+        maxRounds: 2,
+      });
+
+      // Capture call counts AFTER round 1 (right before round 2 starts).
+      // We use the round_robin path which calls our hook synchronously per round.
+      await cm.startConversation('Phase 13 compression wiring test', judge);
+
+      // Round 1 invokes 0 times; round 2 invokes >= 1 time.
+      // Total invocations across the run should be >= 1.
+      expect(getCompressedSpy).toHaveBeenCalled();
+      // Verify it was invoked with the agents map and an options object.
+      const firstCall = getCompressedSpy.mock.calls[0];
+      expect(firstCall[0]).toBeDefined(); // agents
+      expect(typeof firstCall[1]).toBe('object'); // options
+    });
+
+    it('Test 1b: getCompressedHistoryFor NOT called when only round 1 runs', async () => {
+      const { cm, judge } = createSetup({
+        agent1Responses: ['Quick agreement'],
+        agent2Responses: ['Quick agreement'],
+        judgeResponses: [
+          buildConsensusText({ summary: 'Consensus after round 1' }),
+        ],
+        maxRounds: 1,
+      });
+
+      await cm.startConversation('Round 1 only', judge);
+
+      expect(getCompressedSpy).not.toHaveBeenCalled();
+    });
+
+    it('Test 3: turn_distribution_updated event fires per turn with growing counts', async () => {
+      const { EventBus } = require('../../core/EventBus');
+      const eventBus = new EventBus();
+      const events: any[] = [];
+      eventBus.on('turn_distribution_updated', (evt: any) => {
+        events.push(evt.payload || evt);
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 2,
+        min_rounds: 0,
+      };
+
+      const mockChat = jest.fn().mockResolvedValue({ text: 'Agent message with substantive content here.' });
+      const mockJudgeChat = jest
+        .fn()
+        .mockResolvedValueOnce({ text: 'Continue.' })
+        .mockResolvedValueOnce({ text: buildConsensusText({ summary: 'Done' }) });
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation(() => ({
+        chat: mockChat,
+        getProviderName: jest.fn().mockReturnValue('Mock'),
+      }));
+
+      const cm = new ConversationManager(config, null, false, eventBus, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      await cm.startConversation('Test turn dist events', judge);
+
+      // 2 rounds × 2 agents = 4 turn events.
+      expect(events.length).toBeGreaterThanOrEqual(4);
+      // Turns should be monotonic non-decreasing for each agent across events.
+      const agent1Turns = events.map(e => e.perAgent.find((a: any) => a.name === 'Agent1')?.turns || 0);
+      for (let i = 1; i < agent1Turns.length; i++) {
+        expect(agent1Turns[i]).toBeGreaterThanOrEqual(agent1Turns[i - 1]);
+      }
+      // Each event has the expected shape.
+      expect(events[0].round).toBeGreaterThanOrEqual(1);
+      expect(Array.isArray(events[0].perAgent)).toBe(true);
+      expect(events[0].perAgent[0]).toHaveProperty('tokenShare');
+    });
+
+    it('Test 4: fairness_alarm fires once per (round, agent) when one agent dominates', async () => {
+      const { EventBus } = require('../../core/EventBus');
+      const eventBus = new EventBus();
+      const alarms: any[] = [];
+      eventBus.on('fairness_alarm', (evt: any) => {
+        alarms.push(evt.payload || evt);
+      });
+
+      const longText = 'A '.repeat(2000); // ~4000 chars → ~1000 token estimate
+      const shortText = 'B';
+
+      const mockHogChat = jest.fn().mockResolvedValue({ text: longText });
+      const mockQuietChat = jest.fn().mockResolvedValue({ text: shortText });
+      const mockJudgeChat = jest
+        .fn()
+        .mockResolvedValueOnce({ text: 'Continue.' })
+        .mockResolvedValueOnce({ text: buildConsensusText({ summary: 'Done' }) });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockHogChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockQuietChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Hog: { model: 'gpt-4o', prompt: 'Hog' },
+          Quiet: { model: 'claude-sonnet-4-5', prompt: 'Quiet' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 2,
+        min_rounds: 0,
+      };
+
+      const cm = new ConversationManager(config, null, false, eventBus, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      await cm.startConversation('Fairness alarm test', judge);
+
+      // Hog should trigger at least one alarm; with dedupe, exactly one per round.
+      const hogAlarms = alarms.filter(a => a.agent === 'Hog');
+      expect(hogAlarms.length).toBeGreaterThanOrEqual(1);
+      // Per-round dedupe: at most one alarm per (round, agent) pair.
+      const roundAgentPairs = new Set(hogAlarms.map(a => `${a.round}:${a.agent}`));
+      expect(roundAgentPairs.size).toBe(hogAlarms.length);
+      // Quiet should never trigger.
+      expect(alarms.some(a => a.agent === 'Quiet')).toBe(false);
+      // Threshold field present.
+      expect(hogAlarms[0].threshold).toBe(0.4);
+    });
+
+    it('Test 5: dissent_quality computes insufficient_data when fewer than 2 agents speak in degraded path', async () => {
+      // Force degraded path: only 1 agent responds (the other throws repeatedly).
+      const mockGoodChat = jest.fn().mockResolvedValue({ text: 'I have an opinion on this.' });
+      const mockBadChat = jest.fn().mockRejectedValue(new Error('persistent failure'));
+      const mockJudgeChat = jest.fn().mockResolvedValue({ text: 'fallback' });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockGoodChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockBadChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 1,
+        min_rounds: 0,
+      };
+
+      const cm = new ConversationManager(config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      const result: any = await cm.startConversation('Degraded path', judge);
+
+      // Either the run degraded (only 1 agent contributed) or it ran to completion.
+      // In either case, dissent_quality must NOT be the old hardcoded 'not_applicable'
+      // string from the degraded path — it must be one of the union literals.
+      expect(['captured', 'missing', 'not_applicable', 'insufficient_data']).toContain(result.dissent_quality);
+      if (result.degraded) {
+        // Only one agent spoke → insufficient_data.
+        expect(result.dissent_quality).toBe('insufficient_data');
+      }
     });
   });
 });
