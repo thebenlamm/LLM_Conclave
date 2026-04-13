@@ -226,7 +226,7 @@ describe('AgentTurnExecutor', () => {
   it('getAgentSubstitutions returns empty map initially', () => {
     const deps = makeDeps();
     const executor = new AgentTurnExecutor(deps);
-    expect(executor.getAgentSubstitutions().size).toBe(0);
+    expect(Object.keys(executor.getAgentSubstitutions()).length).toBe(0);
   });
 
   // ─── Test 11: model fallback on retryable error ──────────────────────────────
@@ -244,7 +244,7 @@ describe('AgentTurnExecutor', () => {
     // Should have a successful entry from fallback
     const nonErrorEntries = deps.conversationHistory.filter(e => !e.error);
     expect(nonErrorEntries.length).toBeGreaterThan(0);
-    expect(executor.getAgentSubstitutions().has('Alice')).toBe(true);
+    expect('Alice' in executor.getAgentSubstitutions()).toBe(true);
   });
 
   // ─── Test 12: recordAgentSuccess resets failure counter ─────────────────────

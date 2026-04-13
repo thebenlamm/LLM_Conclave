@@ -270,6 +270,10 @@ export default class SessionManager {
       finalSolution: result.solution || result.finalOutput,
       turn_analytics: result.turn_analytics || undefined,
       dissent_quality: result.dissent_quality || undefined,
+      // Phase 12-02: persist agentSubstitutions so session.json reflects which
+      // models actually ran. Default to empty object — never null — so the
+      // shape is consistent across runs with and without substitutions.
+      agentSubstitutions: result.agentSubstitutions || {},
       cost: costInfo,
       outputFiles: {
         transcript: result.transcript || '',

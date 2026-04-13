@@ -353,7 +353,7 @@ export default class ConversationManager {
           conversationHistory: this.conversationHistory,
           failedAgents: degradedFailedAgents,
           failedAgentDetails: degradedFailedDetails,
-          agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
+          agentSubstitutions: this.agentExecutor.getAgentSubstitutions(),
           agents_config: Object.fromEntries(
             Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
           ),
@@ -567,7 +567,7 @@ export default class ConversationManager {
         conversationHistory: this.conversationHistory,
         failedAgents: [...new Set(failedAgentsList)],
         failedAgentDetails,
-        agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
+        agentSubstitutions: this.agentExecutor.getAgentSubstitutions(),
         agents_config: Object.fromEntries(
           Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
         ),
@@ -628,10 +628,11 @@ export default class ConversationManager {
     }
 
     // Report agent substitutions so user can debug provider issues
-    if (this.agentExecutor.getAgentSubstitutions().size > 0) {
+    const subsForReport = this.agentExecutor.getAgentSubstitutions();
+    if (Object.keys(subsForReport).length > 0) {
       console.log(`\n${'─'.repeat(60)}`);
       console.log(`⚠️  Agent Model Substitutions (provider issues detected):`);
-      for (const [agent, sub] of this.agentExecutor.getAgentSubstitutions()) {
+      for (const [agent, sub] of Object.entries(subsForReport)) {
         console.log(`   ${agent}: ${sub.original} → ${sub.fallback} (reason: ${sub.reason})`);
       }
       console.log(`   💡 Action: Check provider credits/quotas for the original models.`);
@@ -691,7 +692,7 @@ export default class ConversationManager {
       conversationHistory: this.conversationHistory,
       failedAgents: uniqueFailedAgents,
       failedAgentDetails,
-      agentSubstitutions: Object.fromEntries(this.agentExecutor.getAgentSubstitutions()),
+      agentSubstitutions: this.agentExecutor.getAgentSubstitutions(),
       agents_config: Object.fromEntries(
         Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
       ),

@@ -35,8 +35,11 @@ export default class AgentTurnExecutor {
   // Circuit breaker state — agents permanently removed after 2 consecutive failures
   private persistentlyFailedAgents: Set<string> = new Set();
   private consecutiveAgentFailures: Map<string, number> = new Map();
-  // Model substitution tracking — for post-discussion reporting
-  private agentSubstitutions: Map<string, { original: string; fallback: string; reason: string }> = new Map();
+  // Model substitution tracking — for post-discussion reporting.
+  // Plain Record<> (not Map) so that downstream consumers can serialize it
+  // directly without Object.fromEntries gymnastics and so that JSON.stringify
+  // produces a stable shape (Phase 12-02).
+  private agentSubstitutions: Record<string, { original: string; fallback: string; reason: string }> = {};
 
   constructor(private deps: AgentTurnDeps) {}
 
@@ -205,7 +208,7 @@ export default class AgentTurnExecutor {
       // Try fallback to a different provider on retryable errors (429, 502, 503)
       // NOTE: Emit error event AFTER fallback attempt — if fallback succeeds, no error to report
       const isRetryable = /429|rate.?limit|502|503|service.?error/i.test(errorMsg);
-      if (isRetryable && !this.agentSubstitutions.has(agentName)) {
+      if (isRetryable && !(agentName in this.agentSubstitutions)) {
         const fallbackModel = this.getFallbackModel(agent.model);
         if (fallbackModel) {
           console.log(`[${agentName}: ${agent.model} failed, falling back to ${fallbackModel}]`);
@@ -250,11 +253,11 @@ export default class AgentTurnExecutor {
               }
 
               const originalModel = agent.model;
-              this.agentSubstitutions.set(agentName, {
+              this.agentSubstitutions[agentName] = {
                 original: originalModel,
                 fallback: fallbackModel,
-                reason: errorMsg
-              });
+                reason: errorMsg,
+              };
               agent.provider = fallbackProvider;
               agent.model = fallbackModel;
               console.log(`[${agentName}: Switched from ${originalModel} to ${fallbackModel} for remainder of discussion]`);
@@ -329,7 +332,7 @@ export default class AgentTurnExecutor {
    * Returns the map of model substitutions made during this conversation.
    * ConversationManager uses this for post-discussion reporting.
    */
-  getAgentSubstitutions(): Map<string, { original: string; fallback: string; reason: string }> {
+  getAgentSubstitutions(): Record<string, { original: string; fallback: string; reason: string }> {
     return this.agentSubstitutions;
   }
 

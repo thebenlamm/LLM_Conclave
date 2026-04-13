@@ -343,6 +343,11 @@ export interface SessionManifest {
   };
   dissent_quality?: 'captured' | 'missing' | 'not_applicable';
 
+  // Phase 12-02: agent model substitutions (e.g., GPT-4o → claude-sonnet-4-5
+  // after a 429). Always present (empty object when no substitutions occurred)
+  // so downstream consumers don't need to disambiguate undefined/null/empty.
+  agentSubstitutions: Record<string, { original: string; fallback: string; reason: string }>;
+
   // Metadata
   cost: SessionCostInfo;
 

@@ -22,7 +22,7 @@ export default class ConversationHistory {
    *   ConversationHistory mutates this array in-place so both sides always see the same data.
    * @param config - Config reference for agents and context optimization settings
    * @param getCurrentRound - Callback returning ConversationManager.currentRound
-   * @param getAgentSubstitutions - Callback returning the agentSubstitutions Map
+   * @param getAgentSubstitutions - Callback returning the agentSubstitutions plain object
    * @param getAgents - Callback returning the agents map keyed by agent name
    * @param getTaskRouter - Callback returning the taskRouter (may be null)
    * @param onCacheInvalidated - Callback invoked after compression to reset CM-side caches
@@ -32,7 +32,7 @@ export default class ConversationHistory {
     private entries: DiscussionHistoryEntry[],
     private config: Config,
     private getCurrentRound: () => number,
-    private getAgentSubstitutions: () => Map<string, { original: string; fallback: string; reason: string }>,
+    private getAgentSubstitutions: () => Record<string, { original: string; fallback: string; reason: string }>,
     private getAgents: () => Record<string, any>,
     private getTaskRouter: () => any,
     private onCacheInvalidated: () => void

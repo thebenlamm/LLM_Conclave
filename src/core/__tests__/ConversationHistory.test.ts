@@ -52,7 +52,7 @@ function createHistory(
     entries,
     config,
     () => overrides.currentRound ?? 1,
-    () => new Map(),
+    () => ({}),
     () => agents,
     () => overrides.taskRouter ?? null,
     () => {} // onCacheInvalidated no-op
@@ -406,7 +406,7 @@ describe('ConversationHistory', () => {
         entries,
         config,
         () => 4,
-        () => new Map(),
+        () => ({}),
         () => ({ Agent1: { model: 'gpt-4o', systemPrompt: '' } }),
         () => null,
         onCacheInvalidated
