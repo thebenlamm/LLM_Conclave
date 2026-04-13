@@ -39,6 +39,7 @@ import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 import { ContextLoader } from '../consult/context/ContextLoader.js';
 import { DiscussionRunner } from './DiscussionRunner.js';
 import { PreFlightTpmError } from '../providers/tpmLimits.js';
+import { StrictModelError } from '../core/AgentTurnExecutor.js';
 import { StatusFileManager } from './StatusFileManager.js';
 
 // ============================================================================
@@ -104,6 +105,11 @@ const TOOLS: Tool[] = [
         judge_model: {
           type: 'string',
           description: 'Model for judge/synthesis rounds (default: gpt-4o). Useful when a provider is unavailable.',
+        },
+        strict_models: {
+          type: 'boolean',
+          description: 'If true, hard-error instead of silently substituting a model when a provider fails (TPM, 429, timeout). Use for benchmarking, reproducibility, and A/B runs where model fidelity matters. Default: false (silent fallback — existing behavior).',
+          default: false,
         },
       },
       required: ['question'],
@@ -216,13 +222,18 @@ Example inline JSON:
           description: 'Enable context optimization: agents produce structured <reasoning>/<position> output. Other agents see only positions (50-70% token reduction). Judge sees everything. Default: false.',
           default: false,
         },
+        strict_models: {
+          type: 'boolean',
+          description: 'If true, hard-error instead of silently substituting a model when a provider fails (TPM, 429, timeout). Use for benchmarking, reproducibility, and A/B runs where model fidelity matters. Default: false (silent fallback — existing behavior).',
+          default: false,
+        },
       },
       required: ['task'],
     },
   },
   {
     name: 'llm_conclave_continue',
-    description: 'Continue a previous discussion session with a follow-up question or task.',
+    description: 'Continue a previous discussion session with a follow-up question or task.\n\nNote on substituted models: If the original session had model substitutions (visible in the Realized Panel of that session\'s output), those substitutions remain in effect on resume — the originally-configured model is NOT retried. Mid-session model switches would invalidate prior-round history produced by the substitute.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -336,6 +347,34 @@ function registerHandlers(server: Server) {
         };
       }
 
+      // Phase 12-04: strict_models substitution gate — return a structured
+      // tool_error explaining which agent failed and what substitution was blocked,
+      // so callers benchmarking or reproducing model behavior get an actionable
+      // failure instead of a silent fallback they can't see.
+      if (error instanceof StrictModelError) {
+        const lines = [
+          '# Strict Models: Substitution Blocked',
+          '',
+          `Agent **${error.agentName}** (${error.originalModel}) failed and substitution to **${error.attemptedFallback}** was blocked because \`strict_models: true\`.`,
+          '',
+          `**Reason:** ${error.reason}`,
+          '',
+          '## Options',
+          '1. Set `strict_models: false` (or omit) to accept substitution',
+          '2. Use a different model for this agent',
+          '3. Address the underlying provider issue (TPM limit, rate limit, auth)',
+        ];
+        return {
+          content: [
+            {
+              type: 'text',
+              text: lines.join('\n'),
+            },
+          ],
+          isError: true,
+        };
+      }
+
       return {
         content: [
           {
@@ -361,8 +400,9 @@ async function handleConsult(args: {
   quick?: boolean;
   format?: string;
   judge_model?: string;
+  strict_models?: boolean;
 }, server: Server) {
-  const { question, context: contextPath, personas, rounds, quick = false, format = 'markdown', judge_model } = args;
+  const { question, context: contextPath, personas, rounds, quick = false, format = 'markdown', judge_model, strict_models } = args;
   const maxRounds = rounds ? Math.min(4, Math.max(1, rounds)) : (quick ? 2 : 4);
 
   // Progress heartbeat covers context loading AND consultation execution.
@@ -406,6 +446,7 @@ async function handleConsult(args: {
       verbose: false,
       agents,
       ...(judge_model && { judgeModel: judge_model }),
+      strictModels: strict_models === true,
     });
 
     // Execute consultation (this is asynchronous and may take time)
@@ -445,6 +486,7 @@ async function handleDiscuss(args: {
   format?: string;
   judge_instructions?: string;
   context_optimization?: boolean;
+  strict_models?: boolean;
 }, server: Server) {
   const format = args.format ?? 'markdown';
 
@@ -472,6 +514,7 @@ async function handleDiscuss(args: {
     judgeInstructions: args.judge_instructions,
     timeout: args.timeout ?? 0,
     contextOptimization: args.context_optimization ?? false,
+    strictModels: args.strict_models === true,
     onProgress,
     validateProjectPath: (p) => validatePath(p, process.cwd()),
   });
@@ -610,6 +653,9 @@ async function handleContinue(args: {
       speaker: msg.speaker || (msg.role === 'user' ? 'System' : 'Assistant'),
     })),
     parentSessionId: session.id,
+    // Phase 12-04: re-apply persisted substitutions on resume so the substitute
+    // model continues to play the agent — the original is NOT retried.
+    restoredSubstitutions: (session as any).agentSubstitutions || undefined,
   });
 
   // Format response (continuation-specific format)

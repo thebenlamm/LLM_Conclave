@@ -537,4 +537,124 @@ describe('ConversationManager Quality Tests', () => {
       });
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // strict_models flag (Phase 12, Plan 04)
+  // ──────────────────────────────────────────────────────────────────────────
+  describe('strict_models (Phase 12-04)', () => {
+    let StrictModelError: any;
+    beforeAll(() => {
+      // Late import to ensure mocks are in place
+      ({ StrictModelError } = require('../../core/AgentTurnExecutor'));
+    });
+
+    it('throws StrictModelError instead of substituting when strictModels=true', async () => {
+      let agent1Calls = 0;
+      const mockAgent1Chat = jest.fn().mockImplementation(() => {
+        agent1Calls++;
+        if (agent1Calls === 1) {
+          throw new Error('429 rate limit exceeded for gpt-4o');
+        }
+        return Promise.resolve({ text: 'Should not be reached' });
+      });
+      const mockClaudeChat = jest.fn().mockResolvedValue({ text: 'Claude response' });
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildConsensusText({ summary: 'Should not reach judge' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 1,
+        min_rounds: 0,
+      };
+
+      const cm = new ConversationManager(
+        config, null, false, undefined, false, 'gpt-4o-mini',
+        { disableRouting: true, strictModels: true }
+      );
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      await expect(cm.startConversation('Test strict_models', judge)).rejects.toBeInstanceOf(StrictModelError);
+
+      // Verify error fields by re-running and catching
+      const cm2 = new ConversationManager(
+        config, null, false, undefined, false, 'gpt-4o-mini',
+        { disableRouting: true, strictModels: true }
+      );
+      // Reset mocks so the second run reproduces the failure
+      agent1Calls = 0;
+      let caught: any;
+      try {
+        await cm2.startConversation('Test strict_models', judge);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(StrictModelError);
+      expect(caught.agentName).toBe('Agent1');
+      expect(caught.originalModel).toBe('gpt-4o');
+      expect(caught.attemptedFallback).toBe('claude-sonnet-4-5');
+      expect(caught.reason).toMatch(/429|rate/i);
+    });
+
+    it('default (strictModels omitted) preserves silent-fallback behavior', async () => {
+      let agent1Calls = 0;
+      const mockAgent1Chat = jest.fn().mockImplementation(() => {
+        agent1Calls++;
+        if (agent1Calls === 1) {
+          throw new Error('429 rate limit exceeded for gpt-4o');
+        }
+        return Promise.resolve({ text: 'unused' });
+      });
+      const mockClaudeChat = jest.fn().mockResolvedValue({ text: 'Substituted response with substance' });
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildConsensusText({ summary: 'Agreed' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 1,
+        min_rounds: 0,
+      };
+
+      const cm = new ConversationManager(
+        config, null, false, undefined, false, 'gpt-4o-mini',
+        { disableRouting: true /* strictModels omitted */ }
+      );
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      const result: any = await cm.startConversation('Test default fallback', judge);
+      expect(result.agentSubstitutions.Agent1).toBeTruthy();
+      expect(result.agentSubstitutions.Agent1.fallback).toBe('claude-sonnet-4-5');
+    });
+  });
 });
