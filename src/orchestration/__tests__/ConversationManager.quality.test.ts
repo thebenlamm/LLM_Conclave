@@ -408,4 +408,133 @@ describe('ConversationManager Quality Tests', () => {
       expect(result).toBeTruthy();
     });
   });
+
+  // =========================================================================
+  // agentSubstitutions serialization (Phase 12, Plan 02)
+  // =========================================================================
+  describe('agentSubstitutions serialization (Phase 12)', () => {
+    it('returns a plain object (not null, not Map) when no substitution occurred', async () => {
+      const { cm, judge } = createSetup({
+        agent1Responses: ['Agent1 thoughts on this matter'],
+        agent2Responses: ['Agent2 disagrees with Agent1'],
+        judgeResponses: [
+          buildConsensusText({ summary: 'Agreed solution' }),
+        ],
+        maxRounds: 1,
+      });
+
+      const result: any = await cm.startConversation('Short task', judge);
+
+      expect(result.agentSubstitutions).not.toBeNull();
+      expect(result.agentSubstitutions).toEqual({});
+      expect(result.agentSubstitutions instanceof Map).toBe(false);
+      expect(Object.prototype.toString.call(result.agentSubstitutions)).toBe('[object Object]');
+    });
+
+    it('returns a populated plain object when an agent is substituted via fallback', async () => {
+      // Agent1 (gpt-4o) throws a retryable 429 on first call → triggers fallback to claude-sonnet-4-5
+      let agent1Calls = 0;
+      const mockAgent1Chat = jest.fn().mockImplementation(() => {
+        agent1Calls++;
+        if (agent1Calls === 1) {
+          throw new Error('429 rate limit exceeded for gpt-4o');
+        }
+        return Promise.resolve({ text: 'Should not be called again' });
+      });
+      // claude-sonnet-4-5 plays both Agent2 AND fallback for Agent1
+      const mockClaudeChat = jest.fn().mockResolvedValue({
+        text: 'Substituted-model response with substance',
+      });
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildConsensusText({ summary: 'Agreed solution' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') {
+          return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        }
+        if (model === 'claude-sonnet-4-5') {
+          return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        }
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 1,
+        min_rounds: 0,
+      };
+
+      const cm = new ConversationManager(config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      const result: any = await cm.startConversation('Test substitution', judge);
+
+      expect(result.agentSubstitutions).not.toBeNull();
+      expect(result.agentSubstitutions instanceof Map).toBe(false);
+      expect(result.agentSubstitutions.Agent1).toBeTruthy();
+      expect(result.agentSubstitutions.Agent1.original).toBe('gpt-4o');
+      expect(result.agentSubstitutions.Agent1.fallback).toBe('claude-sonnet-4-5');
+      expect(typeof result.agentSubstitutions.Agent1.reason).toBe('string');
+      expect(result.agentSubstitutions.Agent1.reason).toMatch(/429|rate/i);
+    });
+
+    it('agentSubstitutions survives JSON roundtrip (proves no Map residue)', async () => {
+      let agent1Calls = 0;
+      const mockAgent1Chat = jest.fn().mockImplementation(() => {
+        agent1Calls++;
+        if (agent1Calls === 1) {
+          throw new Error('429 rate limit exceeded for gpt-4o');
+        }
+        return Promise.resolve({ text: 'unused' });
+      });
+      const mockClaudeChat = jest.fn().mockResolvedValue({ text: 'Substituted response' });
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildConsensusText({ summary: 'Agreed' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 1,
+        min_rounds: 0,
+      };
+
+      const cm = new ConversationManager(config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      const result: any = await cm.startConversation('Test JSON roundtrip', judge);
+
+      const roundtripped = JSON.parse(JSON.stringify(result.agentSubstitutions));
+      expect(roundtripped).toEqual(result.agentSubstitutions);
+      expect(roundtripped.Agent1).toEqual({
+        original: 'gpt-4o',
+        fallback: 'claude-sonnet-4-5',
+        reason: result.agentSubstitutions.Agent1.reason,
+      });
+    });
+  });
 });
