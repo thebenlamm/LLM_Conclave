@@ -1057,10 +1057,13 @@ describe('ConversationManager Integration Tests', () => {
       expect(result.consensusReached).toBe(true);
       expect(result.solution).toBe('Consensus after proper round 2');
 
-      // Selector called exactly 7 times:
+      // Selector called exactly 6 times:
       // Round 1: 3 calls (Scholar + Architect + shouldContinue=false)
-      // Round 2: 4 calls (Scholar + Architect + Strategist + shouldContinue=false)
-      expect(selectorMock.selectNextSpeaker).toHaveBeenCalledTimes(7);
+      // Round 2: 3 calls (Scholar + Architect + Strategist) — Phase 15.2 per-agent
+      //   cap (default 1) exhausts the eligible pool right after Strategist's turn,
+      //   so runDynamicRound breaks via the cap-exhausted path BEFORE calling the
+      //   selector a 4th time for an explicit stop signal.
+      expect(selectorMock.selectNextSpeaker).toHaveBeenCalledTimes(6);
 
       // With the fix: Strategist's FIRST history entry should be from round 2, not round 1.
       // (Before fix: Strategist would have been force-added to round 1 even though selector said stop)

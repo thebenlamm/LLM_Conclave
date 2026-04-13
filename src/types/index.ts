@@ -182,6 +182,12 @@ export interface Config {
   turn_management: string;
   max_rounds: number;
   min_rounds?: number;
+  /**
+   * Phase 15.2 — Maximum turns a single agent may take per round in dynamic mode.
+   * Default: 1. When all eligible agents hit this cap, runDynamicRound early-returns.
+   * Additive only; MCP tool schema unchanged for callers omitting it.
+   */
+  maxTurnsPerAgentPerRound?: number;
   judge: {
     model: string;
     prompt: string;

@@ -57,6 +57,11 @@ export interface DiscussionRunnerOptions {
    * (Phase 12-04)
    */
   restoredSubstitutions?: Record<string, { original: string; fallback: string; reason: string }>;
+  /**
+   * Phase 15.2 — Maximum turns a single agent may take per round in dynamic mode.
+   * Default: 1. Additive; MCP tool schema unchanged for callers omitting it.
+   */
+  maxTurnsPerAgentPerRound?: number;
 }
 
 /**
@@ -235,6 +240,7 @@ export class DiscussionRunner {
       parentSessionId,
       strictModels = false,
       restoredSubstitutions,
+      maxTurnsPerAgentPerRound,
     } = options;
 
     // 1. Config resolution (use pre-resolved config for continuation to bypass ConfigCascade)
@@ -266,6 +272,14 @@ export class DiscussionRunner {
       throw new Error(`min_rounds (${validatedMinRounds}) cannot exceed rounds (${rounds})`);
     }
     config.min_rounds = validatedMinRounds;
+
+    // Phase 15.2 — surface optional per-agent-per-round turn cap on the
+    // resolved config. Default-to-1 resolution lives in runDynamicRound; we
+    // only set the field if the caller explicitly passed it, so omission
+    // remains MCP-schema-additive.
+    if (typeof maxTurnsPerAgentPerRound === 'number') {
+      config.maxTurnsPerAgentPerRound = maxTurnsPerAgentPerRound;
+    }
 
     // 5. Project context loading
     let projectContext: any = null;

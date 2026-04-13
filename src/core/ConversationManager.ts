@@ -925,9 +925,18 @@ export default class ConversationManager {
     let lastResponse: string | null = null;
     let turnCount = 0;
 
-    // Safety limit: allow more turns than agents to enable back-and-forth
-    // Default to 20 or 3x agent count, whichever is higher, to prevent infinite loops
-    const maxTurnsPerRound = Math.max(20, this.agentOrder.length * 3);
+    // Phase 15.2 Task 2 — per-agent-per-round turn cap. Default 1.
+    // When the eligible-agent pool empties, runDynamicRound early-returns
+    // immediately (no wildcard turn). MCP schema is unchanged for callers
+    // that omit this field.
+    const maxPerAgent = this.config.maxTurnsPerAgentPerRound ?? 1;
+    const perAgentTurns = new Map<string, number>();
+
+    // Phase 15.2 Task 2 — tightened safety cap (defense-in-depth).
+    // Was: Math.max(20, this.agentOrder.length * 3) — far too lax.
+    // Now: agentOrder.length * maxPerAgent + 1, so with default cap=1 and
+    // 4 agents the safety cap is 5 instead of 20.
+    const maxTurnsPerRound = this.agentOrder.length * maxPerAgent + 1;
 
     while (turnCount < maxTurnsPerRound) {
       // Check abort signal before each turn in dynamic mode
@@ -942,6 +951,25 @@ export default class ConversationManager {
         totalTurnsThisRound: Object.values(this.turnsThisRound).reduce((a, b) => a + b, 0),
       };
 
+      // Phase 15.2 Task 2 — filter pool by per-agent turn cap BEFORE selector.
+      // Mirrors the SpeakerSelector.ts:656-662 fallback / early-return style.
+      const eligibleByCap = this.agentOrder.filter(
+        name => !failedAgentsThisRound.has(name) && (perAgentTurns.get(name) ?? 0) < maxPerAgent
+      );
+      if (eligibleByCap.length === 0) {
+        // Pool exhausted under per-agent cap — end round, let outer loop decide next steps.
+        // No wildcard turn (D-04).
+        console.log(`[Round ${this.currentRound} complete: per-agent turn cap (${maxPerAgent}) exhausted pool]`);
+        break;
+      }
+      // Pass the capped-eligible pool to the selector as the additional-fail set
+      // (selector treats failedAgents as "do not pick"). Union the cap exclusions
+      // with failedAgentsThisRound so the selector cannot pick a capped agent.
+      const cappedExclusions = new Set<string>(failedAgentsThisRound);
+      for (const name of this.agentOrder) {
+        if ((perAgentTurns.get(name) ?? 0) >= maxPerAgent) cappedExclusions.add(name);
+      }
+
       // Select next speaker
       const selection = await this.speakerSelector.selectNextSpeaker(
         this.conversationHistory,
@@ -949,7 +977,7 @@ export default class ConversationManager {
         lastResponse,
         this.currentRound,
         task,
-        failedAgentsThisRound,
+        cappedExclusions,
         fairnessContext
       );
 
@@ -967,10 +995,19 @@ export default class ConversationManager {
       }
 
       const agentName = selection.nextSpeaker;
-      
+
       // Stop if selector returned a speaker that doesn't exist (safety check)
       if (!agentName) {
         console.log(`[Round ${this.currentRound} ended: No next speaker selected]`);
+        break;
+      }
+
+      // Phase 15.2 Task 2 — hard guard: even if the selector ignored the
+      // exclusion set we passed in, a capped agent must NEVER take another
+      // turn. This is the structural guarantee the per-agent cap exists to
+      // enforce — it is not advisory.
+      if ((perAgentTurns.get(agentName) ?? 0) >= maxPerAgent) {
+        console.log(`[Round ${this.currentRound} complete: selector picked capped agent ${agentName}, ending round]`);
         break;
       }
 
@@ -1034,6 +1071,9 @@ export default class ConversationManager {
 
       // Record turn
       this.speakerSelector.recordTurn(agentName);
+      // Phase 15.2 Task 2 — bump per-agent counter (success or error: a slot
+      // was consumed either way, matching the placement of turnCount++).
+      perAgentTurns.set(agentName, (perAgentTurns.get(agentName) ?? 0) + 1);
       turnCount++;
     }
 
