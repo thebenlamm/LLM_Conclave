@@ -7,6 +7,31 @@ import type { EventBus } from './EventBus.js';
 import type { TaskRouter } from './TaskRouter.js';
 import type { CostTracker } from './CostTracker.js';
 
+/**
+ * Thrown when `strict_models: true` is set and a runtime substitution would
+ * otherwise occur. Carries enough structured detail for the MCP layer to
+ * render an actionable tool_error explaining which agent failed and what
+ * substitution was blocked. (Phase 12-04)
+ */
+export class StrictModelError extends Error {
+  public readonly agentName: string;
+  public readonly originalModel: string;
+  public readonly attemptedFallback: string;
+  public readonly reason: string;
+  constructor(agentName: string, originalModel: string, attemptedFallback: string, reason: string) {
+    super(
+      `strict_models: true — agent "${agentName}" (${originalModel}) failed and substitution to ${attemptedFallback} is blocked. Reason: ${reason}`
+    );
+    this.name = 'StrictModelError';
+    this.agentName = agentName;
+    this.originalModel = originalModel;
+    this.attemptedFallback = attemptedFallback;
+    this.reason = reason;
+    // Cross-realm instanceof safety (matches PreFlightTpmError pattern).
+    Object.setPrototypeOf(this, StrictModelError.prototype);
+  }
+}
+
 export interface AgentTurnDeps {
   agents: { [key: string]: any };
   config: Config;
@@ -17,6 +42,12 @@ export interface AgentTurnDeps {
   abortSignal?: AbortSignal;
   taskRouter: TaskRouter | null;
   costTracker: CostTracker;
+  /**
+   * If true, runtime substitutions throw StrictModelError instead of silently
+   * falling back to a different model. Default: false (existing behavior).
+   * (Phase 12-04)
+   */
+  strictModels?: boolean;
 }
 
 /**
@@ -211,6 +242,12 @@ export default class AgentTurnExecutor {
       if (isRetryable && !(agentName in this.agentSubstitutions)) {
         const fallbackModel = this.getFallbackModel(agent.model);
         if (fallbackModel) {
+          // Phase 12-04: strict_models gate — hard-fail before any state mutation
+          // or fallback provider construction. Throwing here propagates out of
+          // startConversation so the MCP layer can render a structured tool_error.
+          if (this.deps.strictModels) {
+            throw new StrictModelError(agentName, agent.model, fallbackModel, errorMsg);
+          }
           console.log(`[${agentName}: ${agent.model} failed, falling back to ${fallbackModel}]`);
           try {
             const fallbackProvider = ProviderFactory.createProvider(fallbackModel, { costTracker: this.deps.costTracker });
@@ -334,6 +371,25 @@ export default class AgentTurnExecutor {
    */
   getAgentSubstitutions(): Record<string, { original: string; fallback: string; reason: string }> {
     return this.agentSubstitutions;
+  }
+
+  /**
+   * Seed pre-existing substitutions (Phase 12-04, used by llm_conclave_continue
+   * when restoring a session). Substitutions persisted in session.json are
+   * re-applied here so the in-memory agent map already reflects the substitute
+   * model — the originally-configured model is NOT retried mid-session, which
+   * would invalidate the prior-round history produced by the substitute.
+   *
+   * Caller is responsible for also swapping the corresponding `agents[name]`
+   * provider/model entries before subsequent turns; this method only records
+   * the metadata so it surfaces in the final report and Realized Panel.
+   */
+  restoreAgentSubstitutions(
+    subs: Record<string, { original: string; fallback: string; reason: string }>
+  ): void {
+    for (const [name, sub] of Object.entries(subs || {})) {
+      this.agentSubstitutions[name] = { ...sub };
+    }
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────

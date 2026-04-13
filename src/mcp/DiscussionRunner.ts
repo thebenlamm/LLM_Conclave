@@ -44,6 +44,19 @@ export interface DiscussionRunnerOptions {
   clientAbortSignal?: AbortSignal;  // external abort signal (e.g., REST client disconnect)
   resolvedConfig?: any;            // pre-resolved config (for continuation, bypasses ConfigCascade)
   parentSessionId?: string;        // link new session to parent (for continuation)
+  /**
+   * If true, runtime model substitutions hard-fail with StrictModelError
+   * instead of silently falling back. Surfaces as a structured tool_error in
+   * the MCP layer. Default: false. (Phase 12-04)
+   */
+  strictModels?: boolean;
+  /**
+   * Substitutions persisted from a prior session, re-applied by
+   * llm_conclave_continue so the in-memory agent map already uses the
+   * substitute model. The original model is NOT retried mid-session.
+   * (Phase 12-04)
+   */
+  restoredSubstitutions?: Record<string, { original: string; fallback: string; reason: string }>;
 }
 
 /**
@@ -202,6 +215,8 @@ export class DiscussionRunner {
       clientAbortSignal,
       resolvedConfig: preResolvedConfig,
       parentSessionId,
+      strictModels = false,
+      restoredSubstitutions,
     } = options;
 
     // 1. Config resolution (use pre-resolved config for continuation to bypass ConfigCascade)
@@ -318,8 +333,16 @@ export class DiscussionRunner {
       scopedEventBus,
       dynamic,
       selectorModel,
-      { judgeInstructions, costTracker }
+      { judgeInstructions, costTracker, strictModels }
     );
+
+    // Phase 12-04: re-apply substitutions recorded in the prior session
+    // (llm_conclave_continue path). Substituted models stay substituted on
+    // resume — the originally-configured model is NOT retried, because
+    // mid-session model switches would invalidate prior-round history.
+    if (restoredSubstitutions && Object.keys(restoredSubstitutions).length > 0) {
+      conversationManager.restoreAgentSubstitutions(restoredSubstitutions);
+    }
 
     // 9. Timeout/abort setup
     if (timeout < 0) {

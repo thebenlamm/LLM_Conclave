@@ -596,4 +596,10 @@ export interface ConsultOrchestratorOptions {
   agents?: Agent[];
   costTracker?: CostTracker;
   judgeModel?: string;
+  /**
+   * Phase 12-04: if true, hard-fail when a provider substitution would occur
+   * instead of silently falling back. Used for benchmarking, reproducibility,
+   * and A/B runs where model fidelity matters. Default: false.
+   */
+  strictModels?: boolean;
 }

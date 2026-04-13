@@ -66,7 +66,7 @@ export default class ConversationManager {
     eventBus?: EventBus,
     dynamicSelection: boolean = false,
     selectorModel: string = DEFAULT_SELECTOR_MODEL,
-    options?: { disableRouting?: boolean; judgeInstructions?: string; costTracker?: CostTracker }
+    options?: { disableRouting?: boolean; judgeInstructions?: string; costTracker?: CostTracker; strictModels?: boolean }
   ) {
     this.config = config;
     this.agents = {};
@@ -107,6 +107,7 @@ export default class ConversationManager {
       abortSignal: this.abortSignal,
       taskRouter: this.taskRouter,
       costTracker: this.costTracker,
+      strictModels: options?.strictModels === true,
     });
 
     this.history = new ConversationHistory(
@@ -180,6 +181,40 @@ export default class ConversationManager {
         message: `Initialized ${this.agentOrder.length} agents`,
         dynamicSelection: this.dynamicSelection
       });
+    }
+  }
+
+  /**
+   * Restore agent substitutions recorded in a prior session (Phase 12-04).
+   * Called by `llm_conclave_continue` after constructing a new ConversationManager:
+   * the substitution metadata is re-applied to AgentTurnExecutor, and the
+   * in-memory `agents` map is rewired so subsequent turns use the substitute
+   * provider/model — the originally-configured model is NOT retried.
+   *
+   * Rationale: mid-session model switches would invalidate prior-round history
+   * produced by the substitute, and the user has already accepted the
+   * substitution by choosing to continue.
+   */
+  restoreAgentSubstitutions(
+    subs: Record<string, { original: string; fallback: string; reason: string }>
+  ): void {
+    if (!subs) return;
+    this.agentExecutor.restoreAgentSubstitutions(subs);
+    for (const [name, sub] of Object.entries(subs)) {
+      const agent = this.agents[name];
+      if (!agent) continue;
+      // Only rewire when the recorded substitution's fallback differs from the
+      // currently-configured model — otherwise the resume config already
+      // matches the substitute (e.g. user updated their config in the meantime).
+      if (agent.model !== sub.fallback) {
+        try {
+          agent.provider = ProviderFactory.createProvider(sub.fallback, { costTracker: this.costTracker });
+          agent.model = sub.fallback;
+          console.log(`[continue: ${name} restored to substitute model ${sub.fallback} (original ${sub.original})]`);
+        } catch (err: any) {
+          console.error(`[continue: failed to restore substitute provider for ${name}: ${err?.message || err}]`);
+        }
+      }
     }
   }
 

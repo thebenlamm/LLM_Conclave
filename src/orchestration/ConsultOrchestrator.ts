@@ -39,6 +39,7 @@ import {
 } from '../types';
 import { EarlyTerminationManager } from '../consult/termination/EarlyTerminationManager';
 import { CostTracker } from '../core/CostTracker';
+import { StrictModelError } from '../core/AgentTurnExecutor';
 import { GeminiCacheManager } from '../providers/GeminiCacheManager';
 import GeminiProvider from '../providers/GeminiProvider';
 import {
@@ -115,6 +116,10 @@ export default class ConsultOrchestrator {
   private _externalAgents?: Agent[];
   private costTracker: CostTracker;
   private judgeModel: string;
+  // Phase 12-04: when true, any provider substitution triggers a hard-fail
+  // via StrictModelError raised at the next consultation entry / round check.
+  private strictModels: boolean = false;
+  private strictModelsViolation: { agentName: string; originalModel: string; attemptedFallback: string; reason: string } | null = null;
 
   constructor(options: ConsultOrchestratorOptions = {}) {
     // Core configuration
@@ -131,6 +136,7 @@ export default class ConsultOrchestrator {
     this._externalAgents = options.agents;
     this.costTracker = options.costTracker ?? CostTracker.getInstance();
     this.judgeModel = options.judgeModel ?? 'gpt-4o';
+    this.strictModels = options.strictModels === true;
 
     // Initialize component groups
     this.initializeCoreComponents();
@@ -169,6 +175,35 @@ export default class ConsultOrchestrator {
 
     // Setup runtime event handlers and cleanup (skipped in test environment)
     this.setupRuntimeHandlers();
+
+    // Phase 12-04: strict_models substitution listener — runs in every environment
+    // (including tests) so the flag has uniform semantics. Records the first
+    // substitution event; consult() throws StrictModelError on entry / between
+    // rounds when this is set.
+    if (this.strictModels) {
+      this.eventBus.on('consultation:provider_substituted', (data: any) => {
+        if (this.strictModelsViolation) return;
+        const payload = data?.payload ?? data ?? {};
+        this.strictModelsViolation = {
+          agentName: payload.agentName ?? payload.agent ?? 'unknown',
+          originalModel: payload.originalModel ?? payload.original ?? 'unknown',
+          attemptedFallback: payload.fallbackModel ?? payload.fallback ?? 'unknown',
+          reason: payload.reason ?? payload.error ?? 'provider substitution',
+        };
+      });
+    }
+  }
+
+  /**
+   * Phase 12-04: throw StrictModelError if a substitution event was observed
+   * while strict_models was true. Called at consultation entry and between
+   * rounds so the failure surfaces as soon as possible without partial output.
+   */
+  private checkStrictModelsViolation(): void {
+    if (this.strictModels && this.strictModelsViolation) {
+      const v = this.strictModelsViolation;
+      throw new StrictModelError(v.agentName, v.originalModel, v.attemptedFallback, v.reason);
+    }
   }
 
   /**
@@ -402,6 +437,9 @@ export default class ConsultOrchestrator {
 
     try { // Outer try/finally for Gemini cache cleanup
     try {
+      // Phase 12-04: hard-fail if a substitution event arrived after construction
+      // (e.g. health monitor pre-marked a provider unhealthy and a fallback was queued).
+      this.checkStrictModelsViolation();
       // Start consultation lifecycle
       this.stateMachine.transition(ConsultState.Estimating);
       
