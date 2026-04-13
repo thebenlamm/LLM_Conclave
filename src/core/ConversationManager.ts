@@ -72,6 +72,12 @@ export default class ConversationManager {
   // when turn balance was violated during the run.
   private fairnessAlarmFired: boolean = false;
 
+  // Phase 15.2 Task 3 — hard-stop flag set when the judge declares consensus.
+  // Checked at the top of the outer round loop AND at every per-turn entry so
+  // post-termination work cannot leak into round N+1. In-memory only; NOT
+  // persisted to session.json (D-09).
+  private terminated: boolean = false;
+
   constructor(
     config: Config,
     memoryManager: any = null,
@@ -330,6 +336,15 @@ export default class ConversationManager {
 
     // Main conversation loop
     while (this.currentRound < this.maxRounds && !consensusReached) {
+      // Phase 15.2 Task 3 — hard stop: if the judge declared consensus on a
+      // previous iteration, do not start a new round. In-flight turns from
+      // the prior round have already finished. Defense-in-depth on top of
+      // the consensusReached loop condition; protects against any future
+      // refactor that bypasses the local boolean.
+      if (this.terminated) {
+        console.log(`\n[Discussion terminated: judge consensus, no further rounds]\n`);
+        break;
+      }
       // Check abort signal before starting new round
       if (this.abortSignal?.aborted) {
         console.log(`\n[Discussion aborted: ${this.abortSignal.reason || 'timeout'}]\n`);
@@ -391,7 +406,7 @@ export default class ConversationManager {
       } else {
         for (const agentName of this.agentOrder) {
           const historyLenBefore = this.conversationHistory.length;
-          await this.agentExecutor.agentTurn(agentName);
+          await this.runAgentTurnGuarded(agentName);
           // Phase 13 — record per-agent turn + token stats and report.
           this.recordAgentTurnStats(agentName, historyLenBefore);
           this.turnDistributionReporter.report(
@@ -565,6 +580,9 @@ export default class ConversationManager {
 
       // Only allow consensus if we've completed minimum rounds
       if (judgeResult.consensusReached && this.currentRound >= this.minRounds) {
+        // Phase 15.2 Task 3 — set BEFORE any return/break so the round-loop
+        // guard (and any post-termination turn attempt) cannot miss it.
+        this.terminated = true;
         consensusReached = true;
         finalSolution = judgeResult.solution || null;
         keyDecisions = judgeResult.keyDecisions || [];
@@ -1022,7 +1040,7 @@ export default class ConversationManager {
 
       // Execute agent turn and capture response
       const historyLengthBefore = this.conversationHistory.length;
-      await this.agentExecutor.agentTurn(agentName);
+      await this.runAgentTurnGuarded(agentName);
 
       // Phase 13 — record per-agent turn + token stats and report.
       this.recordAgentTurnStats(agentName, historyLengthBefore);
@@ -1092,6 +1110,24 @@ export default class ConversationManager {
     // Note: persistent failure tracking is now handled by the circuit breaker
     // in recordAgentFailure() — agents are disabled after 2 consecutive failures
     // regardless of error type (context overflow, rate limit, empty response, etc.)
+  }
+
+  /**
+   * Phase 15.2 Task 3 — per-turn entry guard. If the discussion has already
+   * been terminated (judge consensus), warn-and-skip without invoking the
+   * provider. Never throws (D-08); returns void so the surrounding loop can
+   * decide what to do next (typically: break via the cap-exhausted or
+   * terminated check on the following iteration).
+   */
+  private async runAgentTurnGuarded(agentName: string): Promise<void> {
+    if (this.terminated) {
+      console.warn('[ConversationManager] Turn attempted after terminated=true', {
+        agent: agentName,
+        round: this.currentRound,
+      });
+      return;
+    }
+    await this.agentExecutor.agentTurn(agentName);
   }
 
   // ---------------------------------------------------------------------------
