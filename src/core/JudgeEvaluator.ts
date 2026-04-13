@@ -5,6 +5,33 @@ import type { DiscussionHistoryEntry, Config } from '../types/index.js';
 import type ConversationHistory from './ConversationHistory.js';
 import type { EventBus } from './EventBus.js';
 import type { CostTracker } from './CostTracker.js';
+import type { MachinerySignals } from './ConfidenceReconciler.js';
+
+/**
+ * Phase 13 — Plan 04: build the machinery-signals preamble injected into
+ * judge prompts so the judge cannot report HIGH confidence on a degraded run.
+ * Returns an empty string when no signals are provided (legacy callers).
+ */
+function buildMachinerySignalsBlock(signals?: MachinerySignals): string {
+  if (!signals) return '';
+  const abortedLine = signals.aborted
+    ? `YES (${signals.abortReason ?? 'unspecified'})`
+    : 'no';
+  return `## Machinery Signals (Phase 13)
+
+The following operational facts about this discussion run are established by
+deterministic instrumentation, NOT by your judgment. You MUST NOT contradict them.
+If any signal indicates degradation, your confidence rating cannot be HIGH.
+
+- Run aborted: ${abortedLine}
+- All agents spoke: ${signals.allAgentsSpoke ? 'yes' : 'NO'}
+- Turn balance acceptable (no agent > 40% token share): ${signals.turnBalanceOk ? 'yes' : 'NO'}
+- Round completeness: ${(signals.roundCompleteness * 100).toFixed(0)}%
+
+If aborted=YES, allAgentsSpoke=NO, or turnBalance=NO, you MUST report CONFIDENCE: LOW.
+
+`;
+}
 
 /**
  * Detects context overflow and TPM rate limit errors from any provider.
@@ -410,7 +437,7 @@ export default class JudgeEvaluator {
    * @param judge - Judge instance with provider, model, and systemPrompt
    * @returns { consensusReached: boolean, solution?: string, guidance?: string, ... }
    */
-  async judgeEvaluate(judge: any) {
+  async judgeEvaluate(judge: any, machinerySignals?: MachinerySignals) {
     try {
       // Cache formatted FULL discussion instead of rebuilding each time.
       // CRITICAL: We must pass the full history so the judge sees the complete decision journey,
@@ -507,8 +534,11 @@ export default class JudgeEvaluator {
       // prepareJudgeContext() prepends a case file header at the START (high attention zone).
       const fittedDiscussion = this.prepareJudgeContext(judge, this.cachedRecentDiscussion);
 
+      // Phase 13 — prepend machinery signals so the judge cannot produce HIGH on a degraded run.
+      const machineryBlock = buildMachinerySignalsBlock(machinerySignals);
+
       // Structure: Case file (START - high attention) -> Discussion (MIDDLE) -> Judge instruction (END - highest attention)
-      const judgePrompt = `${fittedDiscussion}
+      const judgePrompt = `${machineryBlock}${fittedDiscussion}
 ${roundContext}
 
 Given the case file and discussion above, evaluate whether the agents have reached GENUINE consensus. True consensus requires:
@@ -695,7 +725,7 @@ Your guidance should FORCE new insights, not just encourage more discussion. Alw
    * @param judge - Judge instance with provider, model, and systemPrompt
    * @returns Structured final decision with solution, keyDecisions, actionItems, dissent, confidence
    */
-  async conductFinalVote(judge: any): Promise<{
+  async conductFinalVote(judge: any, machinerySignals?: MachinerySignals): Promise<{
     solution: string;
     keyDecisions: string[];
     actionItems: string[];
@@ -710,8 +740,11 @@ Your guidance should FORCE new insights, not just encourage more discussion. Alw
       // Compress if needed for judge's context window
       const fullDiscussion = this.prepareJudgeContext(judge, rawDiscussion);
 
+      // Phase 13 — machinery signals prepended for final-vote judging too.
+      const machineryBlock = buildMachinerySignalsBlock(machinerySignals);
+
       // Structure: Case file (START - high attention) -> Discussion (MIDDLE) -> Judge instruction (END - highest attention)
-      const votePrompt = `${fullDiscussion}
+      const votePrompt = `${machineryBlock}${fullDiscussion}
 
 The agents haven't reached full consensus within the allowed rounds. Given the case file and discussion above, analyze the discussion trajectory and determine the DIRECTION the agents were heading.
 
