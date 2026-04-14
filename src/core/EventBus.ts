@@ -32,7 +32,12 @@ export type EventType =
   | 'speaker:handoff'
   // Phase 13 — Real-time turn distribution observability
   | 'turn_distribution_updated'
-  | 'fairness_alarm';
+  | 'fairness_alarm'
+  // Phase 13.1 — Run Integrity signals
+  | 'conversation:history_compressed'
+  | 'conversation:history_compression_failed'
+  | 'conversation:agent_absent'
+  | 'conversation:summarizer_fallback';
 
 export interface ConclaveEvent {
   type: EventType;
