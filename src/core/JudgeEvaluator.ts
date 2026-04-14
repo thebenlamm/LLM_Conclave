@@ -17,21 +17,57 @@ function buildMachinerySignalsBlock(signals?: MachinerySignals): string {
   const abortedLine = signals.aborted
     ? `YES (${signals.abortReason ?? 'unspecified'})`
     : 'no';
-  return `## Machinery Signals (Phase 13)
 
-The following operational facts about this discussion run are established by
-deterministic instrumentation, NOT by your judgment. You MUST NOT contradict them.
-If any signal indicates degradation, your confidence rating cannot be HIGH.
+  const lines: string[] = [];
+  lines.push('## Machinery Signals (Phase 13)');
+  lines.push('');
+  lines.push('The following operational facts about this discussion run are established by');
+  lines.push('deterministic instrumentation, NOT by your judgment. You MUST NOT contradict them.');
+  lines.push('If any signal indicates degradation, your confidence rating cannot be HIGH.');
+  lines.push('');
+  lines.push(`- Run aborted: ${abortedLine}`);
+  lines.push(`- All agents spoke: ${signals.allAgentsSpoke ? 'yes' : 'NO'}`);
+  lines.push(`- Turn balance acceptable (no agent > 40% token share): ${signals.turnBalanceOk ? 'yes' : 'NO'}`);
+  lines.push(`- Round completeness: ${(signals.roundCompleteness * 100).toFixed(0)}%`);
 
-- Run aborted: ${abortedLine}
-- All agents spoke: ${signals.allAgentsSpoke ? 'yes' : 'NO'}
-- Turn balance acceptable (no agent > 40% token share): ${signals.turnBalanceOk ? 'yes' : 'NO'}
-- Round completeness: ${(signals.roundCompleteness * 100).toFixed(0)}%
+  // Phase 13.1 — Participation line (D-09). Rendered whenever ConversationManager
+  // supplies the participation report so the judge sees the same data the
+  // ConfidenceReconciler will use to cap confidence.
+  if (signals.participation && signals.participation.length > 0) {
+    const absent = signals.participation.filter(p => p.status !== 'spoken');
+    if (absent.length === 0) {
+      lines.push('- Participation: all configured agents spoke.');
+    } else {
+      const parts = absent.map(p => {
+        if (p.status === 'absent-capped') {
+          return `${p.agent} absent (fairness cap, ratio ${p.ratioAtExclusion?.toFixed(2) ?? '?'})`;
+        }
+        if (p.status === 'absent-silent') return `${p.agent} absent (never selected)`;
+        if (p.status === 'absent-failed') return `${p.agent} absent (all turns failed)`;
+        return `${p.agent} ${p.status}`;
+      });
+      lines.push(`- Participation: ${parts.join('; ')}.`);
+    }
+  }
 
-If aborted=YES, allAgentsSpoke=NO, or turnBalance=NO, you MUST report CONFIDENCE: LOW.
+  // Phase 13.1 — History compression line. Informational only: the reconciler
+  // does not cap on compression; it's surfaced so the judge can account for
+  // summary-based context when rating confidence.
+  if (signals.compression?.active) {
+    const act = signals.compression.activatedAtRound;
+    const regs = signals.compression.summaryRegenerations;
+    lines.push(`- History compression: active from round ${act} (${regs} summary updates).`);
+  }
 
-`;
+  lines.push('');
+  lines.push('If aborted=YES, allAgentsSpoke=NO, or turnBalance=NO, you MUST report CONFIDENCE: LOW.');
+  lines.push('');
+  lines.push('');
+
+  return lines.join('\n');
 }
+
+export { buildMachinerySignalsBlock };
 
 /**
  * Detects context overflow and TPM rate limit errors from any provider.
