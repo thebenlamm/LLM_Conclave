@@ -2,7 +2,15 @@ import { encode } from 'gpt-tokenizer';
 import { ContextOptimizer } from '../utils/ContextOptimizer.js';
 import TokenCounter from '../utils/TokenCounter.js';
 import { getTpmLimit, inferProviderFromModel } from '../providers/tpmLimits.js';
-import type { DiscussionHistoryEntry, Config } from '../types/index.js';
+import type {
+  DiscussionHistoryEntry,
+  Config,
+  SummarizerFallbackInfo,
+  HistoryCompressedPayload,
+  HistoryCompressionFailedPayload,
+  SummarizerFallbackPayload,
+} from '../types/index.js';
+import { EventBus } from './EventBus.js';
 
 // Type-only import — avoid hard runtime dependency so tests can inject mocks.
 import type { TaskRouter } from './TaskRouter.js';
@@ -13,6 +21,13 @@ import type { TaskRouter } from './TaskRouter.js';
 export interface CompressionConfig {
   /** Number of most-recent messages to keep verbatim. Default 6. */
   recentWindowSize?: number;
+  /**
+   * Phase 13.1 D-11: authoritative "tail size" emitted in the
+   * history_compressed payload and consumed by runIntegrity.compression
+   * (plan 13.1-05). When omitted, falls back to recentWindowSize so the
+   * two knobs never disagree.
+   */
+  verbatimTailSize?: number;
   /** Regenerate the running summary only every K new turns. Default 4. */
   summaryRefreshEveryNTurns?: number;
   /** Fraction of the minimum active-provider TPM ceiling that triggers compression. Default 0.5. */
@@ -21,6 +36,7 @@ export interface CompressionConfig {
 
 const DEFAULT_COMPRESSION_CONFIG: Required<CompressionConfig> = {
   recentWindowSize: 6,
+  verbatimTailSize: 6,
   summaryRefreshEveryNTurns: 4,
   thresholdRatio: 0.5,
 };
@@ -46,6 +62,19 @@ export default class ConversationHistory {
   private _turnsSinceLastSummaryRefresh: number = 0;
   private _lastSeenEntriesLength: number = 0;
 
+  // Phase 13.1 — compression transparency state (D-11, D-12, D-14)
+  private _compressionActivatedAtRound: number | null = null;
+  private _summaryRegenerationCount: number = 0;
+  private _lastSummarizerModel: string | null = null;
+  private _lastSummarizerFallback: SummarizerFallbackInfo | null = null;
+  private eventBus?: EventBus;
+  /**
+   * Last resolved compression config — persisted so plan 13.1-05's
+   * runIntegrity.compression.tailSize can read the same authoritative
+   * source that the history_compressed payload emits.
+   */
+  private _lastResolvedCompressionConfig: Required<CompressionConfig> | null = null;
+
   /**
    * @param entries - Shared reference to ConversationManager.conversationHistory.
    *   ConversationHistory mutates this array in-place so both sides always see the same data.
@@ -64,8 +93,37 @@ export default class ConversationHistory {
     private getAgentSubstitutions: () => Record<string, { original: string; fallback: string; reason: string }>,
     private getAgents: () => Record<string, any>,
     private getTaskRouter: () => any,
-    private onCacheInvalidated: () => void
-  ) {}
+    private onCacheInvalidated: () => void,
+    eventBus?: EventBus
+  ) {
+    this.eventBus = eventBus;
+  }
+
+  // Phase 13.1 — public compression-state getters (D-11, D-12, D-14)
+  public get compressionActivatedAtRound(): number | null {
+    return this._compressionActivatedAtRound;
+  }
+  public get summaryRegenerationCount(): number {
+    return this._summaryRegenerationCount;
+  }
+  public get lastSummarizerModel(): string | null {
+    return this._lastSummarizerModel;
+  }
+  public get lastSummarizerFallback(): SummarizerFallbackInfo | null {
+    return this._lastSummarizerFallback;
+  }
+  /**
+   * The authoritative "tail size" from the last resolved compression config.
+   * Plan 13.1-05 reads this for runIntegrity.compression.tailSize so the
+   * history_compressed payload and runIntegrity never disagree.
+   */
+  public get verbatimTailSize(): number {
+    return (
+      this._lastResolvedCompressionConfig?.verbatimTailSize
+      ?? this._lastResolvedCompressionConfig?.recentWindowSize
+      ?? DEFAULT_COMPRESSION_CONFIG.verbatimTailSize
+    );
+  }
 
   /**
    * Model-aware token threshold for triggering history compression.
@@ -371,12 +429,20 @@ export default class ConversationHistory {
       tpmOverrides?: Record<string, number>;
     } = {}
   ): Promise<DiscussionHistoryEntry[]> {
+    const resolvedRecentWindowSize =
+      options.config?.recentWindowSize ?? DEFAULT_COMPRESSION_CONFIG.recentWindowSize;
     const cfg: Required<CompressionConfig> = {
-      recentWindowSize: options.config?.recentWindowSize ?? DEFAULT_COMPRESSION_CONFIG.recentWindowSize,
+      recentWindowSize: resolvedRecentWindowSize,
+      // Phase 13.1 D-11: verbatimTailSize is the authoritative tail-size
+      // field; when not explicitly supplied, mirror recentWindowSize so the
+      // two knobs never disagree.
+      verbatimTailSize:
+        options.config?.verbatimTailSize ?? resolvedRecentWindowSize,
       summaryRefreshEveryNTurns:
         options.config?.summaryRefreshEveryNTurns ?? DEFAULT_COMPRESSION_CONFIG.summaryRefreshEveryNTurns,
       thresholdRatio: options.config?.thresholdRatio ?? DEFAULT_COMPRESSION_CONFIG.thresholdRatio,
     };
+    this._lastResolvedCompressionConfig = cfg;
 
     // Track how many new entries have appeared since the last call so we can
     // increment the refresh counter without coupling to ConversationManager's
@@ -417,7 +483,14 @@ export default class ConversationHistory {
 
     // Above threshold: ensure the running summary is fresh, then assemble.
     const olderEnd = Math.max(0, this.entries.length - cfg.recentWindowSize);
-    await this._refreshSummaryIfDue(olderEnd, cfg, options.taskRouter);
+
+    // Phase 13.1 D-11: record the first round at which compression activated.
+    const currentRound = this.getCurrentRound();
+    if (this._compressionActivatedAtRound === null) {
+      this._compressionActivatedAtRound = currentRound;
+    }
+
+    await this._refreshSummaryIfDue(olderEnd, cfg, options.taskRouter, currentRound);
 
     const summaryEntry: DiscussionHistoryEntry = {
       role: 'user',
@@ -439,7 +512,8 @@ export default class ConversationHistory {
   private async _refreshSummaryIfDue(
     olderEnd: number,
     cfg: Required<CompressionConfig>,
-    taskRouter?: TaskRouter
+    taskRouter?: TaskRouter,
+    currentRound: number = this.getCurrentRound()
   ): Promise<void> {
     const needsInitial = this._runningSummary === null;
     const dueByCounter = this._turnsSinceLastSummaryRefresh >= cfg.summaryRefreshEveryNTurns;
@@ -467,17 +541,56 @@ export default class ConversationHistory {
       oldMessagesAsText +
       '\n</turns>';
 
+    // Phase 13.1 D-12: no more silent try/catch. If TaskRouter throws on a
+    // hard failure (both primary and secondary exhausted), emit a
+    // history_compression_failed event with fallbackAction='serve-uncompressed'
+    // and fall through to the deterministic non-LLM rollup. This fixes the
+    // Phase 13 Truth #1 PARTIAL silent-swallow bug.
     let summary: string | null = null;
+    let summarizerThrew = false;
     if (taskRouter && typeof (taskRouter as any).route === 'function') {
       try {
         summary = await (taskRouter as any).route('summarize', prompt);
-      } catch {
+      } catch (err: any) {
+        summarizerThrew = true;
+        const errorMessage = err?.message ?? String(err);
+        const failedPayload: HistoryCompressionFailedPayload = {
+          round: currentRound,
+          error: errorMessage,
+          fallbackAction: 'serve-uncompressed',
+        };
+        this.eventBus?.emitEvent('conversation:history_compression_failed', failedPayload);
+        console.error(
+          `[ConversationHistory] summarizer failed round ${currentRound}: ${errorMessage} — falling back to deterministic rollup`
+        );
         summary = null;
       }
     }
 
+    // Phase 13.1 D-14: whenever route() succeeded, read getLastSubstitution()
+    // and surface any substitution via conversation:summarizer_fallback.
+    if (!summarizerThrew && summary && taskRouter) {
+      const fallbackInfo: SummarizerFallbackInfo | null =
+        typeof (taskRouter as any).getLastSubstitution === 'function'
+          ? ((taskRouter as any).getLastSubstitution() ?? null)
+          : null;
+      if (fallbackInfo) {
+        this._lastSummarizerModel = fallbackInfo.substitute;
+        this._lastSummarizerFallback = fallbackInfo;
+        const fallbackPayload: SummarizerFallbackPayload = {
+          round: currentRound,
+          originalModel: fallbackInfo.original,
+          substituteModel: fallbackInfo.substitute,
+          reason: fallbackInfo.reason,
+        };
+        this.eventBus?.emitEvent('conversation:summarizer_fallback', fallbackPayload);
+      } else if (this._lastSummarizerModel === null && (taskRouter as any).cheapModel) {
+        this._lastSummarizerModel = (taskRouter as any).cheapModel;
+      }
+    }
+
     if (!summary || summary.trim().length === 0) {
-      // Deterministic non-LLM fallback rollup.
+      // Deterministic non-LLM fallback rollup (also used when router threw).
       const parts = olderMessages.map(e => {
         const text = `${e.speaker}: ${e.content}`;
         return text.length > 200 ? text.slice(0, 200) : text;
@@ -485,8 +598,28 @@ export default class ConversationHistory {
       summary = `Earlier turns (${olderMessages.length} messages): ` + parts.join(' | ');
     }
 
+    const isRegeneratedBySummarizer = !summarizerThrew;
+
     this._runningSummary = summary;
     this._summaryCoversUpToIndex = olderEnd;
     this._turnsSinceLastSummaryRefresh = 0;
+
+    // Phase 13.1 D-11: emit history_compressed only for successful summarizer
+    // regenerations (not the degraded fallback path, which already emitted
+    // history_compression_failed above).
+    if (isRegeneratedBySummarizer) {
+      this._summaryRegenerationCount += 1;
+      const compressedPayload: HistoryCompressedPayload = {
+        round: currentRound,
+        messagesCompressed: olderMessages.length,
+        // D-11: tailSize comes from the configured verbatimTailSize (the
+        // authoritative single source of truth). Plan 13.1-05 reads the same
+        // value when populating runIntegrity.compression.tailSize.
+        tailSize: cfg.verbatimTailSize,
+        summaryLengthTokens: Math.ceil((summary?.length ?? 0) / 4),
+        cumulativeRegenerations: this._summaryRegenerationCount,
+      };
+      this.eventBus?.emitEvent('conversation:history_compressed', compressedPayload);
+    }
   }
 }
