@@ -101,6 +101,94 @@ describe('Formatters', () => {
       expect(output).not.toContain('Degraded Results');
     });
 
+    describe('Phase 13.1-06 Run Integrity', () => {
+      it('renders "not triggered" when result has no runIntegrity (nominal)', () => {
+        const formatter = new MarkdownFormatter();
+        const output = formatter.format(mockResult);
+
+        expect(output).toContain('## Run Integrity');
+        expect(output).toContain('- History compression: not triggered');
+        // D-18 order: Run Integrity comes after Realized Panel, before Consensus
+        expect(output.indexOf('## Realized Panel')).toBeLessThan(output.indexOf('## Run Integrity'));
+        expect(output.indexOf('## Run Integrity')).toBeLessThan(output.indexOf('## Consensus'));
+      });
+
+      it('renders single-line compression-active format (no fallback)', () => {
+        const resultWithCompression = {
+          ...mockResult,
+          runIntegrity: {
+            compression: {
+              active: true,
+              activatedAtRound: 3,
+              tailSize: 6,
+              summaryRegenerations: 2,
+              summarizerFallback: null,
+            },
+            participation: [],
+          },
+        } as any;
+        const formatter = new MarkdownFormatter();
+        const output = formatter.format(resultWithCompression);
+
+        expect(output).toContain('## Run Integrity');
+        expect(output).toContain('active from round 3');
+        expect(output).toContain('tail=6');
+        expect(output).toContain('2 summary updates');
+        expect(output).not.toContain('not triggered');
+      });
+
+      it('renders summarizer substitution inline on the same History compression line (single-line D-03)', () => {
+        const resultWithFallback = {
+          ...mockResult,
+          runIntegrity: {
+            compression: {
+              active: true,
+              activatedAtRound: 4,
+              tailSize: 8,
+              summaryRegenerations: 1,
+              summarizerFallback: {
+                original: 'gpt-4o',
+                substitute: 'claude-sonnet-4-5',
+                reason: 'rate limited',
+              },
+            },
+            participation: [],
+          },
+        } as any;
+        const formatter = new MarkdownFormatter();
+        const output = formatter.format(resultWithFallback);
+
+        // Find the History compression line and assert substitution lives inline on it
+        const compressionLine = output
+          .split('\n')
+          .find(l => l.includes('History compression:'));
+        expect(compressionLine).toBeDefined();
+        expect(compressionLine!).toContain('substituted from gpt-4o');
+        expect(compressionLine!).toContain('claude-sonnet-4-5');
+        // No standalone second line
+        expect(output).not.toContain('Summarizer fallback:');
+      });
+
+      it('does NOT render ### Participation in consult mode (D-17)', () => {
+        const resultWithParticipation = {
+          ...mockResult,
+          runIntegrity: {
+            compression: { active: false, activatedAtRound: null, tailSize: 0, summaryRegenerations: 0, summarizerFallback: null },
+            participation: [
+              { agent: 'Agent 1', turns: 3, status: 'spoken' },
+              { agent: 'Agent 2', turns: 0, status: 'absent-silent' },
+            ],
+          },
+        } as any;
+        const formatter = new MarkdownFormatter();
+        const output = formatter.format(resultWithParticipation);
+
+        expect(output).toContain('## Run Integrity');
+        expect(output).not.toContain('### Participation');
+        expect(output).not.toContain('absent-silent');
+      });
+    });
+
     it('should display full agent reasoning when available', () => {
       const resultWithFullReasoning = {
         ...mockResult,
