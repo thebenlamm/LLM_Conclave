@@ -21,6 +21,8 @@
  * testable.
  */
 
+import type { ParticipationEntry } from '../types/index.js';
+
 export type Confidence = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export interface MachinerySignals {
@@ -34,6 +36,23 @@ export interface MachinerySignals {
   turnBalanceOk: boolean;
   /** Fraction of planned rounds actually completed, in [0, 1]. */
   roundCompleteness: number;
+  /**
+   * Phase 13.1 — per-agent participation report. When supplied, the reconciler
+   * applies participation-aware caps (Rules 3.5a/3.5b). When undefined or
+   * empty, the reconciler behaves exactly as in Phase 13 (backward compat).
+   */
+  participation?: ParticipationEntry[];
+  /**
+   * Phase 13.1 — history-compression state for the run. Informational only:
+   * NO reconciler rule reads this field. It exists so the judge prompt's
+   * machinery-signals block (JudgeEvaluator.buildMachinerySignalsBlock) can
+   * render a History compression line without a separate type.
+   */
+  compression?: {
+    active: boolean;
+    activatedAtRound: number | null;
+    summaryRegenerations: number;
+  };
 }
 
 export interface ReconciledConfidence {
@@ -92,6 +111,41 @@ export function reconcileConfidence(
       machinerySignals: machinery,
       judgeConfidence,
     };
+  }
+
+  // Rule 3.5a — Phase 13.1 — all-but-one configured agents absent → cap LOW.
+  // Gate on participation presence for backward compat with callers that
+  // haven't been updated yet.
+  if (machinery.participation && machinery.participation.length >= 2) {
+    const nonSpoken = machinery.participation.filter(p => p.status !== 'spoken');
+    if (nonSpoken.length >= machinery.participation.length - 1) {
+      const names = nonSpoken.map(p => p.agent).join(', ');
+      return {
+        finalConfidence: 'LOW',
+        confidenceReasoning: `All-but-one configured agent absent (${names}) — confidence capped at LOW.`,
+        machinerySignals: machinery,
+        judgeConfidence,
+      };
+    }
+  }
+
+  // Rule 3.5b — Phase 13.1 — any silent/capped absence → cap MEDIUM.
+  // absent-failed alone is intentionally not handled here: Phase 13 Rule 3
+  // (allAgentsSpoke=false) already covers it.
+  if (machinery.participation && machinery.participation.length > 0) {
+    const silentOrCapped = machinery.participation.filter(
+      p => p.status === 'absent-silent' || p.status === 'absent-capped'
+    );
+    if (silentOrCapped.length > 0) {
+      const capped = minConfidence(judgeConfidence ?? 'MEDIUM', 'MEDIUM');
+      const names = silentOrCapped.map(p => `${p.agent} (${p.status})`).join(', ');
+      return {
+        finalConfidence: capped,
+        confidenceReasoning: `Participation incomplete: ${names} — capping judge confidence (${judgeConfidence ?? 'MEDIUM'}) at MEDIUM.`,
+        machinerySignals: machinery,
+        judgeConfidence,
+      };
+    }
   }
 
   // Rule 4 — partial round completeness caps at MEDIUM.
