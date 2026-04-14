@@ -269,8 +269,16 @@ export default class TokenCounter {
 
     const prompt = `Summarize this discussion round into 2-4 bullet points. Capture key positions, disagreements, and conclusions. Be concise.\n\nRound ${round}:\n${conversation}`;
 
-    const result = await router.route('summarize', prompt);
-    return result || this.summarizeRoundEntries(entries);
+    // Phase 13.1: TaskRouter.route() now throws on hard provider failure
+    // (both primary and secondary exhausted). Guard here so the legacy
+    // compressHistory() path gracefully degrades to the heuristic rollup.
+    try {
+      const result = await router.route('summarize', prompt);
+      return result || this.summarizeRoundEntries(entries);
+    } catch (err: any) {
+      console.warn(`[TokenCounter] summarizeWithLLM router failed: ${err?.message ?? err} — using heuristic rollup`);
+      return this.summarizeRoundEntries(entries);
+    }
   }
 
   /**
