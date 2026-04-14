@@ -211,6 +211,13 @@ export default class ConsultOrchestrator {
    */
   private initializeCoreComponents(): void {
     this.eventBus = EventBus.getInstance();
+    // Phase 13.1 Plan 05 — no-op listeners for new conversation:* events so
+    // strict union checks don't warn about unhandled events. Real consumers
+    // land in plan 13.1-06 (renderers) and Phase 15 (replay/telemetry).
+    this.eventBus.on('conversation:history_compressed', () => {});
+    this.eventBus.on('conversation:history_compression_failed', () => {});
+    this.eventBus.on('conversation:agent_absent', () => {});
+    this.eventBus.on('conversation:summarizer_fallback', () => {});
     this.fileLogger = new ConsultationFileLogger();
     this.hedgedRequestManager = new HedgedRequestManager(this.eventBus);
     this.interactivePulse = new InteractivePulse();

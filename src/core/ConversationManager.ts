@@ -10,6 +10,7 @@ import { reconcileConfidence, MachinerySignals, Confidence } from './ConfidenceR
 import { TaskRouter } from './TaskRouter';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
 import { DiscussionHistoryEntry, Config } from '../types/index.js';
+import type { RunIntegrity, RunIntegrityCompression } from '../types/index.js';
 import { CostTracker } from './CostTracker';
 
 /**
@@ -145,7 +146,17 @@ export default class ConversationManager {
     (this.agentExecutor as any).deps.history = this.history;
 
     // Phase 13 — turn distribution reporter + console listener (non-MCP only).
-    this.turnDistributionReporter = new TurnDistributionReporter();
+    this.turnDistributionReporter = new TurnDistributionReporter(this.eventBus);
+
+    // Phase 13.1 — no-op listeners for new conversation:* events so strict
+    // union checks don't warn about unhandled events. Real consumers land in
+    // plan 13.1-06 (renderers) and Phase 15 (replay/telemetry).
+    if (this.eventBus) {
+      this.eventBus.on('conversation:history_compressed', () => {});
+      this.eventBus.on('conversation:history_compression_failed', () => {});
+      this.eventBus.on('conversation:agent_absent', () => {});
+      this.eventBus.on('conversation:summarizer_fallback', () => {});
+    }
     if (this.streamOutput && this.eventBus) {
       // streamOutput=true is the existing CLI/non-MCP signal (MCP discuss
       // handler constructs CM with streamOutput=false to avoid stdout pollution
@@ -457,8 +468,28 @@ export default class ConversationManager {
           this.conversationHistory.filter((msg: any) => msg.error === true).map((msg: any) => msg.speaker)
         )];
 
+        // Phase 13.1 Plan 05 — assemble runIntegrity BEFORE machinery signals
+        // so participation + compression can be threaded into the judge prompt.
+        const degradedFailedAgentsSet = new Set<string>(degradedFailedAgents);
+        const degradedRunIntegrity = this.buildRunIntegrity(
+          this.agentOrder,
+          degradedFailedAgentsSet
+        );
+        this.turnDistributionReporter.finalizeAbsenceEvents(
+          degradedRunIntegrity.participation
+        );
+
         // Phase 13 Plan 04 — build machinery signals for the degraded judge call.
         const degradedMachinery = this.buildMachinerySignals(true, degradedReason);
+        // Phase 13.1 Plan 05 — thread participation + compression into the
+        // machinery-signals block so the judge sees the same data the
+        // reconciler will use.
+        degradedMachinery.participation = degradedRunIntegrity.participation;
+        degradedMachinery.compression = {
+          active: degradedRunIntegrity.compression.active,
+          activatedAtRound: degradedRunIntegrity.compression.activatedAtRound,
+          summaryRegenerations: degradedRunIntegrity.compression.summaryRegenerations,
+        };
 
         // Attempt judge summary of whatever exists
         let degradedSolution: string;
@@ -516,6 +547,7 @@ export default class ConversationManager {
           ),
           degraded: true,
           degradedReason,
+          runIntegrity: degradedRunIntegrity,
           turn_analytics: {
             per_agent: degradedSortedAgents.map(([name, turns]) => ({
               name,
@@ -680,9 +712,28 @@ export default class ConversationManager {
       let dissent: string[] = [`Discussion was interrupted (${abortReason})`];
       let confidence: string = 'LOW';
 
+      // Phase 13.1 Plan 05 — runIntegrity for aborted path. Use the
+      // already-deduped failed-agent list built above from the same
+      // msg.error === true predicate.
+      const abortedUniqueFailed = [...new Set(failedAgentsList)];
+      const abortedRunIntegrity = this.buildRunIntegrity(
+        this.agentOrder,
+        new Set<string>(abortedUniqueFailed)
+      );
+      this.turnDistributionReporter.finalizeAbsenceEvents(
+        abortedRunIntegrity.participation
+      );
+
       // Phase 13 Plan 04 — mark the run as aborted so the reconciler caps at LOW
       // and the judge sees degraded signals in its prompt.
       const abortedMachinery = this.buildMachinerySignals(true, String(abortReason));
+      // Phase 13.1 Plan 05 — thread participation + compression into machinery.
+      abortedMachinery.participation = abortedRunIntegrity.participation;
+      abortedMachinery.compression = {
+        active: abortedRunIntegrity.compression.active,
+        activatedAtRound: abortedRunIntegrity.compression.activatedAtRound,
+        summaryRegenerations: abortedRunIntegrity.compression.summaryRegenerations,
+      };
       let abortedJudgeConfidence: Confidence | undefined;
 
       try {
@@ -746,6 +797,7 @@ export default class ConversationManager {
           Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
         ),
         timedOut: true,
+        runIntegrity: abortedRunIntegrity,
         turn_analytics: {
           per_agent: abortSortedAgents.map(([name, turns]) => ({
             name,
@@ -776,7 +828,25 @@ export default class ConversationManager {
         this.eventBus.emitEvent('status', { message: 'Max rounds reached. Conducting final vote.' });
       }
 
+      // Phase 13.1 Plan 05 — runIntegrity for the max-rounds final-vote path.
+      // Mirrors the happy-path failed-agents derivation below so the judge
+      // sees participation + compression signals before producing confidence.
+      const finalVoteFailed = [...new Set(
+        this.conversationHistory
+          .filter((msg: any) => msg.error === true)
+          .map((msg: any) => msg.speaker)
+      )];
+      const finalVoteRunIntegrity = this.buildRunIntegrity(
+        this.agentOrder,
+        new Set<string>(finalVoteFailed)
+      );
       const finalVoteMachinery = this.buildMachinerySignals(false);
+      finalVoteMachinery.participation = finalVoteRunIntegrity.participation;
+      finalVoteMachinery.compression = {
+        active: finalVoteRunIntegrity.compression.active,
+        activatedAtRound: finalVoteRunIntegrity.compression.activatedAtRound,
+        summaryRegenerations: finalVoteRunIntegrity.compression.summaryRegenerations,
+      };
       const voteResult = await this.judgeEvaluator.conductFinalVote(judge, finalVoteMachinery);
       finalSolution = voteResult.solution;
       keyDecisions = voteResult.keyDecisions;
@@ -853,10 +923,26 @@ export default class ConversationManager {
       dissent_quality = substantiveDissent.length > 0 ? 'captured' : 'missing';
     }
 
+    // Phase 13.1 Plan 05 — runIntegrity for the happy path.
+    const happyRunIntegrity = this.buildRunIntegrity(
+      this.agentOrder,
+      new Set<string>(uniqueFailedAgents)
+    );
+    this.turnDistributionReporter.finalizeAbsenceEvents(
+      happyRunIntegrity.participation
+    );
+
     // Phase 13 Plan 04 — reconcile machinery signals with the judge's confidence
     // for the happy-path return. Machinery flags are computed against the actual
     // run state (fairness alarms, per-agent coverage, completed rounds).
     const happyPathMachinery = this.buildMachinerySignals(false);
+    // Phase 13.1 Plan 05 — thread participation + compression into machinery.
+    happyPathMachinery.participation = happyRunIntegrity.participation;
+    happyPathMachinery.compression = {
+      active: happyRunIntegrity.compression.active,
+      activatedAtRound: happyRunIntegrity.compression.activatedAtRound,
+      summaryRegenerations: happyRunIntegrity.compression.summaryRegenerations,
+    };
     const happyReconciled = reconcileConfidence(
       happyPathMachinery,
       this.normalizeConfidence(confidence)
@@ -882,6 +968,7 @@ export default class ConversationManager {
       agents_config: Object.fromEntries(
         Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
       ),
+      runIntegrity: happyRunIntegrity,
       turn_analytics,
       dissent_quality,
       cost: {
@@ -1202,6 +1289,43 @@ export default class ConversationManager {
       console.warn('[ConversationManager] dissent scorer failed in degraded path:', err);
       return 'insufficient_data';
     }
+  }
+
+  /**
+   * Phase 13.1 Plan 05 — assemble the RunIntegrity object consumed by all
+   * three exit paths of startConversation (degraded, aborted, happy).
+   *
+   * Compression state is read directly off ConversationHistory's getters so
+   * the markdown renderer and reconciler see the same authoritative values
+   * emitted in the history_compressed event payload. Participation is built
+   * via TurnDistributionReporter.buildParticipationReport using the deduped
+   * failed-agent Set derived from the Phase 15.2 msg.error === true marker.
+   *
+   * Callers then write runIntegrity.participation into the machinery-signals
+   * object passed to the judge (machinerySignals.participation) so the judge
+   * prompt and ConfidenceReconciler see the same per-agent data.
+   */
+  private buildRunIntegrity(
+    configuredAgents: string[],
+    failedAgents: Set<string>
+  ): RunIntegrity {
+    const ch = this.history;
+    const activatedAt = ch.compressionActivatedAtRound;
+    const compression: RunIntegrityCompression = {
+      active: activatedAt !== null,
+      activatedAtRound: activatedAt,
+      // D-05: tailSize sourced from the same verbatimTailSize the
+      // history_compressed payload emits, so runIntegrity and the event
+      // never disagree.
+      tailSize: ch.verbatimTailSize,
+      summaryRegenerations: ch.summaryRegenerationCount,
+      summarizerFallback: ch.lastSummarizerFallback,
+    };
+    const participation = this.turnDistributionReporter.buildParticipationReport(
+      configuredAgents,
+      failedAgents
+    );
+    return { compression, participation };
   }
 
   /**
