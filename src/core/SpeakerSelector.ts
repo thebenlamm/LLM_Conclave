@@ -2,6 +2,7 @@ import ProviderFactory from '../providers/ProviderFactory';
 import LLMProvider from '../providers/LLMProvider';
 import { EventBus } from './EventBus';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
+import type TurnDistributionReporter from './TurnDistributionReporter';
 
 /**
  * Selection result from the speaker selector
@@ -297,7 +298,8 @@ export class SpeakerSelector {
     currentRound: number,
     task: string,
     excludeAgents: Set<string> = new Set(),
-    fairnessContext?: FairnessContext
+    fairnessContext?: FairnessContext,
+    turnDistributionReporter?: TurnDistributionReporter
   ): Promise<SpeakerSelectionResult> {
     const allAgents = this.agentInfos
       .map(a => a.name)
@@ -472,6 +474,20 @@ export class SpeakerSelector {
           console.warn(
             `[SpeakerSelector] ⚠️ max_turn_ratio cap excluded: ${dropped.join(', ')} (cap=${cap.toFixed(2)}, mean=${mean.toFixed(2)})`
           );
+          // Phase 13.1 — report cap exclusions to TurnDistributionReporter
+          // with the observed ratio (turnsThisRound / mean) at exclusion time.
+          if (turnDistributionReporter) {
+            for (const droppedAgent of dropped) {
+              const droppedTurns =
+                fairnessContext.stats[droppedAgent]?.turnsThisRound ?? 0;
+              const observedRatio = mean > 0 ? droppedTurns / mean : 0;
+              turnDistributionReporter.recordCapExclusion(
+                droppedAgent,
+                currentRound,
+                observedRatio
+              );
+            }
+          }
           candidates = filtered;
         } else if (filtered.length === 0) {
           console.warn(
