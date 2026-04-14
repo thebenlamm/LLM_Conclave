@@ -34,6 +34,33 @@ export class MarkdownFormatter implements IOutputFormatter {
     return out;
   }
 
+  /**
+   * Render the Run Integrity block — compression transparency (Phase 13.1-06).
+   * Consult mode NEVER emits a Participation subsection (D-17).
+   * Compression-active format is locked to a single D-03 line.
+   */
+  private renderRunIntegrity(result: ConsultationResult): string[] {
+    const out: string[] = ['## Run Integrity', ''];
+    const comp = (result as any).runIntegrity?.compression;
+    if (!comp || comp.active !== true) {
+      out.push('- History compression: not triggered');
+    } else {
+      const parts = [
+        `active from round ${comp.activatedAtRound}`,
+        `tail=${comp.tailSize}`,
+        `${comp.summaryRegenerations} summary updates`,
+      ];
+      if (comp.summarizerFallback) {
+        parts.push(
+          `summarizer=${comp.summarizerFallback.substitute} [substituted from ${comp.summarizerFallback.original} — ${comp.summarizerFallback.reason}]`
+        );
+      }
+      out.push(`- History compression: ${parts.join(', ')}`);
+    }
+    out.push('');
+    return out;
+  }
+
   public format(result: ConsultationResult): string {
     const lines: string[] = [];
 
@@ -42,6 +69,9 @@ export class MarkdownFormatter implements IOutputFormatter {
 
     // Realized Panel — surfaces actual models per agent (Phase 12-03)
     lines.push(...this.renderRealizedPanel(result));
+
+    // Run Integrity — compression transparency (Phase 13.1-06, D-17: no Participation in consult)
+    lines.push(...this.renderRunIntegrity(result));
 
     // Degraded results banner (judge fallback occurred)
     if (result.status === 'completed_degraded') {

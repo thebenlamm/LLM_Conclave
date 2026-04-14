@@ -421,7 +421,9 @@ export class ArtifactTransformer {
           }
         : undefined,
       output_format: result.outputFormat,
-      abort_reason: result.abortReason
+      abort_reason: result.abortReason,
+      // Phase 13.1-06 — passthrough Run Integrity (compression + participation) into structured JSON
+      runIntegrity: (result as any).runIntegrity
     };
   }
 
