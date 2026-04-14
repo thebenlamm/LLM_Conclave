@@ -908,6 +908,54 @@ function renderRealizedPanel(
 }
 
 /**
+ * Render the Run Integrity block — compression + participation transparency (Phase 13.1-06).
+ * Always rendered for transparency by default. In discuss mode, also renders a
+ * `### Participation` subsection. Consult mode suppresses Participation per D-17.
+ * Compression-active format is locked to a single D-03 line with summarizer substitution inline.
+ */
+function renderRunIntegrity(
+  runIntegrity: any | undefined,
+  opts: { includeParticipation: boolean }
+): string {
+  const lines: string[] = ['## Run Integrity', ''];
+  const comp = runIntegrity?.compression;
+  if (!comp || comp.active !== true) {
+    lines.push('- History compression: not triggered');
+  } else {
+    const parts = [
+      `active from round ${comp.activatedAtRound}`,
+      `tail=${comp.tailSize}`,
+      `${comp.summaryRegenerations} summary updates`,
+    ];
+    if (comp.summarizerFallback) {
+      parts.push(
+        `summarizer=${comp.summarizerFallback.substitute} [substituted from ${comp.summarizerFallback.original} — ${comp.summarizerFallback.reason}]`
+      );
+    }
+    lines.push(`- History compression: ${parts.join(', ')}`);
+  }
+  lines.push('');
+  if (opts.includeParticipation && Array.isArray(runIntegrity?.participation)) {
+    lines.push('### Participation', '');
+    for (const p of runIntegrity.participation) {
+      if (p.status === 'spoken') {
+        lines.push(`- ${p.agent}: spoken (${p.turns} turns)`);
+      } else if (p.status === 'absent-capped') {
+        const r = p.rounds?.[0] ?? '?';
+        const ratio = typeof p.ratioAtExclusion === 'number' ? p.ratioAtExclusion.toFixed(2) : '?';
+        lines.push(`- ${p.agent}: absent-capped (round ${r}, ratio ${ratio} > cap)`);
+      } else if (p.status === 'absent-silent') {
+        lines.push(`- ${p.agent}: absent-silent (never selected)`);
+      } else if (p.status === 'absent-failed') {
+        lines.push(`- ${p.agent}: absent-failed (all turns failed)`);
+      }
+    }
+    lines.push('');
+  }
+  return lines.join('\n') + '\n';
+}
+
+/**
  * Format a brief summary for MCP response (keeps context small)
  */
 function formatDiscussionResult(result: any, logFilePath: string, sessionId?: string, options?: { includeTranscript?: boolean }): string {
@@ -932,9 +980,22 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   const finalConfidence: string = result.finalConfidence || result.confidence || 'MEDIUM';
   const confidenceReasoning: string | undefined = result.confidenceReasoning;
 
+  // D-19 header reason tag — appended to the Confidence field below only when
+  // Run Integrity drove a confidence downgrade.
+  const reasoningLower: string = (confidenceReasoning ?? '').toLowerCase();
+  let integrityTag = '';
+  if (reasoningLower.includes('participation')) {
+    const absent = (result.runIntegrity?.participation ?? []).filter((p: any) => p.status !== 'spoken');
+    integrityTag = ` (participation: ${absent.length} agent${absent.length === 1 ? '' : 's'} absent)`;
+  } else if (reasoningLower.includes('compression')) {
+    integrityTag = ` (compression active)`;
+  }
+
   let output = `# Discussion Summary\n\n`;
   // Realized Panel — surfaces actual models per agent, marking any substitutions (Phase 12-03)
   output += renderRealizedPanel(result.agents_config, agentSubstitutions);
+  // Run Integrity — compression + participation transparency (Phase 13.1-06, D-18 order)
+  output += renderRunIntegrity(result.runIntegrity, { includeParticipation: true });
   output += `**Task:** ${task}\n\n`;
 
   // Report degradation with per-agent error details (not just names)
@@ -966,7 +1027,7 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   const roundsDisplay = consensusReached
     ? `${rounds}/${maxRounds || rounds} (consensus reached early)`
     : `${rounds}/${maxRounds || rounds}`;
-  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'} | **Confidence:** ${finalConfidence}\n\n`;
+  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'} | **Confidence:** ${finalConfidence}${integrityTag}\n\n`;
   if (confidenceReasoning) {
     output += `_Confidence reasoning: ${confidenceReasoning}_\n\n`;
   }
@@ -1179,6 +1240,7 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
       total: (costData.totalTokens?.input || 0) + (costData.totalTokens?.output || 0),
     } : null,
     cost_usd: costData ? parseFloat(costData.totalCost.toFixed(4)) : null,
+    runIntegrity: result.runIntegrity,
     turn_analytics: result.turn_analytics || null,
     dissent_quality: result.dissent_quality || null,
     session_id: sessionId || undefined,
@@ -1409,3 +1471,6 @@ main().catch((error) => {
   console.error('Fatal error in MCP server:', error);
   process.exit(1);
 });
+
+// Test seam — exported so Plan 13.1-07 integration test can import and exercise renderRunIntegrity directly.
+export { renderRunIntegrity };
