@@ -984,11 +984,9 @@ function formatDiscussionResult(result: any, logFilePath: string, sessionId?: st
   // Run Integrity drove a confidence downgrade.
   const reasoningLower: string = (confidenceReasoning ?? '').toLowerCase();
   let integrityTag = '';
-  if (reasoningLower.includes('participation')) {
+  if (/participation|absent/.test(reasoningLower)) {
     const absent = (result.runIntegrity?.participation ?? []).filter((p: any) => p.status !== 'spoken');
     integrityTag = ` (participation: ${absent.length} agent${absent.length === 1 ? '' : 's'} absent)`;
-  } else if (reasoningLower.includes('compression')) {
-    integrityTag = ` (compression active)`;
   }
 
   let output = `# Discussion Summary\n\n`;
