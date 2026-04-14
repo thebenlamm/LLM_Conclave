@@ -8,7 +8,7 @@
 
 import type { ModeStrategy } from '../consult/strategies/ModeStrategy';
 import type { BrownfieldAnalysis } from '../consult/context/BrownfieldDetector';
-import type { Agent } from './index';
+import type { Agent, RunIntegrity } from './index';
 import type { CostTracker } from '../core/CostTracker';
 
 // ============================================================================
@@ -350,6 +350,9 @@ export interface ConsultationResult {
   partialAgents?: AgentResponse[]; // In-progress agents
   cancellationReason?: string;
   signature?: string; // Cryptographic signature
+
+  // Phase 13.1 — Run Integrity (compression + participation transparency)
+  runIntegrity?: RunIntegrity;
 }
 
 export interface TokenEfficiencyStats {

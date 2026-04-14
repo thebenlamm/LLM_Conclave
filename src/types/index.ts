@@ -510,4 +510,71 @@ export interface SessionListFilters {
   limit?: number;
 }
 
+// ============================================================================
+// Phase 13.1 — Run Integrity
+// ============================================================================
+
+export interface SummarizerFallbackInfo {
+  original: string;
+  substitute: string;
+  reason: string;
+}
+
+export interface RunIntegrityCompression {
+  active: boolean;
+  activatedAtRound: number | null;
+  tailSize: number;
+  summaryRegenerations: number;
+  summarizerFallback: SummarizerFallbackInfo | null;
+}
+
+export type ParticipationStatus =
+  | 'spoken'
+  | 'absent-capped'
+  | 'absent-silent'
+  | 'absent-failed';
+
+export interface ParticipationEntry {
+  agent: string;
+  turns: number;
+  status: ParticipationStatus;
+  rounds?: number[];
+  ratioAtExclusion?: number;
+  reason?: string;
+}
+
+export interface RunIntegrity {
+  compression: RunIntegrityCompression;
+  participation: ParticipationEntry[];
+}
+
+// Event payloads — see .planning/phases/13.1.../13.1-CONTEXT.md D-11..D-14
+export interface HistoryCompressedPayload {
+  round: number;
+  messagesCompressed: number;
+  tailSize: number;
+  summaryLengthTokens: number;
+  cumulativeRegenerations: number;
+}
+
+export interface HistoryCompressionFailedPayload {
+  round: number;
+  error: string;
+  fallbackAction: 'serve-uncompressed' | 'truncate-hard';
+}
+
+export interface AgentAbsentPayload {
+  agentName: string;
+  status: 'capped' | 'silent' | 'failed';
+  rounds: number[];
+  reason: string;
+}
+
+export interface SummarizerFallbackPayload {
+  round: number;
+  originalModel: string;
+  substituteModel: string;
+  reason: string;
+}
+
 export * from './consult';
