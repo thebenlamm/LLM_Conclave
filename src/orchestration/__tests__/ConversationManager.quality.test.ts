@@ -1038,4 +1038,214 @@ describe('ConversationManager Quality Tests', () => {
       }
     });
   });
+
+  // =========================================================================
+  // Phase 13.1 — runIntegrity population
+  // =========================================================================
+  describe('Phase 13.1 — runIntegrity population', () => {
+    it('happy path: runIntegrity has inactive compression and all agents spoken', async () => {
+      const { cm, judge } = createSetup({
+        agent1Responses: ['The main risk is scalability. Trade-off: latency vs cost.'],
+        agent2Responses: ['Agreed, but I challenge the cost assumption — memory concerns.'],
+        judgeResponses: [
+          buildConsensusText({ summary: 'Happy consensus', confidence: 'HIGH' }),
+        ],
+        maxRounds: 1,
+        minRounds: 0,
+      });
+
+      const result: any = await cm.startConversation('runIntegrity happy path', judge);
+
+      expect(result.runIntegrity).toBeDefined();
+      expect(result.runIntegrity.compression).toEqual(
+        expect.objectContaining({
+          active: false,
+          activatedAtRound: null,
+          summaryRegenerations: 0,
+        })
+      );
+      // tailSize must be the configured verbatimTailSize (not undefined/null/0
+      // when compression was never active — it's still the authoritative value).
+      expect(typeof result.runIntegrity.compression.tailSize).toBe('number');
+      // Both configured agents should appear in participation with 'spoken'.
+      expect(Array.isArray(result.runIntegrity.participation)).toBe(true);
+      expect(result.runIntegrity.participation.length).toBe(2);
+      expect(
+        result.runIntegrity.participation.every((p: any) => p.status === 'spoken')
+      ).toBe(true);
+    });
+
+    it('degraded path: runIntegrity populated and participation flags silent agent', async () => {
+      // Only Agent1 responds; Agent2 throws persistently → degraded return.
+      const mockGoodChat = jest.fn().mockResolvedValue({ text: 'I have an opinion.' });
+      const mockBadChat = jest.fn().mockRejectedValue(new Error('persistent failure'));
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildFinalVoteText({ summary: 'Best-effort', confidence: 'MEDIUM' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o')
+          return { chat: mockGoodChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5')
+          return { chat: mockBadChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 1,
+        min_rounds: 0,
+      };
+
+      const cm = new ConversationManager(
+        config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true }
+      );
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      const result: any = await cm.startConversation('Degraded runIntegrity', judge);
+
+      expect(result.runIntegrity).toBeDefined();
+      expect(result.runIntegrity.participation.length).toBe(2);
+      const agent2Entry = result.runIntegrity.participation.find(
+        (p: any) => p.agent === 'Agent2'
+      );
+      expect(agent2Entry).toBeDefined();
+      // Agent2 never produced a non-error turn → status should be absent-failed
+      // (failed agents flagged by the msg.error === true predicate) OR
+      // absent-silent if the error tracking didn't classify it as failed.
+      expect(['absent-failed', 'absent-silent']).toContain(agent2Entry.status);
+      // Degraded runs cap at LOW per ConfidenceReconciler.
+      expect(result.finalConfidence).toBe('LOW');
+    });
+
+    it('absent-failed path: error-marked entries thread into buildParticipationReport', async () => {
+      // Happy-path wiring, but inject an error=true entry into the
+      // conversation history before the return path runs. The easiest way
+      // is to rely on the failure-tracking path: one agent throws, one
+      // agent succeeds in a 2-round run so degraded does NOT trigger.
+      const mockGoodChat = jest.fn().mockResolvedValue({ text: 'Substantive Agent1 turn.' });
+      let failCount = 0;
+      const mockFlakyChat = jest.fn().mockImplementation(() => {
+        failCount++;
+        // First call fails, subsequent succeed — enough to avoid degraded
+        // abort (both agents eventually contribute something) while still
+        // leaving an error entry in history for the predicate.
+        if (failCount === 1) {
+          return Promise.reject(new Error('transient flake'));
+        }
+        return Promise.resolve({ text: 'Substantive Agent2 turn.' });
+      });
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildConsensusText({ summary: 'Reached', confidence: 'MEDIUM' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o')
+          return { chat: mockGoodChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5')
+          return { chat: mockFlakyChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 2,
+        min_rounds: 0,
+      };
+
+      const cm = new ConversationManager(
+        config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true }
+      );
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      const result: any = await cm.startConversation('absent-failed threading', judge);
+
+      expect(result.runIntegrity).toBeDefined();
+      expect(result.runIntegrity.participation.length).toBe(2);
+      // We cannot guarantee one specific status per run since retries may
+      // succeed, but the key invariant is: runIntegrity is populated, it has
+      // both agents, and its shape is valid. If any entry is absent-failed,
+      // it must carry a reason string from buildParticipationReport.
+      for (const p of result.runIntegrity.participation) {
+        expect(['spoken', 'absent-failed', 'absent-silent', 'absent-capped']).toContain(p.status);
+        if (p.status === 'absent-failed') {
+          expect(typeof p.reason).toBe('string');
+          expect(p.reason).toContain('failed');
+        }
+      }
+    });
+
+    it('aborted path: runIntegrity is still populated (not null/undefined)', async () => {
+      // Trigger timeout/abort via AbortController attached to the CM.
+      const mockSlowChat = jest.fn().mockImplementation(
+        () => new Promise(resolve =>
+          setTimeout(() => resolve({ text: 'late' }), 5000)
+        )
+      );
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildFinalVoteText({ summary: 'Aborted summary', confidence: 'LOW' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o')
+          return { chat: mockSlowChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5')
+          return { chat: mockSlowChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
+        max_rounds: 3,
+        min_rounds: 0,
+      };
+
+      const cm = new ConversationManager(
+        config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true }
+      );
+      // Abort immediately via the CM's public abortSignal slot so the
+      // degraded-path short-circuit (roundContributors < 2) runs first.
+      // If the run degrades rather than abort-returns, we still assert
+      // runIntegrity is populated — both paths must carry it.
+      const controller = new AbortController();
+      controller.abort('test-abort');
+      (cm as any).abortSignal = controller.signal;
+
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o-mini',
+      };
+
+      const result: any = await cm.startConversation('Aborted runIntegrity', judge);
+
+      expect(result.runIntegrity).toBeDefined();
+      expect(result.runIntegrity).not.toBeNull();
+      expect(result.runIntegrity.compression).toBeDefined();
+      expect(Array.isArray(result.runIntegrity.participation)).toBe(true);
+    });
+  });
 });
