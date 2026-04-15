@@ -46,6 +46,29 @@ This repo now includes a project-local `.mcp.json` that launches `scripts/mcp-st
 
 `npm run setup` creates `.env` from `.env.example` if needed, validates that `.mcp.json` points to `scripts/mcp-stdio.js`, builds the server, smoke-tests the MCP stdio launcher with an `initialize` request, and prints the exact next steps for Claude Code.
 
+### Codex Fast Path
+
+If you want Codex sessions to have persistent access to LLM Conclave tools, register this repo as a global Codex MCP server:
+
+```bash
+cd /absolute/path/to/llm_conclave
+npm install
+npm run setup
+codex mcp add llm-conclave -- node /absolute/path/to/llm_conclave/scripts/mcp-stdio.js
+```
+
+Then confirm it is registered:
+
+```bash
+codex mcp list
+```
+
+Notes:
+
+- This uses the checked-in `scripts/mcp-stdio.js` launcher, which loads the repo's `.env` file automatically.
+- Because the server is registered globally in Codex, future Codex sessions can load `llm_conclave_*` tools without re-adding the server.
+- Start a fresh Codex session after `codex mcp add` so the MCP tool list is reloaded.
+
 ### 2. Configure Your MCP Client
 
 For Claude Code, the repo already includes a project-local `.mcp.json` at the root, so most users should not need to hand-write MCP config.
