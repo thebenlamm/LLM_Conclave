@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "description": "Multi-agent LLM collaboration MCP server",
   "scripts": {
-    "build": "tsc && chmod +x dist/src/mcp/server.js",
+    "build": "node scripts/build.js",
+    "postinstall": "npm run build",
+    "setup": "node scripts/setup.js",
     "mcp-server": "node dist/src/mcp/server.js",
     "mcp-dev": "ts-node src/mcp/server.ts",
     "test": "jest",
@@ -42,7 +44,7 @@
     "zod": "^4.3.5"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

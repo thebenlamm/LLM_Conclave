@@ -63,6 +63,54 @@ describe('ConfigCascade', () => {
       expect(config.agents.Reviewer).toBeDefined();
     });
 
+    it('should adapt defaults to available provider keys', () => {
+      jest.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+      const config = ConfigCascade.resolve({}, {
+        ANTHROPIC_API_KEY: 'test-anthropic-key'
+      });
+
+      expect(config.providers.anthropic.enabled).toBe(true);
+      expect(config.providers.openai.enabled).toBe(false);
+      expect(config.providers.google.enabled).toBe(false);
+      expect(config.judge.model).toBe('claude-sonnet-4-5');
+      expect(config.agents.Primary.model).toBe('claude-sonnet-4-5');
+      expect(config.agents.Validator.model).toBe('claude-haiku-4-5');
+      expect(config.agents.Reviewer.model).toBe('claude-sonnet-4-5');
+    });
+
+    it('should keep the mixed default panel when anthropic, openai, and google are all available', () => {
+      jest.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+      const config = ConfigCascade.resolve({}, {
+        ANTHROPIC_API_KEY: 'test-anthropic-key',
+        OPENAI_API_KEY: 'test-openai-key',
+        GOOGLE_API_KEY: 'test-google-key',
+      });
+
+      expect(config.judge.model).toBe('gemini-2.5-flash');
+      expect(config.agents.Primary.model).toBe('claude-sonnet-4-5');
+      expect(config.agents.Validator.model).toBe('gpt-4o');
+      expect(config.agents.Reviewer.model).toBe('gemini-2.5-pro');
+    });
+
+    it('should adapt defaults for two configured providers', () => {
+      jest.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+      const config = ConfigCascade.resolve({}, {
+        OPENAI_API_KEY: 'test-openai-key',
+        GOOGLE_API_KEY: 'test-google-key',
+      });
+
+      expect(config.providers.openai.enabled).toBe(true);
+      expect(config.providers.google.enabled).toBe(true);
+      expect(config.providers.anthropic.enabled).toBe(false);
+      expect(config.judge.model).toBe('gemini-2.5-flash');
+      expect(config.agents.Primary.model).toBe('gpt-4o');
+      expect(config.agents.Validator.model).toBe('gemini-2.0-flash');
+      expect(config.agents.Reviewer.model).toBe('gemini-2.5-pro');
+    });
+
     it('should include default providers', () => {
       jest.spyOn(fs, 'existsSync').mockReturnValue(false);
 
@@ -225,12 +273,12 @@ describe('ConfigCascade', () => {
 
   describe('getZeroConfigMessage', () => {
     it('should return informative message', () => {
+      process.env = {};
       const message = ConfigCascade.getZeroConfigMessage();
 
       expect(message).toContain('No configuration found');
       expect(message).toContain('smart defaults');
-      expect(message).toContain('Claude Sonnet');
-      expect(message).toContain('GPT-4o');
+      expect(message).toContain('claude-sonnet-4-5');
       expect(message).toContain('llm-conclave init');
     });
   });

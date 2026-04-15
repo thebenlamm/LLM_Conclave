@@ -18,7 +18,7 @@ export class ConfigCascade {
    * Resolve configuration from all sources
    */
   static resolve(cliFlags: Record<string, any>, envVars: NodeJS.ProcessEnv = process.env): any {
-    const defaults = this.getDefaults();
+    const defaults = this.getDefaults(envVars);
     const global = this.loadGlobalConfig();
     const project = this.loadProjectConfig(cliFlags.config);
     const env = this.parseEnvVars(envVars);
@@ -36,45 +36,155 @@ export class ConfigCascade {
   /**
    * Get smart defaults that work out of the box
    */
-  private static getDefaults(): any {
+  private static getDefaults(envVars: NodeJS.ProcessEnv = process.env): any {
+    const defaultPanel = this.getDefaultPanel(envVars);
+    const providers = this.getProviderDefaults(envVars);
+
     return {
       mode: 'consensus', // Default mode
       stream: true, // Stream responses by default
-      providers: {
-        openai: { enabled: true },
-        anthropic: { enabled: true },
-        google: { enabled: true },
-        xai: { enabled: true },
-        mistral: { enabled: false }
-      },
+      providers,
       judge: {
-        model: 'gemini-2.5-flash',
-        provider: 'google',
+        model: defaultPanel.judge.model,
+        provider: defaultPanel.judge.provider,
         prompt: 'You are a wise and impartial judge who synthesizes diverse perspectives to reach well-reasoned conclusions. You evaluate arguments fairly, identify common ground, and guide discussions toward consensus.'
       },
       // Built-in default agents (zero-config)
-      agents: {
-        'Primary': {
-          model: 'claude-sonnet-4-5',
-          provider: 'anthropic',
-          systemPrompt: 'You are a helpful AI assistant focused on solving problems accurately and efficiently.'
-        },
-        'Validator': {
-          model: 'gpt-4o',
-          provider: 'openai',
-          systemPrompt: 'You validate solutions and provide constructive feedback to improve quality.'
-        },
-        'Reviewer': {
-          model: 'gemini-2.5-pro',
-          provider: 'google',
-          systemPrompt: 'You review work from multiple perspectives and identify potential issues.'
-        }
-      },
+      agents: defaultPanel.agents,
       // Consult mode defaults (Epic 2, Story 1)
       consult: {
         alwaysAllowUnder: 0.50, // Auto-approve consultations under $0.50
         default_panel: null     // null = use suggestPersonas or hardcoded fallback
       }
+    };
+  }
+
+  private static getProviderDefaults(envVars: NodeJS.ProcessEnv): any {
+    const available = this.getAvailableProviders(envVars);
+
+    if (available.length === 0) {
+      return {
+        openai: { enabled: true },
+        anthropic: { enabled: true },
+        google: { enabled: true },
+        xai: { enabled: true },
+        mistral: { enabled: false }
+      };
+    }
+
+    return {
+      openai: { enabled: available.includes('openai') },
+      anthropic: { enabled: available.includes('anthropic') },
+      google: { enabled: available.includes('google') },
+      xai: { enabled: available.includes('xai') },
+      mistral: { enabled: available.includes('mistral') }
+    };
+  }
+
+  private static getAvailableProviders(envVars: NodeJS.ProcessEnv): string[] {
+    const available: string[] = [];
+
+    if (envVars.OPENAI_API_KEY) available.push('openai');
+    if (envVars.ANTHROPIC_API_KEY) available.push('anthropic');
+    if (envVars.GOOGLE_API_KEY || envVars.GEMINI_API_KEY) available.push('google');
+    if (envVars.XAI_API_KEY) available.push('xai');
+    if (envVars.MISTRAL_API_KEY) available.push('mistral');
+
+    return available;
+  }
+
+  private static getDefaultPanel(envVars: NodeJS.ProcessEnv): any {
+    const available = this.getAvailableProviders(envVars);
+
+    if (available.length === 0 || (available.includes('anthropic') && available.includes('openai') && available.includes('google'))) {
+      return {
+        judge: { model: 'gemini-2.5-flash', provider: 'google' },
+        agents: {
+          'Primary': {
+            model: 'claude-sonnet-4-5',
+            provider: 'anthropic',
+            systemPrompt: 'You are a helpful AI assistant focused on solving problems accurately and efficiently.'
+          },
+          'Validator': {
+            model: 'gpt-4o',
+            provider: 'openai',
+            systemPrompt: 'You validate solutions and provide constructive feedback to improve quality.'
+          },
+          'Reviewer': {
+            model: 'gemini-2.5-pro',
+            provider: 'google',
+            systemPrompt: 'You review work from multiple perspectives and identify potential issues.'
+          }
+        }
+      };
+    }
+
+    const panels: Record<string, { model: string; provider: string }[]> = {
+      anthropic: [
+        { model: 'claude-sonnet-4-5', provider: 'anthropic' },
+        { model: 'claude-haiku-4-5', provider: 'anthropic' },
+        { model: 'claude-sonnet-4-5', provider: 'anthropic' }
+      ],
+      openai: [
+        { model: 'gpt-4o', provider: 'openai' },
+        { model: 'gpt-4.1-mini', provider: 'openai' },
+        { model: 'gpt-4o', provider: 'openai' }
+      ],
+      google: [
+        { model: 'gemini-2.5-pro', provider: 'google' },
+        { model: 'gemini-2.0-flash', provider: 'google' },
+        { model: 'gemini-2.5-pro', provider: 'google' }
+      ],
+      xai: [
+        { model: 'grok-3', provider: 'xai' },
+        { model: 'grok-3', provider: 'xai' },
+        { model: 'grok-3', provider: 'xai' }
+      ],
+      mistral: [
+        { model: 'mistral-large-latest', provider: 'mistral' },
+        { model: 'mistral-small-latest', provider: 'mistral' },
+        { model: 'mistral-large-latest', provider: 'mistral' }
+      ]
+    };
+
+    const judgeByProvider: Record<string, { model: string; provider: string }> = {
+      anthropic: { model: 'claude-sonnet-4-5', provider: 'anthropic' },
+      openai: { model: 'gpt-4o', provider: 'openai' },
+      google: { model: 'gemini-2.5-flash', provider: 'google' },
+      xai: { model: 'grok-3', provider: 'xai' },
+      mistral: { model: 'mistral-large-latest', provider: 'mistral' }
+    };
+
+    const rolePrompts = {
+      Primary: 'You are a helpful AI assistant focused on solving problems accurately and efficiently.',
+      Validator: 'You validate solutions and provide constructive feedback to improve quality.',
+      Reviewer: 'You review work from multiple perspectives and identify potential issues.'
+    };
+    const roles: Array<keyof typeof rolePrompts> = ['Primary', 'Validator', 'Reviewer'];
+
+    const selectedProviders = available.slice(0, 3);
+    const agents: Record<string, any> = {};
+
+    roles.forEach((role, index) => {
+      const provider = selectedProviders[index] || selectedProviders[selectedProviders.length - 1];
+      const panel = panels[provider];
+      const selected = panel[Math.min(index, panel.length - 1)];
+      agents[role] = {
+        model: selected.model,
+        provider: selected.provider,
+        systemPrompt: rolePrompts[role]
+      };
+    });
+
+    const judgeProvider = available.includes('google')
+      ? 'google'
+      : available.includes('anthropic')
+        ? 'anthropic'
+        : available[0];
+
+    return {
+      judge: judgeByProvider[judgeProvider],
+      agents
     };
   }
 
@@ -262,11 +372,17 @@ export class ConfigCascade {
    * Get zero-config message
    */
   static getZeroConfigMessage(): string {
+    const defaults = this.getDefaults(process.env);
+    const agentModels = ['Primary', 'Validator', 'Reviewer']
+      .map((role) => defaults.agents[role]?.model)
+      .filter(Boolean)
+      .join(', ');
+
     return `
 ℹ️  No configuration found. Using smart defaults...
    • Mode: Consensus (3 expert agents)
-   • Agents: Claude Sonnet 4.5, GPT-4o, Gemini Pro
-   • Judge: GPT-4o
+   • Agents: ${agentModels}
+   • Judge: ${defaults.judge.model}
 
    💡 Want to customize? Run: llm-conclave init
       Or continue with defaults - they work great!

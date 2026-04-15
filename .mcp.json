@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "llm-conclave": {
+      "command": "node",
+      "args": [
+        "scripts/mcp-stdio.js"
+      ]
+    }
+  }
+}

@@ -12,7 +12,7 @@ LLM Conclave is an MCP-first multi-agent LLM collaboration server. It lets an MC
 
 ## Requirements
 
-- Node.js 18+ recommended
+- Node.js 18+
 - One or more provider API keys:
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
@@ -28,14 +28,31 @@ You only need keys for the providers you plan to use.
 
 ```bash
 npm install
-npm run build
 ```
 
-This produces `dist/src/mcp/server.js`.
+`npm install` also builds the TypeScript server automatically and produces `dist/src/mcp/server.js`.
+
+### Claude Code Fast Path
+
+If someone pastes this GitHub repo into Claude Code and asks it to set up the MCP server, the intended repo-local flow is:
+
+1. Run `npm install`
+2. Run `npm run setup`
+3. Add at least one provider key to `.env` if you have not already
+4. Start a fresh Claude Code session
+5. Approve the `llm-conclave` MCP server if prompted
+
+This repo now includes a project-local `.mcp.json` that launches `scripts/mcp-stdio.js`, which loads `.env` and starts the built MCP server.
+
+`npm run setup` creates `.env` from `.env.example` if needed, validates that `.mcp.json` points to `scripts/mcp-stdio.js`, builds the server, smoke-tests the MCP stdio launcher with an `initialize` request, and prints the exact next steps for Claude Code.
 
 ### 2. Configure Your MCP Client
 
-Example config:
+For Claude Code, the repo already includes a project-local `.mcp.json` at the root, so most users should not need to hand-write MCP config.
+
+If you do need to configure it manually, use this shape:
+
+Example `.mcp.json`:
 
 ```json
 {
@@ -56,6 +73,32 @@ Example config:
 ```
 
 Ready-to-copy example: [mcp-config-example.json](mcp-config-example.json)
+
+If you only want Anthropic to start, keep the config minimal:
+
+```json
+{
+  "mcpServers": {
+    "llm-conclave": {
+      "command": "node",
+      "args": ["/absolute/path/to/llm_conclave/dist/src/mcp/server.js"],
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
+Important behavior notes:
+
+- `stdio` is the normal MCP mode. You do not need `--sse` for Claude Code.
+- This repo already ships a working project-local `.mcp.json`.
+- Use an absolute path to `dist/src/mcp/server.js`.
+- Restart or start a fresh client session after adding or changing MCP config.
+- If your MCP client asks you to approve `llm-conclave`, approve it before expecting tools to appear.
+- When Anthropic, OpenAI, and Google keys are all present, the default zero-config discussion panel is mixed-provider: `Claude Sonnet` + `GPT-4o` + `Gemini 2.5 Pro`, with judge default `Gemini 2.5 Flash`.
+- If only a subset of provider keys is present, LLM Conclave now auto-selects a default panel from the available providers instead of assuming all three.
 
 ### 3. Restart the MCP Client
 
@@ -197,6 +240,30 @@ The `config` parameter on `llm_conclave_discuss` also accepts inline JSON.
 - Mistral: `mistral-large-latest`, `mistral-small-latest`, `codestral-latest`
 
 Shorthand aliases such as `sonnet`, `opus`, `haiku`, `gemini`, `gemini-pro`, and `gemini-flash` are expanded by the provider factory.
+
+## Troubleshooting
+
+### Tools do not appear in the MCP client
+
+- Confirm the checked-in project-root `.mcp.json` still exists.
+- Confirm `npm install` completed successfully so `dist/src/mcp/server.js` exists.
+- Start a fresh client session after changing `.mcp.json`.
+- Check whether the client is waiting for MCP server approval.
+
+### The server starts but mixed-model runs fail
+
+- When Anthropic, OpenAI, and Google are all configured, the default discussion panel uses multiple providers.
+- In that mixed case, `llm_conclave_discuss` defaults to `Primary=claude-sonnet-4-5`, `Validator=gpt-4o`, `Reviewer=gemini-2.5-pro`.
+- In that mixed case, the default judge model is `gemini-2.5-flash`.
+- If only one or two provider keys are configured, defaults are chosen from the available providers automatically.
+- If OpenAI or Google billing is not enabled, those calls can fail with `429` or quota errors.
+- To stay single-provider, override `judge_model`, pass Anthropic-only personas, or provide a custom `.llm-conclave.json`.
+
+### SSE works but MCP tools do not
+
+- `node dist/src/mcp/server.js --sse` is for HTTP/SSE transport and the REST API.
+- MCP clients that spawn the server directly should use plain `node dist/src/mcp/server.js` via `.mcp.json`.
+- A healthy `/health` endpoint does not prove the MCP client has loaded or approved the stdio server.
 
 ## SSE and REST Mode
 

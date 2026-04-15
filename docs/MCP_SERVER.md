@@ -20,7 +20,6 @@ The server supports two transport modes:
 
 ```bash
 npm install
-npm run build
 ```
 
 Output artifact:
@@ -29,9 +28,37 @@ Output artifact:
 dist/src/mcp/server.js
 ```
 
+`npm install` also runs the build automatically via `postinstall`.
+
+For the shortest first-run path, use:
+
+```bash
+npm install
+npm run setup
+```
+
+`npm run setup` creates `.env` from `.env.example` if missing, validates that the checked-in `.mcp.json` points to `scripts/mcp-stdio.js`, builds the server, smoke-tests the MCP stdio launcher with an `initialize` request, and prints Claude Code next steps.
+
 ## Client Configuration
 
 ### Claude Code or Claude Desktop
+
+For Claude Code, prefer a project-local `.mcp.json` in the repository root.
+
+This repository now includes one by default:
+
+```json
+{
+  "mcpServers": {
+    "llm-conclave": {
+      "command": "node",
+      "args": ["scripts/mcp-stdio.js"]
+    }
+  }
+}
+```
+
+That launcher reads provider keys from the repo's `.env` file before starting the built server.
 
 ```json
 {
@@ -54,8 +81,17 @@ dist/src/mcp/server.js
 ### Notes
 
 - Use an absolute path to `dist/src/mcp/server.js`
+- If you use the checked-in `.mcp.json`, `scripts/mcp-stdio.js` handles `.env` loading for you
 - Only include API keys for providers you intend to use
-- After rebuilding or changing config, restart the MCP client
+- `stdio` is the normal MCP launch mode; do not add `--sse` for direct MCP client launches
+- After rebuilding or changing config, restart or start a fresh MCP client session
+- If the client prompts for MCP server approval, approve `llm-conclave`
+- When Anthropic, OpenAI, and Google are all configured, the default zero-config discussion panel is mixed-provider:
+  - `Primary`: `claude-sonnet-4-5`
+  - `Validator`: `gpt-4o`
+  - `Reviewer`: `gemini-2.5-pro`
+  - Judge default: `gemini-2.5-flash`
+- If only a subset of provider keys is present, defaults are selected from the available providers automatically
 
 ## Tool Reference
 
