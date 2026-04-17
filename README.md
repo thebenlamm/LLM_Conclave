@@ -264,6 +264,49 @@ The `config` parameter on `llm_conclave_discuss` also accepts inline JSON.
 
 Shorthand aliases such as `sonnet`, `opus`, `haiku`, `gemini`, `gemini-pro`, and `gemini-flash` are expanded by the provider factory.
 
+## Environment Variables
+
+### `LLM_CONCLAVE_HOME` (AUDIT-04)
+
+Overrides the root directory for Conclave runtime artifacts (discuss logs,
+session manifests, active-discussion status file). Useful for sandboxed
+MCP callers that cannot read from `~/.llm-conclave/`.
+
+**Precedence (highest to lowest):**
+
+1. `LLM_CONCLAVE_HOME` environment variable (recommended for containers/sandboxes)
+2. `conclaveHome` key in `~/.llm-conclave/config.json`
+3. Default: `~/.llm-conclave/`
+
+**Example:**
+
+```bash
+LLM_CONCLAVE_HOME=/var/sandbox/conclave node dist/src/mcp/server.js
+```
+
+Or, for an MCP client config, set the env var under `env`:
+
+```json
+{
+  "mcpServers": {
+    "llm-conclave": {
+      "command": "node",
+      "args": ["/absolute/path/to/llm_conclave/dist/src/mcp/server.js"],
+      "env": {
+        "LLM_CONCLAVE_HOME": "/var/sandbox/conclave",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
+The resolved path is surfaced to callers in three places:
+
+- `llm_conclave_status` tool output (markdown line: `**Conclave home:** ...`)
+- `llm_conclave_discuss` JSON responses (top-level `conclave_home` field)
+- Every saved `session.json` (top-level `conclaveHome` field)
+
 ## Troubleshooting
 
 ### Tools do not appear in the MCP client

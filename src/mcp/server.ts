@@ -41,6 +41,7 @@ import { DiscussionRunner } from './DiscussionRunner.js';
 import { PreFlightTpmError } from '../providers/tpmLimits.js';
 import { StrictModelError } from '../core/AgentTurnExecutor.js';
 import { StatusFileManager } from './StatusFileManager.js';
+import { getConclaveHome } from '../utils/ConfigPaths.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -731,6 +732,10 @@ async function handleStatus() {
   const statusFileManager = new StatusFileManager();
   const active = statusFileManager.readStatus();
 
+  // AUDIT-04: resolve the data root once for every branch so callers can
+  // confirm where logs/sessions/status actually live.
+  const conclaveHome = getConclaveHome();
+
   if (active) {
     const elapsed = active.elapsedMs;
     const minutes = Math.floor(elapsed / 60000);
@@ -745,6 +750,7 @@ async function handleStatus() {
     if (active.currentAgent) {
       output += `**Currently responding:** ${active.currentAgent}\n`;
     }
+    output += `**Conclave home:** \`${conclaveHome}\`\n`;
     output += `\n*Updated: ${active.updatedAt}*\n`;
 
     // Stale detection: if updatedAt is >2 minutes old, warn caller (per D-03)
@@ -776,6 +782,7 @@ async function handleStatus() {
       output += `- **Completed:** ${date}\n`;
       output += `- **Consensus:** ${session.consensusReached ? 'Yes' : session.consensusReached === false ? 'No' : 'N/A'}\n`;
       output += `- **Rounds:** ${session.roundCount} | **Cost:** $${session.cost.toFixed(4)}\n`;
+      output += `- **Conclave home:** \`${conclaveHome}\`\n`;
 
       return {
         content: [{ type: 'text', text: output }],
@@ -789,7 +796,7 @@ async function handleStatus() {
   return {
     content: [{
       type: 'text',
-      text: '# No Active Discussion\n\nNo discussions running and no completed sessions found. Start one with `llm_conclave_discuss`.',
+      text: `# No Active Discussion\n\nNo discussions running and no completed sessions found. Start one with \`llm_conclave_discuss\`.\n\n**Conclave home:** \`${conclaveHome}\`\n`,
     }],
   };
 }
@@ -1322,6 +1329,9 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     section_order: sectionOrder,
     session_id: sessionId || undefined,
     log_file: logFilePath,
+    // AUDIT-04: resolved LLM Conclave data root. Sandboxed callers use this
+    // to confirm where logs were written without parsing the log_file path.
+    conclave_home: getConclaveHome(),
   };
 }
 
