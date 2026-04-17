@@ -128,6 +128,11 @@ export default class ConversationManager {
       taskRouter: this.taskRouter,
       costTracker: this.costTracker,
       strictModels: options?.strictModels === true,
+      // Phase 18 (AUDIT-03): stamp roundNumber on every pushed history entry.
+      // Mirror of the `() => this.currentRound` pattern used for ConversationHistory.
+      // Field is optional on AgentTurnDeps, but production always supplies it so
+      // stamps always reflect the real current round (never the 0 fallback).
+      getCurrentRound: () => this.currentRound,
     });
 
     this.history = new ConversationHistory(

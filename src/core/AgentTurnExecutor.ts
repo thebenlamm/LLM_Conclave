@@ -44,6 +44,20 @@ export interface AgentTurnDeps {
   taskRouter: TaskRouter | null;
   costTracker: CostTracker;
   /**
+   * Phase 18 (AUDIT-03): returns ConversationManager.currentRound at call time.
+   * Every conversationHistory push inside this executor stamps
+   * entry.roundNumber with the value returned here so SessionManager and
+   * downstream formatters report a unified round counter.
+   * OPTIONAL so that existing test fixtures that construct AgentTurnExecutor
+   * directly keep compiling. Executor body calls `this.deps.getCurrentRound?.() ?? 0`,
+   * so fixtures without the dep get round 0 stamps — harmless for tests that
+   * don't assert on roundNumber. Production ConversationManager always supplies
+   * a real implementation, so production stamps are never 0 by accident.
+   * Pattern mirrors the `getCurrentRound` closure already passed to
+   * ConversationHistory (see ConversationManager.ts L136).
+   */
+  getCurrentRound?: () => number;
+  /**
    * If true, runtime substitutions throw StrictModelError instead of silently
    * falling back to a different model. Default: false (existing behavior).
    * (Phase 12-04)

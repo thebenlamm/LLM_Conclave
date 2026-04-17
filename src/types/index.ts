@@ -209,6 +209,13 @@ export interface DiscussionHistoryEntry {
   positionSummary?: string;
   /** ISO 8601 timestamp indicating when this entry was added to the history */
   timestamp?: string;
+  /**
+   * Phase 18 (AUDIT-03): canonical round number stamped at push time.
+   * Optional because legacy in-memory entries (pre-Phase-18 tests, fixtures)
+   * may not set it. Production push sites in ConversationManager and
+   * AgentTurnExecutor always set it after this phase.
+   */
+  roundNumber?: number;
 }
 
 // ============================================================================
