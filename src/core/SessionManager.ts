@@ -10,6 +10,47 @@ import {
 } from '../types';
 
 /**
+ * AUDIT-05 (Phase 20): Fold degradation signals from a ConversationManager
+ * result into the session status value written into session.json and surfaced
+ * via the MCP response.
+ *
+ * Returns `'completed_degraded'` when ANY of the following fired during the run:
+ *   - An agent model was substituted (`agentSubstitutions` non-empty)
+ *   - Any agent had a failed turn (`failedAgents` non-empty)
+ *   - Any agent was absent (participation status `absent-capped` | `absent-silent` | `absent-failed`)
+ *   - The summarizer model itself substituted (`runIntegrity.compression.summarizerFallback` non-null)
+ *
+ * Returns `'completed'` otherwise. Compression being ACTIVE is NOT by itself
+ * degraded — compression activation is normal behavior under token pressure;
+ * only a summarizer fallback (compression's compression) counts as degradation.
+ *
+ * Defensive: if `runIntegrity` is undefined (legacy fixtures pre-Phase-13.1),
+ * participation / summarizerFallback signals are skipped. Substitution and
+ * failedAgents signals still apply.
+ */
+export function computeSessionStatus(result: any): 'completed' | 'completed_degraded' {
+  const substituted = result?.agentSubstitutions && Object.keys(result.agentSubstitutions).length > 0;
+  if (substituted) return 'completed_degraded';
+
+  const failed = Array.isArray(result?.failedAgents) && result.failedAgents.length > 0;
+  if (failed) return 'completed_degraded';
+
+  const ri = result?.runIntegrity;
+  if (ri) {
+    const participation = Array.isArray(ri.participation) ? ri.participation : [];
+    const absent = participation.some((p: any) =>
+      p && typeof p.status === 'string' && p.status !== 'spoken'
+    );
+    if (absent) return 'completed_degraded';
+
+    const summarizerFallback = ri.compression && ri.compression.summarizerFallback;
+    if (summarizerFallback) return 'completed_degraded';
+  }
+
+  return 'completed';
+}
+
+/**
  * Manages session persistence and retrieval
  */
 export default class SessionManager {
@@ -288,7 +329,9 @@ export default class SessionManager {
       task: task,
       agents: sessionAgents,
       judge: sessionJudge,
-      status: 'completed',
+      // AUDIT-05: derive status from degradation signals (substitution, failure,
+      // absent agent, summarizer fallback). Clean runs stay 'completed'.
+      status: computeSessionStatus(result),
       currentRound: result.rounds || 1,
       maxRounds: result.maxRounds,
       minRounds: result.minRounds,

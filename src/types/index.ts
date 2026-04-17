@@ -379,7 +379,11 @@ export interface SessionManifest {
   judge?: SessionAgentConfig;
 
   // State
-  status: 'in_progress' | 'completed' | 'interrupted' | 'error';
+  // AUDIT-05 (Phase 20): `completed_degraded` distinguishes a run that finished
+  // but hit a fallback, substitution, or agent absence from a clean `completed`
+  // run. Additive — existing consumers that only check for 'completed' continue
+  // to work; they simply will not treat a degraded completion as clean.
+  status: 'in_progress' | 'completed' | 'completed_degraded' | 'interrupted' | 'error';
   currentRound: number;
   maxRounds?: number;
   minRounds?: number;
