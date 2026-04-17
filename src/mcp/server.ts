@@ -1051,6 +1051,34 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
     output += `*No final solution reached*\n\n`;
   }
 
+  // AUDIT-01 — Per-agent position block. Always-on; renders each participating
+  // agent's FINAL non-error turn so the user can cross-check judge synthesis
+  // against raw agent reasoning without opening the discuss log.
+  if (conversationHistory && conversationHistory.length > 0) {
+    // Walk history to find each agent's last non-error assistant turn.
+    const lastByAgent = new Map<string, any>();
+    // Iterate in original order so insertion order reflects first-speak order.
+    const firstSpeakOrder: string[] = [];
+    for (const entry of conversationHistory) {
+      if (entry.role !== 'assistant') continue;
+      if (entry.speaker === 'Judge' || entry.speaker === 'System') continue;
+      if (entry.error) continue;
+      if (!lastByAgent.has(entry.speaker)) {
+        firstSpeakOrder.push(entry.speaker);
+      }
+      lastByAgent.set(entry.speaker, entry); // overwrite — ends up as last
+    }
+    if (firstSpeakOrder.length > 0) {
+      output += `## Agent Positions\n\n`;
+      for (const agent of firstSpeakOrder) {
+        const entry = lastByAgent.get(agent);
+        const raw: string = entry.content || '';
+        const preview = raw.length > 800 ? raw.substring(0, 800) + '...' : raw;
+        output += `### ${agent}\n\n${preview}\n\n`;
+      }
+    }
+  }
+
   // When judge failed, surface last-round agent positions so discussion content isn't lost
   if (isJudgeFailed && conversationHistory?.length > 0) {
     const agentEntries = conversationHistory.filter(
