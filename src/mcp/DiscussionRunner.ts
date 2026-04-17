@@ -21,6 +21,7 @@ import ProjectContext from '../utils/ProjectContext.js';
 import { CostTracker } from '../core/CostTracker.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 import { StatusFileManager } from './StatusFileManager.js';
+import { getConclaveHome } from '../utils/ConfigPaths.js';
 
 /**
  * Options for DiscussionRunner.run()
@@ -142,7 +143,9 @@ export function saveDiscussionLog(result: any): string {
     agentSubstitutions = {},
   } = result;
 
-  const logsDir = path.join(process.env.HOME || '', '.llm-conclave', 'discuss-logs');
+  // AUDIT-04: resolve data root via getConclaveHome() so LLM_CONCLAVE_HOME
+  // and the conclaveHome config key redirect discuss logs for sandboxed callers.
+  const logsDir = path.join(getConclaveHome(), 'discuss-logs');
   if (!fs.existsSync(logsDir)) {
     fs.mkdirSync(logsDir, { recursive: true });
   }
@@ -526,7 +529,7 @@ export class DiscussionRunner {
     if (session.outputFiles) {
       session.outputFiles.transcript = logFilePath || '';
       session.outputFiles.json = path.join(
-        sessionManager['sessionsDir'] || path.join(process.env.HOME || '', '.llm-conclave', 'sessions'),
+        sessionManager['sessionsDir'] || path.join(getConclaveHome(), 'sessions'),
         session.id,
         'session.json'
       );
