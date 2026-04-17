@@ -14,7 +14,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { getConclaveHome } from '../utils/ConfigPaths.js';
 
 export interface ActiveDiscussionStatus {
   active: true;
@@ -33,10 +33,12 @@ export class StatusFileManager {
 
   /**
    * @param baseDir - directory to store active-discussion.json.
-   *                  Defaults to ~/.llm-conclave/
+   *                  Defaults to getConclaveHome() — honors LLM_CONCLAVE_HOME env var (AUDIT-04).
    */
   constructor(baseDir?: string) {
-    const dir = baseDir ?? path.join(os.homedir(), '.llm-conclave');
+    // AUDIT-04: honor LLM_CONCLAVE_HOME via getConclaveHome(); baseDir
+    // override still wins for explicit test injection.
+    const dir = baseDir ?? getConclaveHome();
     this.filePath = path.join(dir, 'active-discussion.json');
   }
 

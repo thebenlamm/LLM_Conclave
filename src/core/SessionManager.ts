@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { getConclaveHome } from '../utils/ConfigPaths.js';
 import {
   SessionManifest,
   SessionSummary,
@@ -17,10 +17,10 @@ export default class SessionManager {
   private manifestPath: string;
 
   constructor(baseDir?: string) {
-    // Default to user's home directory
-    const homeDir = os.homedir();
-    const conclaveDir = path.join(homeDir, '.llm-conclave');
-    this.sessionsDir = baseDir || path.join(conclaveDir, 'sessions');
+    // AUDIT-04: resolve data root via getConclaveHome() so LLM_CONCLAVE_HOME
+    // and the conclaveHome config key redirect session storage. `baseDir`
+    // still takes priority for explicit test injection.
+    this.sessionsDir = baseDir || path.join(getConclaveHome(), 'sessions');
     this.manifestPath = path.join(this.sessionsDir, 'manifest.json');
   }
 
