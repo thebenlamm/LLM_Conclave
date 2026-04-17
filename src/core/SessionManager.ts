@@ -203,7 +203,13 @@ export default class SessionManager {
   }
 
   /**
-   * Create a session manifest from conversation result
+   * Create a session manifest from conversation result.
+   *
+   * Phase 18 (AUDIT-03): per-message `roundNumber` is copied from
+   * `entry.roundNumber` when stamped by the conversation loop; falls back to
+   * the legacy positional index/agents-length heuristic only for entries
+   * that lack the stamp (legacy fixtures/replays). An invariant asserts the
+   * top-level `currentRound` agrees with the maximum stamped roundNumber.
    */
   createSessionManifest(
     mode: 'consensus' | 'orchestrated' | 'iterative',
@@ -235,16 +241,38 @@ export default class SessionManager {
       systemPrompt: judge.systemPrompt || '',
     } : undefined;
 
-    // Convert conversation history to session messages
+    // Phase 18 (AUDIT-03): prefer the canonical round stamp set at push time by
+    // ConversationManager / AgentTurnExecutor. Fall back to the positional heuristic
+    // only for entries that predate the stamping (test fixtures, legacy data).
     const sessionMessages = conversationHistory.map((entry, index) => ({
       role: entry.role || entry.speaker?.toLowerCase() || 'assistant',
       content: entry.content,
       speaker: entry.speaker,
       model: entry.model,
       timestamp: timestamp,
-      roundNumber: Math.floor(index / agents.length),
+      roundNumber: typeof entry.roundNumber === 'number'
+        ? entry.roundNumber
+        : Math.floor(index / agents.length),
       error: entry.error,
     }));
+
+    // Phase 18 (AUDIT-03) invariant: the top-level currentRound MUST equal the
+    // largest roundNumber present on any non-empty conversation history. If they
+    // diverge, the `result.rounds` counter has drifted from what the message
+    // stamps reflect — log (and in strict mode, throw). This is the signal the
+    // Phase 18 regression tests pin against.
+    const maxStampedRound = sessionMessages.reduce(
+      (acc, msg) => (typeof msg.roundNumber === 'number' && msg.roundNumber > acc ? msg.roundNumber : acc),
+      0
+    );
+    const resolvedCurrentRound = result.rounds || 1;
+    if (sessionMessages.length > 0 && maxStampedRound > 0 && maxStampedRound !== resolvedCurrentRound) {
+      const msg = `[SessionManager] round counter drift: result.rounds=${resolvedCurrentRound} but max stamped roundNumber=${maxStampedRound}`;
+      console.warn(msg);
+      if (process.env.NODE_ENV === 'test' || process.env.LLM_CONCLAVE_STRICT_ROUND_COUNTER === '1') {
+        throw new Error(msg);
+      }
+    }
 
     // Get cost info from result or use defaults
     const costInfo = result.cost || {
