@@ -229,6 +229,11 @@ Example inline JSON:
           description: 'If true, hard-error instead of silently substituting a model when a provider fails (TPM, 429, timeout). Use for benchmarking, reproducibility, and A/B runs where model fidelity matters. Default: false (silent fallback — existing behavior).',
           default: false,
         },
+        show_turns: {
+          type: 'boolean',
+          description: 'If true, include the full turn-by-turn conversation history as an additive `turns` array in the JSON response. Sandbox-safe — sourced from in-memory history, no log-file re-read. Default false (opt-in).',
+          default: false,
+        },
       },
       required: ['task'],
     },
@@ -250,6 +255,11 @@ Example inline JSON:
         reset: {
           type: 'boolean',
           description: 'Start fresh with only a summary of the previous session (default: false)',
+          default: false,
+        },
+        show_turns: {
+          type: 'boolean',
+          description: 'If true, include the full turn-by-turn conversation history as an additive `turns` array in the JSON response. Sandbox-safe — sourced from in-memory history, no log-file re-read. Default false (opt-in).',
           default: false,
         },
       },
@@ -489,6 +499,7 @@ async function handleDiscuss(args: {
   judge_instructions?: string;
   context_optimization?: boolean;
   strict_models?: boolean;
+  show_turns?: boolean;
 }, server: Server) {
   const format = args.format ?? 'markdown';
 
@@ -525,7 +536,7 @@ async function handleDiscuss(args: {
   let outputText: string;
 
   if (format === 'json' || format === 'both') {
-    const jsonResult = formatDiscussionResultJson(result, logFilePath, sessionId);
+    const jsonResult = formatDiscussionResultJson(result, logFilePath, sessionId, { showTurns: args.show_turns === true });
 
     if (format === 'both') {
       // Include markdown summary as a field inside the JSON
@@ -571,6 +582,7 @@ async function handleContinue(args: {
   session_id?: string;
   task: string;
   reset?: boolean;
+  show_turns?: boolean;
 }, server: Server) {
   const { session_id, task, reset = false } = args;
   const sessionManager = new SessionManager();
@@ -660,17 +672,28 @@ async function handleContinue(args: {
     restoredSubstitutions: (session as any).agentSubstitutions || undefined,
   });
 
-  // Format response (continuation-specific format)
-  let output = `# Continuation of Session ${session.id}\n\n`;
-  output += `**Original Task:** ${session.task}\n\n`;
-  output += `**Follow-up:** ${task}\n\n`;
-  output += formatDiscussionResult(result, logFilePath, newSessionId);
+  // REPLAY-01/02 (Phase 21): opt-in JSON emission branch. When show_turns is
+  // true the caller wants a sandbox-safe structured payload including the full
+  // turns[] history. Otherwise preserve the existing markdown continuation format
+  // verbatim (byte-stable for every pre-Phase-21 caller).
+  let outputText: string;
+  if (args.show_turns === true) {
+    const jsonResult = formatDiscussionResultJson(result, logFilePath, newSessionId, { showTurns: true });
+    outputText = JSON.stringify(jsonResult, null, 2);
+  } else {
+    // Format response (continuation-specific format)
+    let output = `# Continuation of Session ${session.id}\n\n`;
+    output += `**Original Task:** ${session.task}\n\n`;
+    output += `**Follow-up:** ${task}\n\n`;
+    output += formatDiscussionResult(result, logFilePath, newSessionId);
+    outputText = output;
+  }
 
   return {
     content: [
       {
         type: 'text',
-        text: output,
+        text: outputText,
       },
     ],
   };
@@ -1189,7 +1212,7 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
  * Format discussion result as a structured JSON-serializable object (snake_case keys).
  * Used by format='json' and the REST API endpoint.
  */
-export function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?: string): Record<string, any> {
+export function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?: string, options?: { showTurns?: boolean }): Record<string, any> {
   const {
     task,
     conversationHistory,
@@ -1313,6 +1336,24 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     .map((m: any) => ({ speaker: String(m.speaker), content: String(m.content || '') }));
   const judgeCoinage = detectJudgeCoinage(String(solution || ''), agentTurnsForCoinage);
 
+  // REPLAY-01/02 (Phase 21): opt-in sandbox-safe inline turns payload. Sourced
+  // ENTIRELY from in-memory conversationHistory — zero filesystem access, no
+  // log-file re-read. Emitted as a top-level `turns` key ONLY when
+  // options.showTurns is strictly true; otherwise the key is absent (opt-out
+  // preserves byte-stable pre-Phase-21 response shape per SC#2). Judge and
+  // System turns are NOT filtered — the point is a full replay of the exchange.
+  const turnsPayload = options?.showTurns === true
+    ? (conversationHistory || []).map((m: any) => ({
+        round: typeof m.roundNumber === 'number' ? m.roundNumber : 0,
+        role: String(m.role || ''),
+        speaker: m.speaker ? String(m.speaker) : undefined,
+        model: m.model ? String(m.model) : undefined,
+        content: String(m.content || ''),
+        timestamp: m.timestamp ? String(m.timestamp) : undefined,
+        error: m.error === true ? true : undefined,
+      }))
+    : undefined;
+
   return {
     task,
     summary: solution || null,
@@ -1342,6 +1383,12 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     turn_analytics: result.turn_analytics || null,
     dissent_quality: result.dissent_quality || null,
     section_order: sectionOrder,
+    // REPLAY-01/02 (Phase 21): opt-in inline turns[] — emitted ONLY when
+    // options.showTurns === true. Absent (key not present) on opt-out paths
+    // so the opt-out JSON shape stays byte-identical to pre-Phase-21 output
+    // (SC#2 non-regression). Sourced entirely from in-memory
+    // conversationHistory — no fs read of logFilePath (REPLAY-02 sandbox-safe).
+    ...(turnsPayload !== undefined ? { turns: turnsPayload } : {}),
     // AUDIT-06 (Phase 20): synthesis terms that appear in ZERO agent turns.
     // Empty array on grounded runs; populated when the judge coined terminology.
     judge_coinage: judgeCoinage,
@@ -1519,7 +1566,7 @@ export async function startSSE(port: number) {
         clientAbortSignal: clientAbort.signal,
       });
 
-      const jsonResult = formatDiscussionResultJson(result, logFilePath, sessionId);
+      const jsonResult = formatDiscussionResultJson(result, logFilePath, sessionId, { showTurns: args.show_turns === true });
       res.json({ success: true, ...jsonResult });
     } catch (error: any) {
       console.error(`[REST] Error in /api/discuss:`, error);
