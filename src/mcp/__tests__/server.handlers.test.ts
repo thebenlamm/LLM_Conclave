@@ -2124,5 +2124,255 @@ describe('MCP Server Handlers', () => {
       expect(first).toHaveProperty('content');
     });
   });
+
+  describe('Phase 21 — REPLAY-03 substitution-rate telemetry', () => {
+    // Each test mounts a tmp sessions dir + a RealSessionManager bound to that
+    // dir, then module-mocks `new SessionManager()` (used inside handleStatus /
+    // handleSessions) to return the real instance. This exercises the real
+    // listSessions → manifest.json read path end-to-end. Test 5 bypasses
+    // saveSession entirely and writes manifest.json directly to simulate a
+    // pre-Phase-21 on-disk shape (SessionSummary entries without `substituted`).
+    const tmpDir = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-phase21-replay03-'));
+
+    // Minimal SessionManifest shape matching createSessionManifest output.
+    function buildManifest(overrides: {
+      id: string;
+      agentSubstitutions?: Record<string, any>;
+    }): any {
+      return {
+        id: overrides.id,
+        timestamp: '2026-04-17T12:00:00Z',
+        mode: 'consensus',
+        task: 'replay-03 fixture task',
+        agents: [
+          { name: 'AgentA', model: 'claude-x', provider: 'ClaudeProvider', systemPrompt: '' },
+        ],
+        status: 'completed',
+        currentRound: 2,
+        maxRounds: 4,
+        conversationHistory: [
+          { role: 'assistant', speaker: 'AgentA', content: 'turn', roundNumber: 1, timestamp: '2026-04-17T12:00:00Z' },
+        ],
+        agentSubstitutions: overrides.agentSubstitutions || {},
+        consensusReached: true,
+        cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 }, totalCalls: 1 },
+        outputFiles: { transcript: '', consensus: '', json: '' },
+      };
+    }
+
+    beforeEach(() => {
+      jest.restoreAllMocks();
+      mockReadStatus.mockReturnValue(null); // force status to fall through to last-completed branch
+    });
+
+    // --- Test 1: handleStatus — zero substitution across 3 sessions ---
+    it('REPLAY-03 handleStatus renders 0/3 (0%) when no recent session has substitutions', async () => {
+      const baseDir = tmpDir();
+      const real = new RealSessionManager(baseDir);
+      // Seed 3 clean sessions via the real save path (exercises the substituted stamp)
+      for (const id of ['s-clean-1', 's-clean-2', 's-clean-3']) {
+        await real.saveSession(buildManifest({ id, agentSubstitutions: {} }));
+      }
+      const SessionManagerModule = require('../../core/SessionManager').default;
+      SessionManagerModule.mockImplementation(() => real);
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const callToolHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+
+      const response = await callToolHandler({
+        params: { name: 'llm_conclave_status', arguments: {} },
+      });
+      expect(response.isError).toBeUndefined();
+      const text = response.content[0].text;
+      expect(text).toContain('No Active Discussion');
+      expect(text).toContain('**Substitution rate:** 0/3 (0%) across recent 3 sessions');
+    });
+
+    // --- Test 2: handleStatus — partial substitution (2 of 5) ---
+    it('REPLAY-03 handleStatus renders 2/5 (40%) when 2 of 5 recent sessions substituted', async () => {
+      const baseDir = tmpDir();
+      const real = new RealSessionManager(baseDir);
+      // Order matters: saveSession prepends, so last-saved sits at sessions[0].
+      await real.saveSession(buildManifest({ id: 's-p1', agentSubstitutions: {} }));
+      await real.saveSession(buildManifest({ id: 's-p2', agentSubstitutions: { AgentA: { from: 'x', to: 'y' } } }));
+      await real.saveSession(buildManifest({ id: 's-p3', agentSubstitutions: {} }));
+      await real.saveSession(buildManifest({ id: 's-p4', agentSubstitutions: { AgentA: { from: 'x', to: 'z' } } }));
+      await real.saveSession(buildManifest({ id: 's-p5', agentSubstitutions: {} }));
+      const SessionManagerModule = require('../../core/SessionManager').default;
+      SessionManagerModule.mockImplementation(() => real);
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const callToolHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+
+      const response = await callToolHandler({
+        params: { name: 'llm_conclave_status', arguments: {} },
+      });
+      expect(response.isError).toBeUndefined();
+      const text = response.content[0].text;
+      expect(text).toContain('**Substitution rate:** 2/5 (40%) across recent 5 sessions');
+    });
+
+    // --- Test 3: handleStatus — all 3 substituted ---
+    it('REPLAY-03 handleStatus renders 3/3 (100%) when every recent session substituted', async () => {
+      const baseDir = tmpDir();
+      const real = new RealSessionManager(baseDir);
+      for (const id of ['s-all-1', 's-all-2', 's-all-3']) {
+        await real.saveSession(buildManifest({ id, agentSubstitutions: { AgentA: { from: 'x', to: 'y' } } }));
+      }
+      const SessionManagerModule = require('../../core/SessionManager').default;
+      SessionManagerModule.mockImplementation(() => real);
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const callToolHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+
+      const response = await callToolHandler({
+        params: { name: 'llm_conclave_status', arguments: {} },
+      });
+      expect(response.isError).toBeUndefined();
+      const text = response.content[0].text;
+      expect(text).toContain('**Substitution rate:** 3/3 (100%) across recent 3 sessions');
+    });
+
+    // --- Test 4: handleSessions — header renders rate across listed sessions ---
+    it('REPLAY-03 handleSessions header renders 1/4 (25%) across listed sessions with intro line preserved', async () => {
+      const baseDir = tmpDir();
+      const real = new RealSessionManager(baseDir);
+      await real.saveSession(buildManifest({ id: 's-list-1', agentSubstitutions: {} }));
+      await real.saveSession(buildManifest({ id: 's-list-2', agentSubstitutions: {} }));
+      await real.saveSession(buildManifest({ id: 's-list-3', agentSubstitutions: { AgentA: { from: 'x', to: 'y' } } }));
+      await real.saveSession(buildManifest({ id: 's-list-4', agentSubstitutions: {} }));
+      const SessionManagerModule = require('../../core/SessionManager').default;
+      SessionManagerModule.mockImplementation(() => real);
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const callToolHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+
+      const response = await callToolHandler({
+        params: { name: 'llm_conclave_sessions', arguments: { limit: 10 } },
+      });
+      expect(response.isError).toBeUndefined();
+      const text = response.content[0].text;
+      expect(text).toContain('**Substitution rate:** 1/4 (25%) across listed sessions');
+      // Ordering pin: intro line sits immediately above the rate line.
+      const introIdx = text.indexOf('Use `llm_conclave_continue`');
+      const rateIdx = text.indexOf('**Substitution rate:**');
+      expect(introIdx).toBeGreaterThan(-1);
+      expect(rateIdx).toBeGreaterThan(introIdx);
+    });
+
+    // --- Test 5: back-compat — pre-Phase-21 manifest.json without substituted field ---
+    it('REPLAY-03 handleSessions counts pre-Phase-21 summaries (missing substituted field) as NOT substituted', async () => {
+      const baseDir = tmpDir();
+      // Write manifest.json directly, simulating a pre-Phase-21 on-disk shape:
+      // SessionSummary entries lack the `substituted` field entirely.
+      const manifestPath = path.join(baseDir, 'manifest.json');
+      const prePhase21Manifest = {
+        sessions: [
+          {
+            id: 's-legacy-1',
+            timestamp: '2026-03-01T10:00:00Z',
+            mode: 'consensus',
+            task: 'legacy task 1',
+            status: 'completed',
+            roundCount: 2,
+            agentCount: 2,
+            cost: 0.01,
+            consensusReached: true,
+            // substituted: INTENTIONALLY ABSENT — simulates pre-Phase-21 save
+          },
+          {
+            id: 's-legacy-2',
+            timestamp: '2026-03-01T11:00:00Z',
+            mode: 'consensus',
+            task: 'legacy task 2',
+            status: 'completed',
+            roundCount: 3,
+            agentCount: 2,
+            cost: 0.02,
+            consensusReached: true,
+            // substituted: INTENTIONALLY ABSENT
+          },
+        ],
+        totalSessions: 2,
+      };
+      fs.writeFileSync(manifestPath, JSON.stringify(prePhase21Manifest, null, 2));
+
+      const real = new RealSessionManager(baseDir);
+      const SessionManagerModule = require('../../core/SessionManager').default;
+      SessionManagerModule.mockImplementation(() => real);
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const callToolHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+
+      const response = await callToolHandler({
+        params: { name: 'llm_conclave_sessions', arguments: { limit: 10 } },
+      });
+      expect(response.isError).toBeUndefined();
+      const text = response.content[0].text;
+      expect(text).toContain('**Substitution rate:** 0/2 (0%) across listed sessions');
+    });
+
+    // --- Test 6: SC#2 non-regression — handleStatus existing lines preserved in order ---
+    it('REPLAY-03 SC#2 non-regression: handleStatus preserves every pre-existing markdown line in order', async () => {
+      const baseDir = tmpDir();
+      const real = new RealSessionManager(baseDir);
+      // Single substituted session so rate renders non-zero.
+      await real.saveSession(buildManifest({
+        id: 's-nonreg-1',
+        agentSubstitutions: { AgentA: { from: 'x', to: 'y' } },
+      }));
+      const SessionManagerModule = require('../../core/SessionManager').default;
+      SessionManagerModule.mockImplementation(() => real);
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const callToolHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+
+      const response = await callToolHandler({
+        params: { name: 'llm_conclave_status', arguments: {} },
+      });
+      expect(response.isError).toBeUndefined();
+      const text = response.content[0].text;
+      // Every pre-existing line present
+      expect(text).toContain('**Task:**');
+      expect(text).toContain('**Completed:**');
+      expect(text).toContain('**Consensus:**');
+      expect(text).toContain('**Status:**');
+      expect(text).toContain('**Rounds:**');
+      expect(text).toContain('**Conclave home:**');
+      // Ordering: Task → Completed → Consensus → Status → Substitution rate → Rounds → Conclave home
+      const idxTask = text.indexOf('**Task:**');
+      const idxCompleted = text.indexOf('**Completed:**');
+      const idxConsensus = text.indexOf('**Consensus:**');
+      const idxStatus = text.indexOf('**Status:**');
+      const idxSubRate = text.indexOf('**Substitution rate:**');
+      const idxRounds = text.indexOf('**Rounds:**');
+      const idxConclave = text.indexOf('**Conclave home:**');
+      expect(idxTask).toBeGreaterThan(-1);
+      expect(idxCompleted).toBeGreaterThan(idxTask);
+      expect(idxConsensus).toBeGreaterThan(idxCompleted);
+      expect(idxStatus).toBeGreaterThan(idxConsensus);
+      expect(idxSubRate).toBeGreaterThan(idxStatus);
+      expect(idxRounds).toBeGreaterThan(idxSubRate);
+      expect(idxConclave).toBeGreaterThan(idxRounds);
+    });
+  });
 });
 
