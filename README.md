@@ -264,6 +264,32 @@ The `config` parameter on `llm_conclave_discuss` also accepts inline JSON.
 
 Shorthand aliases such as `sonnet`, `opus`, `haiku`, `gemini`, `gemini-pro`, and `gemini-flash` are expanded by the provider factory.
 
+## Discussion Output
+
+The `llm_conclave_discuss` final output is designed to be auditable — users can cross-check the judge's synthesis against each agent's raw position, and dissent surfaces before recommendations.
+
+### Markdown ordering (AUDIT-02)
+
+Sections render in this order:
+
+1. `## Summary`
+2. `## Agent Positions` — one `### <agent>` block per participating agent, showing their final non-error turn (truncated at 800 chars + `...`)
+3. `## Dissenting Views`
+4. `## Key Decisions`
+5. `## Action Items`
+6. `## Discussion Transcript`
+
+Dissent appears **before** decisions and action items so users see disagreement before recommendations.
+
+### JSON fields (AUDIT-01, AUDIT-02)
+
+JSON responses (`format: "json"` or `"both"`) include two additive fields alongside the existing `summary`, `key_decisions`, `action_items`, `dissent`, and `agents` fields:
+
+- `per_agent_positions` — array of `{ agent, model?, final_turn_excerpt, truncated }`, one entry per participating agent in first-speak order. `final_turn_excerpt` is truncated to 800 chars + `"..."` when longer; `truncated` is the boolean flag derived from the pre-truncation length.
+- `section_order` — fixed literal `["summary", "agent_positions", "dissent", "key_decisions", "action_items"]` so JSON consumers can reproduce the markdown layout without parsing text.
+
+Both fields are additive — no existing JSON field was renamed or removed.
+
 ## Environment Variables
 
 ### `LLM_CONCLAVE_HOME` (AUDIT-04)

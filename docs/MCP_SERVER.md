@@ -286,7 +286,26 @@ Structured payload for programmatic consumers, including fields such as:
 - `dissent`
 - `confidence`
 - `agents`
+- `per_agent_positions` — array of `{ agent, model?, final_turn_excerpt, truncated }`, one entry per participating agent in first-speak order. `final_turn_excerpt` is the last non-error assistant turn, truncated to 800 chars + `"..."` when longer; `truncated` is the pre-truncation length flag. Empty array when no qualifying turns exist.
+- `section_order` — fixed literal `["summary", "agent_positions", "dissent", "key_decisions", "action_items"]`. Describes the canonical render layout so JSON consumers can reproduce the markdown's dissent-above-actions ordering without parsing text.
 - `session_id`
+
+`per_agent_positions` and `section_order` are additive fields (AUDIT-01, AUDIT-02) — no pre-existing JSON key was renamed or removed.
+
+### Markdown section ordering
+
+The markdown output emitted by `llm_conclave_discuss` renders sections in this fixed order:
+
+1. `## Summary`
+2. `## Agent Positions` — one `### <agent>` sub-block per participating agent, rendered in first-speak order with the agent's final non-error turn (800-char cap + `...`). Judge and System speakers are excluded; entries marked `error: true` are skipped.
+3. `## Dissenting Views` (rendered when `dissent.length > 0`)
+4. `## Key Decisions`
+5. `## Action Items`
+6. `## Discussion Transcript`
+
+`## Dissenting Views` appears above `## Key Decisions` and `## Action Items` so users see disagreement before recommendations. `## Agent Positions` is always-on (not gated on judge failure), so callers can cross-check the judge's synthesis against each agent's raw position on every run.
+
+A separate `## Agent Positions (Last Round)` block continues to appear only on the judge-failed fallback path — distinct from the always-on `## Agent Positions` section above.
 
 ### `both`
 
