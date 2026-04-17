@@ -1176,6 +1176,68 @@ describe('MCP Server Handlers', () => {
       expect(confidenceLine).toBeDefined();
       expect(confidenceLine).not.toMatch(/\*\*Confidence:\*\* \w+ \(/);
     });
+
+    // DEBT-03: handleSessions must render the Consensus line across all three
+    // undefined-tracking branches (true/false/undefined).
+    it('DEBT-03: handleSessions renders **Consensus:** Yes / No / N/A for three SessionSummary records', async () => {
+      const SessionManager = require('../../core/SessionManager').default;
+      const sampleSessions = [
+        {
+          id: 'session-true',
+          timestamp: '2026-04-16T10:00:00Z',
+          mode: 'consensus',
+          task: 'task-true',
+          status: 'completed',
+          roundCount: 3,
+          agentCount: 3,
+          cost: 0.1234,
+          consensusReached: true,
+        },
+        {
+          id: 'session-false',
+          timestamp: '2026-04-16T11:00:00Z',
+          mode: 'consensus',
+          task: 'task-false',
+          status: 'completed',
+          roundCount: 4,
+          agentCount: 3,
+          cost: 0.2345,
+          consensusReached: false,
+        },
+        {
+          id: 'session-undefined',
+          timestamp: '2026-04-16T12:00:00Z',
+          mode: 'orchestrated',
+          task: 'task-undefined',
+          status: 'completed',
+          roundCount: 2,
+          agentCount: 3,
+          cost: 0.0456,
+          // consensusReached intentionally undefined
+        },
+      ];
+      SessionManager.mockImplementation(() => ({
+        listSessions: jest.fn().mockResolvedValue(sampleSessions),
+      }));
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const callToolHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+
+      const result = await callToolHandler({
+        params: { name: 'llm_conclave_sessions', arguments: {} },
+      });
+
+      const text: string = result.content[0].text;
+      expect(text).toContain('- **Consensus:** Yes');
+      expect(text).toContain('- **Consensus:** No');
+      expect(text).toContain('- **Consensus:** N/A');
+      // Confirm exactly three Consensus lines (one per session).
+      const consensusCount = (text.match(/- \*\*Consensus:\*\*/g) ?? []).length;
+      expect(consensusCount).toBe(3);
+    });
   });
 });
 

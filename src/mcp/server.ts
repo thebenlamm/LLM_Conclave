@@ -708,6 +708,7 @@ async function handleSessions(args: {
     output += `- **Date:** ${date}\n`;
     output += `- **Mode:** ${session.mode}\n`;
     output += `- **Task:** ${taskPreview}\n`;
+    output += `- **Consensus:** ${session.consensusReached ? 'Yes' : session.consensusReached === false ? 'No' : 'N/A'}\n`;
     output += `- **Rounds:** ${session.roundCount} | **Cost:** $${session.cost.toFixed(4)}\n\n`;
   }
 
