@@ -144,7 +144,7 @@ jest.mock('../StatusFileManager.js', () => ({
 }));
 
 import { createServer } from '../server';
-import { formatDiscussionResult } from '../server';
+import { formatDiscussionResult, formatDiscussionResultJson } from '../server';
 
 // Import saveFullDiscussion and formatDiscussionResult for direct testing
 // They are not exported, so we test them indirectly through handleDiscuss.
@@ -1237,6 +1237,125 @@ describe('MCP Server Handlers', () => {
       // Confirm exactly three Consensus lines (one per session).
       const consensusCount = (text.match(/- \*\*Consensus:\*\*/g) ?? []).length;
       expect(consensusCount).toBe(3);
+    });
+  });
+
+  describe('Phase 17 — Final Output Auditability', () => {
+    // Shared fixture builder: three agents, each with two rounds of non-error
+    // assistant turns, plus a Judge turn. Extra content length triggers the
+    // 800-char truncation on AgentB's final turn so the `truncated` flag is
+    // observable in the JSON.
+    const buildResult = () => {
+      const longContent = 'A'.repeat(900); // > 800 to exercise truncation
+      return {
+        task: 'phase 17 coverage',
+        conversationHistory: [
+          { role: 'assistant', speaker: 'AgentA', model: 'claude-x', content: 'A round1 position' },
+          { role: 'assistant', speaker: 'AgentB', model: 'gpt-x', content: 'B round1 position' },
+          { role: 'assistant', speaker: 'AgentC', model: 'gemini-x', content: 'C round1 position' },
+          { role: 'assistant', speaker: 'AgentA', model: 'claude-x', content: 'A final position' },
+          { role: 'assistant', speaker: 'AgentB', model: 'gpt-x', content: longContent },
+          { role: 'assistant', speaker: 'AgentC', model: 'gemini-x', content: 'C final position' },
+          { role: 'assistant', speaker: 'Judge', model: 'judge-x', content: 'judge synthesis' },
+        ],
+        solution: 'judge synthesis text',
+        consensusReached: true,
+        rounds: 2,
+        maxRounds: 4,
+        failedAgents: [],
+        agentSubstitutions: {},
+        keyDecisions: ['decision-alpha'],
+        actionItems: ['action-alpha'],
+        dissent: ['dissent-alpha'],
+        finalConfidence: 'HIGH',
+        confidenceReasoning: 'clean run',
+        runIntegrity: { participation: [] },
+        agents_config: {
+          AgentA: { model: 'claude-x' },
+          AgentB: { model: 'gpt-x' },
+          AgentC: { model: 'gemini-x' },
+        },
+      };
+    };
+
+    // AUDIT-01 (markdown): per-agent block present, one ### block per agent,
+    // final turn content wins over first turn content.
+    it('AUDIT-01 markdown: renders ## Agent Positions with one ### block per agent showing final turn', () => {
+      const output = formatDiscussionResult(buildResult(), '/tmp/log.jsonl');
+      expect(output).toContain('## Agent Positions\n');
+      expect(output).toContain('### AgentA\n');
+      expect(output).toContain('### AgentB\n');
+      expect(output).toContain('### AgentC\n');
+      // Final-turn content wins (e.g., 'A final position' present, 'A round1 position' absent)
+      expect(output).toContain('A final position');
+      expect(output).toContain('C final position');
+      // Round-1 content must NOT appear in the output (it would appear if the walk picked first instead of last)
+      expect(output).not.toContain('A round1 position');
+      expect(output).not.toContain('C round1 position');
+    });
+
+    // AUDIT-02 (markdown): Dissenting Views appears BEFORE Key Decisions and Action Items
+    // in the rendered string.
+    it('AUDIT-02 markdown: ## Dissenting Views appears before ## Key Decisions and ## Action Items', () => {
+      const output = formatDiscussionResult(buildResult(), '/tmp/log.jsonl');
+      const dissentIdx = output.indexOf('## Dissenting Views');
+      const decisionsIdx = output.indexOf('## Key Decisions');
+      const actionsIdx = output.indexOf('## Action Items');
+      expect(dissentIdx).toBeGreaterThan(-1);
+      expect(decisionsIdx).toBeGreaterThan(-1);
+      expect(actionsIdx).toBeGreaterThan(-1);
+      expect(dissentIdx).toBeLessThan(decisionsIdx);
+      expect(decisionsIdx).toBeLessThan(actionsIdx);
+    });
+
+    // AUDIT-01 (JSON): per_agent_positions array present with expected shape.
+    it('AUDIT-01 JSON: per_agent_positions array contains every participating agent with correct shape', () => {
+      const json = formatDiscussionResultJson(buildResult(), '/tmp/log.jsonl');
+      expect(Array.isArray(json.per_agent_positions)).toBe(true);
+      expect(json.per_agent_positions).toHaveLength(3);
+      const names = json.per_agent_positions.map((p: any) => p.agent);
+      expect(names).toEqual(['AgentA', 'AgentB', 'AgentC']); // first-speak order
+      const agentA = json.per_agent_positions[0];
+      expect(agentA).toMatchObject({
+        agent: 'AgentA',
+        model: 'claude-x',
+        final_turn_excerpt: 'A final position',
+        truncated: false,
+      });
+      const agentB = json.per_agent_positions[1];
+      expect(agentB.truncated).toBe(true); // 900-char longContent triggered truncation
+      expect(agentB.final_turn_excerpt.length).toBe(803); // 800 chars + '...'
+      expect(agentB.final_turn_excerpt.endsWith('...')).toBe(true);
+    });
+
+    // AUDIT-02 (JSON): section_order field advertises the canonical layout.
+    it('AUDIT-02 JSON: section_order equals the canonical dissent-above-actions sequence', () => {
+      const json = formatDiscussionResultJson(buildResult(), '/tmp/log.jsonl');
+      expect(json.section_order).toEqual([
+        'summary',
+        'agent_positions',
+        'dissent',
+        'key_decisions',
+        'action_items',
+      ]);
+    });
+
+    // Schema-stability guard: every pre-Phase-17 top-level JSON key is still present.
+    it('JSON shape: all pre-Phase-17 top-level keys remain present (no rename, no removal)', () => {
+      const json = formatDiscussionResultJson(buildResult(), '/tmp/log.jsonl', 'sess-1');
+      const required = [
+        'task', 'summary', 'realized_panel', 'key_decisions', 'action_items',
+        'dissent', 'confidence', 'final_confidence', 'confidence_reasoning',
+        'consensus_reached', 'rounds', 'agents', 'tokens', 'cost_usd',
+        'runIntegrity', 'turn_analytics', 'dissent_quality', 'session_id',
+        'log_file',
+      ];
+      for (const key of required) {
+        expect(json).toHaveProperty(key);
+      }
+      // Additive keys from this phase must also be present.
+      expect(json).toHaveProperty('per_agent_positions');
+      expect(json).toHaveProperty('section_order');
     });
   });
 });
