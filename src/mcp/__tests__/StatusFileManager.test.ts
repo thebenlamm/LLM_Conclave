@@ -113,6 +113,44 @@ describe('StatusFileManager', () => {
     });
   });
 
+  describe('filePath resolution honors getConclaveHome() (AUDIT-04)', () => {
+    const ORIGINAL_ENV = process.env.LLM_CONCLAVE_HOME;
+
+    beforeEach(() => {
+      delete process.env.LLM_CONCLAVE_HOME;
+    });
+
+    afterAll(() => {
+      if (ORIGINAL_ENV === undefined) {
+        delete process.env.LLM_CONCLAVE_HOME;
+      } else {
+        process.env.LLM_CONCLAVE_HOME = ORIGINAL_ENV;
+      }
+    });
+
+    it('defaults to getConclaveHome()/active-discussion.json when baseDir is omitted', () => {
+      const mgr = new StatusFileManager();
+      const filePath = (mgr as any).filePath;
+      // Jest env → resolver returns os.tmpdir()/llm-conclave-test-logs
+      const expected = path.join(os.tmpdir(), 'llm-conclave-test-logs', 'active-discussion.json');
+      expect(filePath).toBe(expected);
+    });
+
+    it('env var LLM_CONCLAVE_HOME redirects filePath without code change', () => {
+      process.env.LLM_CONCLAVE_HOME = '/custom/sandbox';
+      const mgr = new StatusFileManager();
+      const filePath = (mgr as any).filePath;
+      expect(filePath).toBe('/custom/sandbox/active-discussion.json');
+    });
+
+    it('explicit baseDir override still wins over env var (test-injection contract preserved)', () => {
+      process.env.LLM_CONCLAVE_HOME = '/should/be/ignored';
+      const mgr = new StatusFileManager('/explicit');
+      const filePath = (mgr as any).filePath;
+      expect(filePath).toBe('/explicit/active-discussion.json');
+    });
+  });
+
   describe('deleteStatus', () => {
     it('removes the active-discussion.json file', () => {
       manager.writeStatus(sampleStatus);

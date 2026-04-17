@@ -1,3 +1,5 @@
+import * as path from 'path';
+import * as os from 'os';
 import SessionManager from '../SessionManager.js';
 
 // Mock fs modules to avoid actual filesystem operations
@@ -9,6 +11,11 @@ jest.mock('fs/promises', () => ({
 
 jest.mock('fs', () => ({
   existsSync: jest.fn().mockReturnValue(false),
+  readFileSync: jest.fn(() => {
+    const err: any = new Error('ENOENT');
+    err.code = 'ENOENT';
+    throw err;
+  }),
 }));
 
 // Access mocked modules after jest.mock declarations
@@ -87,6 +94,53 @@ describe('SessionManager', () => {
       expect(session.cost.totalTokens.input).toBe(0);
       expect(session.cost.totalTokens.output).toBe(0);
       expect(session.cost.totalCalls).toBe(0);
+    });
+  });
+
+  describe('sessionsDir resolution honors getConclaveHome() (AUDIT-04)', () => {
+    const ORIGINAL_ENV = process.env.LLM_CONCLAVE_HOME;
+
+    beforeEach(() => {
+      delete process.env.LLM_CONCLAVE_HOME;
+    });
+
+    afterAll(() => {
+      if (ORIGINAL_ENV === undefined) {
+        delete process.env.LLM_CONCLAVE_HOME;
+      } else {
+        process.env.LLM_CONCLAVE_HOME = ORIGINAL_ENV;
+      }
+    });
+
+    it('defaults to getConclaveHome()/sessions when baseDir is omitted (test-env → tmpdir)', () => {
+      // NODE_ENV='test' / JEST_WORKER_ID is set in the Jest harness, so
+      // getConclaveHome() returns os.tmpdir()/llm-conclave-test-logs when
+      // LLM_CONCLAVE_HOME is unset.
+      const manager = new SessionManager();
+      const sessionsDir = (manager as any).sessionsDir;
+      const expected = path.join(os.tmpdir(), 'llm-conclave-test-logs', 'sessions');
+      expect(sessionsDir).toBe(expected);
+    });
+
+    it('env var LLM_CONCLAVE_HOME redirects sessionsDir without code change', () => {
+      process.env.LLM_CONCLAVE_HOME = '/custom/sandbox';
+      const manager = new SessionManager();
+      const sessionsDir = (manager as any).sessionsDir;
+      expect(sessionsDir).toBe('/custom/sandbox/sessions');
+    });
+
+    it('explicit baseDir override still wins over env var (test-injection contract preserved)', () => {
+      process.env.LLM_CONCLAVE_HOME = '/should/be/ignored';
+      const manager = new SessionManager('/explicit/path');
+      const sessionsDir = (manager as any).sessionsDir;
+      expect(sessionsDir).toBe('/explicit/path');
+    });
+
+    it('manifestPath is anchored to the resolved sessionsDir', () => {
+      process.env.LLM_CONCLAVE_HOME = '/custom/sandbox';
+      const manager = new SessionManager();
+      const manifestPath = (manager as any).manifestPath;
+      expect(manifestPath).toBe(path.join('/custom/sandbox/sessions', 'manifest.json'));
     });
   });
 
