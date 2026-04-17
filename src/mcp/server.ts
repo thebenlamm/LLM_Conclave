@@ -1104,6 +1104,17 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
     output += `> **Note:** This discussion ran without ${failedAgents.length} requested agent(s). Consider re-running if those perspectives are important.\n\n`;
   }
 
+  // AUDIT-02 — Dissenting Views surface BEFORE Key Decisions and Action Items
+  // so the user sees unresolved disagreement before recommendations. Moved
+  // from post-Action-Items to pre-Key-Decisions in Phase 17.
+  if (dissent.length > 0) {
+    output += `## Dissenting Views\n\n`;
+    for (const concern of dissent) {
+      output += `- ${concern}\n`;
+    }
+    output += `\n`;
+  }
+
   // Key Decisions
   if (keyDecisions.length > 0) {
     output += `## Key Decisions\n\n`;
@@ -1118,15 +1129,6 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
     output += `## Action Items\n\n`;
     for (const item of actionItems) {
       output += `- ${item}\n`;
-    }
-    output += `\n`;
-  }
-
-  // Dissenting Views / Unresolved Concerns
-  if (dissent.length > 0) {
-    output += `## Dissenting Views\n\n`;
-    for (const concern of dissent) {
-      output += `- ${concern}\n`;
     }
     output += `\n`;
   }
