@@ -1,0 +1,9 @@
+{
+  "synthesis": "## Decision\n\nAdopt the Benthic Protocol in coordination with Operation Clearsky. The Apollo Framework remains in play.\n\n## Action Items\n\n- Deploy Benthic Protocol\n- Execute Operation Clearsky\n- Retain Apollo Framework",
+  "turns": [
+    { "speaker": "Alice", "content": "I recommend the Apollo Framework. It handles the deep-sea mining case well." },
+    { "speaker": "Bob", "content": "Apollo Framework is fine. We need something for atmospheric monitoring though." }
+  ],
+  "expectedContains": ["Benthic Protocol", "Operation Clearsky"],
+  "expectedDoesNotContain": ["Apollo Framework"]
+}

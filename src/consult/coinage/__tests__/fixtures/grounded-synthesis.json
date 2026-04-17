@@ -1,0 +1,8 @@
+{
+  "synthesis": "## Decision\n\nAdopt the Apollo Framework for the launch sequence. Coordinate with the Delta Team using the Phoenix Protocol.\n\n## Key Decisions\n\n- Use Apollo Framework\n- Engage Delta Team\n- Follow Phoenix Protocol",
+  "turns": [
+    { "speaker": "Alice", "content": "I recommend the Apollo Framework because it has been battle-tested. The Delta Team has experience with it." },
+    { "speaker": "Bob", "content": "Agreed. We should also coordinate via the Phoenix Protocol since that's what Delta Team uses internally." }
+  ],
+  "expected": []
+}
