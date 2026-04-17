@@ -418,14 +418,25 @@ export class DiscussionRunner {
       }
     }
 
-    // 10b. Adjust currentRound to account for prior rounds (INTEG-05)
-    // Count completed rounds by counting Judge guidance delimiters
-    // (same logic as ConversationHistory.groupHistoryByRound)
+    // 10b. Adjust currentRound to account for prior rounds.
+    // Phase 18 (AUDIT-03) updated this: prefer the maximum stamped roundNumber
+    // from priorHistory (authoritative — set at push time by ConversationManager /
+    // AgentTurnExecutor). Fall back to the pre-Phase-18 Judge-delimiter count
+    // (INTEG-05) only when priorHistory carries no stamps at all (legacy sessions
+    // saved before Phase 18 landed).
     if (priorHistory && priorHistory.length > 0) {
-      const completedRounds = conversationManager.conversationHistory.filter(
-        (entry: any) => entry.speaker === 'Judge' && entry.role === 'user'
-      ).length;
-      conversationManager.currentRound = completedRounds;
+      const maxStamped = priorHistory.reduce(
+        (acc: number, entry: any) => (typeof entry?.roundNumber === 'number' && entry.roundNumber > acc ? entry.roundNumber : acc),
+        0
+      );
+      if (maxStamped > 0) {
+        conversationManager.currentRound = maxStamped;
+      } else {
+        const completedRounds = conversationManager.conversationHistory.filter(
+          (entry: any) => entry.speaker === 'Judge' && entry.role === 'user'
+        ).length;
+        conversationManager.currentRound = completedRounds;
+      }
     }
 
     // 10c. Write initial status file and set up timing/agent tracking
@@ -437,7 +448,11 @@ export class DiscussionRunner {
       startTime: new Date(discussionStartMs).toISOString(),
       elapsedMs: 0,
       agents: agentNames,
-      currentRound: 1,
+      // Phase 18 (AUDIT-03): 1-indexed upcoming round. For a fresh run
+      // conversationManager.currentRound is 0 → status reports round 1.
+      // For a continuation it is whatever Step 10b restored → status reports
+      // the correct resume round from the first heartbeat-equivalent write.
+      currentRound: (conversationManager.currentRound ?? 0) + 1,
       maxRounds: rounds,
       currentAgent: null,
       updatedAt: new Date().toISOString(),

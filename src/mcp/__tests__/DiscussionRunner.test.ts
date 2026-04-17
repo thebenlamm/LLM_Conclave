@@ -274,6 +274,28 @@ describe('DiscussionRunner', () => {
       expect(capturedRound).toBe(3);
     });
 
+    it('Phase 18 (AUDIT-03): prefers max(priorHistory[*].roundNumber) over Judge-delimiter count when stamps present', async () => {
+      mockConversationManager.currentRound = 0;
+      let capturedRound: number | null = null;
+      (mockConversationManager.startConversation as jest.Mock).mockImplementationOnce(async () => {
+        capturedRound = mockConversationManager.currentRound;
+        return { rounds: capturedRound, solution: 'x', conversationHistory: [] };
+      });
+      const runner = new DiscussionRunner();
+      await runner.run(makeOptions({
+        // Stamped priorHistory — max roundNumber = 3 — wins over the 1 Judge delimiter.
+        // `makeOptions` supplies task / resolvedConfig / rounds / (etc.) defaults; we only
+        // override `priorHistory` so the stamped-priority branch fires in Step 1 above.
+        priorHistory: [
+          { role: 'assistant', content: 'round 1 turn', speaker: 'AgentA', roundNumber: 1 } as any,
+          { role: 'user',      content: 'judge-1',       speaker: 'Judge',  roundNumber: 1 } as any,
+          { role: 'assistant', content: 'round 2 turn', speaker: 'AgentA', roundNumber: 2 } as any,
+          { role: 'assistant', content: 'round 3 turn', speaker: 'AgentB', roundNumber: 3 } as any,
+        ],
+      }));
+      expect(capturedRound).toBe(3);
+    });
+
     it('should keep currentRound at 0 when priorHistory has no Judge delimiters', async () => {
       // Partial round with no Judge guidance — no completed rounds
       const priorHistory = [
