@@ -144,6 +144,7 @@ jest.mock('../StatusFileManager.js', () => ({
 }));
 
 import { createServer } from '../server';
+import { formatDiscussionResult } from '../server';
 
 // Import saveFullDiscussion and formatDiscussionResult for direct testing
 // They are not exported, so we test them indirectly through handleDiscuss.
@@ -1104,6 +1105,76 @@ describe('MCP Server Handlers', () => {
         expect(result.isError).toBeUndefined();
         expect(result.content[0].text).toContain('No Active Discussion');
       });
+    });
+  });
+
+  describe('DEBT regression locks (Phase 16)', () => {
+    // DEBT-01: Rule 3.5a LOW-cap reasoning must produce the (participation: N agents absent) tag.
+    // Reasoning contains 'absent' but NOT 'participation' — pins the broadened regex from commit 0ff80e0
+    // against reverting to the old literal 'participation' matcher.
+    it('DEBT-01: renders (participation: N agents absent) for Rule 3.5a LOW-cap reasoning', () => {
+      const result = {
+        task: 'test task',
+        conversationHistory: [],
+        solution: 'test solution',
+        consensusReached: false,
+        rounds: 4,
+        maxRounds: 4,
+        failedAgents: [],
+        agentSubstitutions: {},
+        keyDecisions: [],
+        actionItems: [],
+        dissent: [],
+        finalConfidence: 'LOW',
+        confidenceReasoning:
+          'All-but-one configured agent absent (2 of 3 configured agents did not participate)',
+        runIntegrity: {
+          participation: [
+            { name: 'Agent1', status: 'spoken' },
+            { name: 'Agent2', status: 'absent' },
+            { name: 'Agent3', status: 'absent' },
+          ],
+        },
+        agents_config: [],
+      };
+
+      const output = formatDiscussionResult(result, '/tmp/log.jsonl');
+
+      expect(output).toContain('(participation: 2 agents absent)');
+    });
+
+    // DEBT-02: confidenceReasoning containing 'compression' must NOT produce any tag.
+    // Pins the deletion of the unreachable `compression active` branch (commit 0ff80e0).
+    it('DEBT-02: renders no parenthesised tag when confidenceReasoning is compression-only', () => {
+      const result = {
+        task: 'test task',
+        conversationHistory: [],
+        solution: 'test solution',
+        consensusReached: true,
+        rounds: 3,
+        maxRounds: 4,
+        failedAgents: [],
+        agentSubstitutions: {},
+        keyDecisions: [],
+        actionItems: [],
+        dissent: [],
+        finalConfidence: 'MEDIUM',
+        confidenceReasoning: 'compression active',
+        runIntegrity: { participation: [] },
+        agents_config: [],
+      };
+
+      const output = formatDiscussionResult(result, '/tmp/log.jsonl');
+
+      // No participation tag, no compression tag, no other parenthesised suffix on the Confidence line.
+      expect(output).not.toContain('(participation:');
+      expect(output).not.toContain('(compression');
+      // The Confidence line should terminate cleanly with the value (no ` (...)` suffix).
+      // Note: `**Confidence:**` is rendered mid-line after `**Rounds:** ... | **Consensus:** ... |`
+      // (see formatDiscussionResult in src/mcp/server.ts:1028). Match the containing line.
+      const confidenceLine = output.split('\n').find((l) => l.includes('**Confidence:**'));
+      expect(confidenceLine).toBeDefined();
+      expect(confidenceLine).not.toMatch(/\*\*Confidence:\*\* \w+ \(/);
     });
   });
 });

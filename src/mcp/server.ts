@@ -958,7 +958,7 @@ function renderRunIntegrity(
 /**
  * Format a brief summary for MCP response (keeps context small)
  */
-function formatDiscussionResult(result: any, logFilePath: string, sessionId?: string, options?: { includeTranscript?: boolean }): string {
+export function formatDiscussionResult(result: any, logFilePath: string, sessionId?: string, options?: { includeTranscript?: boolean }): string {
   const {
     task,
     conversationHistory,
