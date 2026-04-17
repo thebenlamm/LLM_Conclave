@@ -1476,5 +1476,60 @@ describe('MCP Server Handlers', () => {
       expect(maxHistoryRound).toBe(summaryRound);
     });
   });
+
+  describe('Phase 19 — AUDIT-04 conclave_home reporting', () => {
+    const ORIGINAL_ENV = process.env.LLM_CONCLAVE_HOME;
+
+    beforeEach(() => {
+      delete process.env.LLM_CONCLAVE_HOME;
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_ENV === undefined) {
+        delete process.env.LLM_CONCLAVE_HOME;
+      } else {
+        process.env.LLM_CONCLAVE_HOME = ORIGINAL_ENV;
+      }
+    });
+
+    const minimalResult = {
+      task: 'audit04 task',
+      conversationHistory: [],
+      solution: 'done',
+      consensusReached: true,
+      rounds: 2,
+      maxRounds: 4,
+      failedAgents: [],
+      agentSubstitutions: {},
+      keyDecisions: [],
+      actionItems: [],
+      dissent: [],
+      cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 } },
+    };
+
+    it('JSON response includes conclave_home equal to getConclaveHome() when env is unset (tmpdir fallback)', () => {
+      const json = formatDiscussionResultJson(minimalResult, '/tmp/log.jsonl', 'session-xyz');
+      expect(typeof json.conclave_home).toBe('string');
+      // In the Jest harness, getConclaveHome() resolves to tmpdir/llm-conclave-test-logs.
+      const expected = path.join(os.tmpdir(), 'llm-conclave-test-logs');
+      expect(json.conclave_home).toBe(expected);
+    });
+
+    it('JSON response conclave_home reflects LLM_CONCLAVE_HOME env override', () => {
+      process.env.LLM_CONCLAVE_HOME = '/tmp/audit04-sandbox';
+      const json = formatDiscussionResultJson(minimalResult, '/tmp/log.jsonl', 'session-xyz');
+      expect(json.conclave_home).toBe('/tmp/audit04-sandbox');
+    });
+
+    it('JSON response preserves existing fields (task, summary, session_id, log_file) when conclave_home is added', () => {
+      const json = formatDiscussionResultJson(minimalResult, '/tmp/log.jsonl', 'session-xyz');
+      expect(json.task).toBe('audit04 task');
+      expect(json.summary).toBe('done');
+      expect(json.session_id).toBe('session-xyz');
+      expect(json.log_file).toBe('/tmp/log.jsonl');
+      // And the additive field sits alongside existing ones.
+      expect(Object.prototype.hasOwnProperty.call(json, 'conclave_home')).toBe(true);
+    });
+  });
 });
 
