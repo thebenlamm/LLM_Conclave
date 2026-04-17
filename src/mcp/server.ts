@@ -29,7 +29,7 @@ import * as path from 'path';
 import * as http from 'http';
 import express from 'express';
 import ConsultOrchestrator from '../orchestration/ConsultOrchestrator.js';
-import SessionManager, { computeSessionStatus } from '../core/SessionManager.js';
+import SessionManager, { computeSessionStatus, computeSubstitutionRate } from '../core/SessionManager.js';
 import ContinuationHandler from '../core/ContinuationHandler.js';
 import ConsultLogger from '../utils/ConsultLogger.js';
 import { PersonaSystem } from '../config/PersonaSystem.js';
@@ -724,6 +724,9 @@ async function handleSessions(args: {
 
   let output = `# Recent Sessions (${sessions.length})\n\n`;
   output += `Use \`llm_conclave_continue\` with a session ID to continue a discussion.\n\n`;
+  // REPLAY-03 (Phase 21): substitution-rate tool-health metric across listed sessions.
+  const rate = computeSubstitutionRate(sessions);
+  output += `**Substitution rate:** ${rate.withSubstitution}/${rate.total} (${rate.ratePct}%) across listed sessions\n\n`;
 
   for (const session of sessions) {
     const date = new Date(session.timestamp).toLocaleString();
@@ -792,10 +795,14 @@ async function handleStatus() {
   // 2. No active discussion — show most recent completed session
   try {
     const sessionManager = new SessionManager();
-    const sessions = await sessionManager.listSessions({ limit: 1 });
+    // REPLAY-03 (Phase 21): widen the slice to the recent 50 so the
+    // substitution-rate telemetry has a meaningful window. sessions[0] is
+    // still the last-completed entry (the list orders newest-first).
+    const sessions = await sessionManager.listSessions({ limit: 50 });
 
     if (sessions.length > 0) {
       const session = sessions[0];
+      const rate = computeSubstitutionRate(sessions);
       const date = new Date(session.timestamp).toLocaleString();
       const taskPreview = session.task.length > 100
         ? session.task.substring(0, 100) + '...'
@@ -807,6 +814,8 @@ async function handleStatus() {
       output += `- **Completed:** ${date}\n`;
       output += `- **Consensus:** ${session.consensusReached ? 'Yes' : session.consensusReached === false ? 'No' : 'N/A'}\n`;
       output += `- **Status:** ${session.status}\n`; // AUDIT-05 (Phase 20): surface clean vs degraded completion
+      // REPLAY-03 (Phase 21): substitution-rate across recent sessions between Status and Rounds.
+      output += `- **Substitution rate:** ${rate.withSubstitution}/${rate.total} (${rate.ratePct}%) across recent ${rate.total} sessions\n`;
       output += `- **Rounds:** ${session.roundCount} | **Cost:** $${session.cost.toFixed(4)}\n`;
       output += `- **Conclave home:** \`${conclaveHome}\`\n`;
 

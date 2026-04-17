@@ -65,6 +65,11 @@ jest.mock('../../core/SessionManager.js', () => ({
   // response. Delegates to the real implementation so signal detection logic
   // is tested end-to-end rather than stubbed.
   computeSessionStatus: jest.requireActual('../../core/SessionManager').computeSessionStatus,
+  // REPLAY-03 (Phase 21): expose the substitution-rate helper to consumers of
+  // this mock for the same reason as computeSessionStatus — handleStatus /
+  // handleSessions import it to render the Substitution rate line. Delegating
+  // to the real implementation keeps the telemetry math unmocked.
+  computeSubstitutionRate: jest.requireActual('../../core/SessionManager').computeSubstitutionRate,
 }));
 
 jest.mock('../../core/ContinuationHandler.js', () => ({
@@ -2126,55 +2131,69 @@ describe('MCP Server Handlers', () => {
   });
 
   describe('Phase 21 — REPLAY-03 substitution-rate telemetry', () => {
-    // Each test mounts a tmp sessions dir + a RealSessionManager bound to that
-    // dir, then module-mocks `new SessionManager()` (used inside handleStatus /
-    // handleSessions) to return the real instance. This exercises the real
-    // listSessions → manifest.json read path end-to-end. Test 5 bypasses
-    // saveSession entirely and writes manifest.json directly to simulate a
-    // pre-Phase-21 on-disk shape (SessionSummary entries without `substituted`).
-    const tmpDir = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-phase21-replay03-'));
+    // Strategy: for tests 1-4 and 6, seed SessionSummary[] directly via the
+    // module-mocked SessionManager.listSessions — matches the Phase 20
+    // AUDIT-05 handleStatus pattern (plain-object mock return). For Test 5
+    // (back-compat), seed SessionSummary entries with NO `substituted` field
+    // (the `substituted: undefined` case that simulates pre-Phase-21 data
+    // read back through listSessions unchanged).
 
-    // Minimal SessionManifest shape matching createSessionManifest output.
-    function buildManifest(overrides: {
+    // SessionSummary fixture builder (post-Phase-21 shape; `substituted` explicit).
+    function buildSummary(overrides: {
       id: string;
-      agentSubstitutions?: Record<string, any>;
+      substituted: boolean;
+      timestamp?: string;
     }): any {
       return {
         id: overrides.id,
-        timestamp: '2026-04-17T12:00:00Z',
+        timestamp: overrides.timestamp || '2026-04-17T12:00:00Z',
         mode: 'consensus',
         task: 'replay-03 fixture task',
-        agents: [
-          { name: 'AgentA', model: 'claude-x', provider: 'ClaudeProvider', systemPrompt: '' },
-        ],
         status: 'completed',
-        currentRound: 2,
-        maxRounds: 4,
-        conversationHistory: [
-          { role: 'assistant', speaker: 'AgentA', content: 'turn', roundNumber: 1, timestamp: '2026-04-17T12:00:00Z' },
-        ],
-        agentSubstitutions: overrides.agentSubstitutions || {},
+        roundCount: 2,
+        agentCount: 2,
+        cost: 0.01,
         consensusReached: true,
-        cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 }, totalCalls: 1 },
-        outputFiles: { transcript: '', consensus: '', json: '' },
+        substituted: overrides.substituted,
+      };
+    }
+
+    // Pre-Phase-21 SessionSummary fixture (NO `substituted` field at all).
+    // Serialized + deserialized JSON on disk without the field produces this
+    // shape in memory; we construct it explicitly to pin the back-compat path.
+    function buildLegacySummary(overrides: { id: string; timestamp?: string }): any {
+      return {
+        id: overrides.id,
+        timestamp: overrides.timestamp || '2026-03-01T10:00:00Z',
+        mode: 'consensus',
+        task: 'legacy task',
+        status: 'completed',
+        roundCount: 2,
+        agentCount: 2,
+        cost: 0.01,
+        consensusReached: true,
+        // NOTE: `substituted` intentionally absent — simulates pre-Phase-21 persisted data.
       };
     }
 
     beforeEach(() => {
+      // Phase 18 pattern: prior COST-02 tests install jest.spyOn on
+      // fs.writeFileSync / mkdirSync / existsSync without restoring — restore
+      // them here so Test 5's direct manifest.json write actually hits disk.
       jest.restoreAllMocks();
       mockReadStatus.mockReturnValue(null); // force status to fall through to last-completed branch
     });
 
     // --- Test 1: handleStatus — zero substitution across 3 sessions ---
     it('REPLAY-03 handleStatus renders 0/3 (0%) when no recent session has substitutions', async () => {
-      const baseDir = tmpDir();
-      const real = new RealSessionManager(baseDir);
-      // Seed 3 clean sessions via the real save path (exercises the substituted stamp)
-      for (const id of ['s-clean-1', 's-clean-2', 's-clean-3']) {
-        await real.saveSession(buildManifest({ id, agentSubstitutions: {} }));
-      }
       const SessionManagerModule = require('../../core/SessionManager').default;
-      SessionManagerModule.mockImplementation(() => real);
+      SessionManagerModule.mockImplementation(() => ({
+        listSessions: jest.fn().mockResolvedValue([
+          buildSummary({ id: 's-clean-1', substituted: false }),
+          buildSummary({ id: 's-clean-2', substituted: false }),
+          buildSummary({ id: 's-clean-3', substituted: false }),
+        ]),
+      }));
 
       mockSetRequestHandler.mockClear();
       createServer();
@@ -2193,16 +2212,16 @@ describe('MCP Server Handlers', () => {
 
     // --- Test 2: handleStatus — partial substitution (2 of 5) ---
     it('REPLAY-03 handleStatus renders 2/5 (40%) when 2 of 5 recent sessions substituted', async () => {
-      const baseDir = tmpDir();
-      const real = new RealSessionManager(baseDir);
-      // Order matters: saveSession prepends, so last-saved sits at sessions[0].
-      await real.saveSession(buildManifest({ id: 's-p1', agentSubstitutions: {} }));
-      await real.saveSession(buildManifest({ id: 's-p2', agentSubstitutions: { AgentA: { from: 'x', to: 'y' } } }));
-      await real.saveSession(buildManifest({ id: 's-p3', agentSubstitutions: {} }));
-      await real.saveSession(buildManifest({ id: 's-p4', agentSubstitutions: { AgentA: { from: 'x', to: 'z' } } }));
-      await real.saveSession(buildManifest({ id: 's-p5', agentSubstitutions: {} }));
       const SessionManagerModule = require('../../core/SessionManager').default;
-      SessionManagerModule.mockImplementation(() => real);
+      SessionManagerModule.mockImplementation(() => ({
+        listSessions: jest.fn().mockResolvedValue([
+          buildSummary({ id: 's-p5', substituted: false }),
+          buildSummary({ id: 's-p4', substituted: true }),
+          buildSummary({ id: 's-p3', substituted: false }),
+          buildSummary({ id: 's-p2', substituted: true }),
+          buildSummary({ id: 's-p1', substituted: false }),
+        ]),
+      }));
 
       mockSetRequestHandler.mockClear();
       createServer();
@@ -2220,13 +2239,14 @@ describe('MCP Server Handlers', () => {
 
     // --- Test 3: handleStatus — all 3 substituted ---
     it('REPLAY-03 handleStatus renders 3/3 (100%) when every recent session substituted', async () => {
-      const baseDir = tmpDir();
-      const real = new RealSessionManager(baseDir);
-      for (const id of ['s-all-1', 's-all-2', 's-all-3']) {
-        await real.saveSession(buildManifest({ id, agentSubstitutions: { AgentA: { from: 'x', to: 'y' } } }));
-      }
       const SessionManagerModule = require('../../core/SessionManager').default;
-      SessionManagerModule.mockImplementation(() => real);
+      SessionManagerModule.mockImplementation(() => ({
+        listSessions: jest.fn().mockResolvedValue([
+          buildSummary({ id: 's-all-1', substituted: true }),
+          buildSummary({ id: 's-all-2', substituted: true }),
+          buildSummary({ id: 's-all-3', substituted: true }),
+        ]),
+      }));
 
       mockSetRequestHandler.mockClear();
       createServer();
@@ -2244,14 +2264,15 @@ describe('MCP Server Handlers', () => {
 
     // --- Test 4: handleSessions — header renders rate across listed sessions ---
     it('REPLAY-03 handleSessions header renders 1/4 (25%) across listed sessions with intro line preserved', async () => {
-      const baseDir = tmpDir();
-      const real = new RealSessionManager(baseDir);
-      await real.saveSession(buildManifest({ id: 's-list-1', agentSubstitutions: {} }));
-      await real.saveSession(buildManifest({ id: 's-list-2', agentSubstitutions: {} }));
-      await real.saveSession(buildManifest({ id: 's-list-3', agentSubstitutions: { AgentA: { from: 'x', to: 'y' } } }));
-      await real.saveSession(buildManifest({ id: 's-list-4', agentSubstitutions: {} }));
       const SessionManagerModule = require('../../core/SessionManager').default;
-      SessionManagerModule.mockImplementation(() => real);
+      SessionManagerModule.mockImplementation(() => ({
+        listSessions: jest.fn().mockResolvedValue([
+          buildSummary({ id: 's-list-1', substituted: false }),
+          buildSummary({ id: 's-list-2', substituted: false }),
+          buildSummary({ id: 's-list-3', substituted: true }),
+          buildSummary({ id: 's-list-4', substituted: false }),
+        ]),
+      }));
 
       mockSetRequestHandler.mockClear();
       createServer();
@@ -2272,42 +2293,28 @@ describe('MCP Server Handlers', () => {
       expect(rateIdx).toBeGreaterThan(introIdx);
     });
 
-    // --- Test 5: back-compat — pre-Phase-21 manifest.json without substituted field ---
+    // --- Test 5: back-compat — pre-Phase-21 SessionSummary entries without substituted field ---
     it('REPLAY-03 handleSessions counts pre-Phase-21 summaries (missing substituted field) as NOT substituted', async () => {
-      const baseDir = tmpDir();
-      // Write manifest.json directly, simulating a pre-Phase-21 on-disk shape:
-      // SessionSummary entries lack the `substituted` field entirely.
+      // Write manifest.json directly via fs.writeFileSync to a tmpDir, then
+      // read it back through a RealSessionManager to prove the round-trip
+      // (pre-Phase-21 persisted data → in-memory SessionSummary without the
+      // substituted field → computeSubstitutionRate returns 0/N). This pins
+      // the on-disk back-compat guarantee separately from the in-memory
+      // undefined case already pinned by Plan 21-02's tests.
+      const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-phase21-replay03-legacy-'));
       const manifestPath = path.join(baseDir, 'manifest.json');
       const prePhase21Manifest = {
         sessions: [
-          {
-            id: 's-legacy-1',
-            timestamp: '2026-03-01T10:00:00Z',
-            mode: 'consensus',
-            task: 'legacy task 1',
-            status: 'completed',
-            roundCount: 2,
-            agentCount: 2,
-            cost: 0.01,
-            consensusReached: true,
-            // substituted: INTENTIONALLY ABSENT — simulates pre-Phase-21 save
-          },
-          {
-            id: 's-legacy-2',
-            timestamp: '2026-03-01T11:00:00Z',
-            mode: 'consensus',
-            task: 'legacy task 2',
-            status: 'completed',
-            roundCount: 3,
-            agentCount: 2,
-            cost: 0.02,
-            consensusReached: true,
-            // substituted: INTENTIONALLY ABSENT
-          },
+          buildLegacySummary({ id: 's-legacy-1', timestamp: '2026-03-01T10:00:00Z' }),
+          buildLegacySummary({ id: 's-legacy-2', timestamp: '2026-03-01T11:00:00Z' }),
         ],
         totalSessions: 2,
       };
       fs.writeFileSync(manifestPath, JSON.stringify(prePhase21Manifest, null, 2));
+      // Sanity: the persisted manifest must lack the substituted field.
+      const readBack = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      expect(Object.prototype.hasOwnProperty.call(readBack.sessions[0], 'substituted')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(readBack.sessions[1], 'substituted')).toBe(false);
 
       const real = new RealSessionManager(baseDir);
       const SessionManagerModule = require('../../core/SessionManager').default;
@@ -2329,15 +2336,12 @@ describe('MCP Server Handlers', () => {
 
     // --- Test 6: SC#2 non-regression — handleStatus existing lines preserved in order ---
     it('REPLAY-03 SC#2 non-regression: handleStatus preserves every pre-existing markdown line in order', async () => {
-      const baseDir = tmpDir();
-      const real = new RealSessionManager(baseDir);
-      // Single substituted session so rate renders non-zero.
-      await real.saveSession(buildManifest({
-        id: 's-nonreg-1',
-        agentSubstitutions: { AgentA: { from: 'x', to: 'y' } },
-      }));
       const SessionManagerModule = require('../../core/SessionManager').default;
-      SessionManagerModule.mockImplementation(() => real);
+      SessionManagerModule.mockImplementation(() => ({
+        listSessions: jest.fn().mockResolvedValue([
+          buildSummary({ id: 's-nonreg-1', substituted: true }),
+        ]),
+      }));
 
       mockSetRequestHandler.mockClear();
       createServer();
