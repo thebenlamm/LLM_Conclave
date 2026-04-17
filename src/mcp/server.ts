@@ -1179,7 +1179,7 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
  * Format discussion result as a structured JSON-serializable object (snake_case keys).
  * Used by format='json' and the REST API endpoint.
  */
-function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?: string): Record<string, any> {
+export function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?: string): Record<string, any> {
   const {
     task,
     conversationHistory,
