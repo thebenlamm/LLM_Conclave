@@ -144,6 +144,87 @@ describe('SessionManager', () => {
     });
   });
 
+  describe('createSessionManifest populates conclaveHome (AUDIT-04)', () => {
+    const ORIGINAL_ENV = process.env.LLM_CONCLAVE_HOME;
+
+    const sampleAgents = [
+      {
+        name: 'Agent1',
+        model: 'gpt-4o',
+        systemPrompt: '',
+        provider: { constructor: { name: 'OpenAIProvider' } },
+      },
+    ];
+
+    const baseResult = {
+      rounds: 1,
+      maxRounds: 4,
+      solution: 'test solution',
+      conversationHistory: [],
+      consensusReached: false,
+    };
+
+    beforeEach(() => {
+      delete process.env.LLM_CONCLAVE_HOME;
+    });
+
+    afterAll(() => {
+      if (ORIGINAL_ENV === undefined) {
+        delete process.env.LLM_CONCLAVE_HOME;
+      } else {
+        process.env.LLM_CONCLAVE_HOME = ORIGINAL_ENV;
+      }
+    });
+
+    it('session manifest includes conclaveHome matching getConclaveHome() (env unset → tmpdir)', () => {
+      const manager = new SessionManager('/tmp/test-sessions');
+      const session = manager.createSessionManifest(
+        'consensus',
+        'test task',
+        sampleAgents,
+        [],
+        baseResult,
+        undefined,
+        undefined
+      );
+
+      // With env unset in test env, getConclaveHome() returns os.tmpdir()/llm-conclave-test-logs.
+      const expected = path.join(os.tmpdir(), 'llm-conclave-test-logs');
+      expect(session.conclaveHome).toBe(expected);
+    });
+
+    it('session manifest conclaveHome reflects LLM_CONCLAVE_HOME override', () => {
+      process.env.LLM_CONCLAVE_HOME = '/audit04/sandbox';
+      const manager = new SessionManager('/tmp/test-sessions');
+      const session = manager.createSessionManifest(
+        'consensus',
+        'test task',
+        sampleAgents,
+        [],
+        baseResult,
+        undefined,
+        undefined
+      );
+
+      expect(session.conclaveHome).toBe('/audit04/sandbox');
+    });
+
+    it('conclaveHome field is present even when result.cost is missing (field is orthogonal to cost data)', () => {
+      const manager = new SessionManager('/tmp/test-sessions');
+      const session = manager.createSessionManifest(
+        'consensus',
+        'test task',
+        sampleAgents,
+        [],
+        baseResult,
+        undefined,
+        undefined
+      );
+      expect(typeof session.conclaveHome).toBe('string');
+      expect(session.conclaveHome!.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('consensusReached in session listing (DATA-05)', () => {
     let manager: SessionManager;
 
