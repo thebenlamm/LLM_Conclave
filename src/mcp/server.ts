@@ -42,6 +42,7 @@ import { PreFlightTpmError } from '../providers/tpmLimits.js';
 import { StrictModelError } from '../core/AgentTurnExecutor.js';
 import { StatusFileManager } from './StatusFileManager.js';
 import { getConclaveHome } from '../utils/ConfigPaths.js';
+import { detectJudgeCoinage } from '../consult/coinage/detectJudgeCoinage.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -1300,6 +1301,18 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     'action_items',
   ];
 
+  // AUDIT-06 (Phase 20): flag synthesis terms absent from every agent turn.
+  // Judge and System turns are excluded from the grounding corpus — the whole
+  // point of this field is that judge-self-grounding is not valid grounding.
+  // Always emit an array (empty on grounded runs) so callers filtering with
+  // `if (judge_coinage.length)` don't need to disambiguate undefined/null.
+  const agentTurnsForCoinage = (conversationHistory || [])
+    .filter((m: any) =>
+      m && m.role === 'assistant' && m.speaker && m.speaker !== 'Judge' && m.speaker !== 'System' && !m.error
+    )
+    .map((m: any) => ({ speaker: String(m.speaker), content: String(m.content || '') }));
+  const judgeCoinage = detectJudgeCoinage(String(solution || ''), agentTurnsForCoinage);
+
   return {
     task,
     summary: solution || null,
@@ -1329,6 +1342,9 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     turn_analytics: result.turn_analytics || null,
     dissent_quality: result.dissent_quality || null,
     section_order: sectionOrder,
+    // AUDIT-06 (Phase 20): synthesis terms that appear in ZERO agent turns.
+    // Empty array on grounded runs; populated when the judge coined terminology.
+    judge_coinage: judgeCoinage,
     session_id: sessionId || undefined,
     log_file: logFilePath,
     // AUDIT-05 (Phase 20): additive session_status field distinguishes clean

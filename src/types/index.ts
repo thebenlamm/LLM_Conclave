@@ -427,6 +427,15 @@ export interface SessionManifest {
    * Optional for backward compatibility with pre-Phase-19 session.json files.
    */
   conclaveHome?: string;
+
+  /**
+   * AUDIT-06 (Phase 20): synthesis terms that appear in ZERO agent turns.
+   * Empty array when every synthesis phrase is grounded in at least one
+   * agent turn. Optional on the type for back-compat with pre-Phase-20
+   * session.json files on disk; always populated by createSessionManifest
+   * going forward.
+   */
+  judgeCoinage?: string[];
 }
 
 export interface SessionAgentConfig {

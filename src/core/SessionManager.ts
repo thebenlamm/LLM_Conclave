@@ -2,6 +2,7 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import { getConclaveHome } from '../utils/ConfigPaths.js';
+import { detectJudgeCoinage, type AgentTurnLike } from '../consult/coinage/detectJudgeCoinage.js';
 import {
   SessionManifest,
   SessionSummary,
@@ -322,6 +323,20 @@ export default class SessionManager {
       totalCalls: 0,
     };
 
+    // AUDIT-06 (Phase 20): flag synthesis terms absent from every agent turn.
+    // Judge and System turns are excluded from the grounding corpus by design
+    // — judge-self-grounding is not valid grounding (that is the whole point
+    // of the feature).
+    const agentTurnCorpus: AgentTurnLike[] = (conversationHistory || [])
+      .filter((m: any) =>
+        m && m.role === 'assistant' && m.speaker && m.speaker !== 'Judge' && m.speaker !== 'System' && !m.error
+      )
+      .map((m: any) => ({ speaker: String(m.speaker), content: String(m.content || '') }));
+    const judgeCoinage: string[] = detectJudgeCoinage(
+      String(result.solution || result.finalOutput || ''),
+      agentTurnCorpus
+    );
+
     const session: SessionManifest = {
       id: sessionId,
       timestamp: timestamp,
@@ -355,6 +370,11 @@ export default class SessionManager {
       // consumers reading session.json can confirm where the session lived
       // without re-resolving getConclaveHome() (which may diverge later).
       conclaveHome: getConclaveHome(),
+      // AUDIT-06 (Phase 20): record judge-coined terms (synthesis phrases
+      // absent from every agent turn). Always present on manifests produced
+      // by this code path; empty array on grounded runs so the non-empty
+      // case is trivially grep-able.
+      judgeCoinage,
     };
 
     return session;
