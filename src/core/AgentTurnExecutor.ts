@@ -131,7 +131,8 @@ export default class AgentTurnExecutor {
           model: agent.model,
           error: true,
           errorDetails: 'token_budget_exceeded',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          roundNumber: this.deps.getCurrentRound?.() ?? 0, // Phase 18 (AUDIT-03)
         });
         this.recordAgentFailure(agentName, 'context window exceeded');
         return;
@@ -218,7 +219,8 @@ export default class AgentTurnExecutor {
                 model: agent.model,
                 error: true,
                 errorDetails: 'persona-impersonation',
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                roundNumber: this.deps.getCurrentRound?.() ?? 0, // Phase 18 (AUDIT-03)
               });
               this.recordAgentFailure(agentName, 'persona-impersonation');
               return;
@@ -250,7 +252,8 @@ export default class AgentTurnExecutor {
           model: agent.model,
           error: true,
           errorDetails: 'empty_response_after_retry',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          roundNumber: this.deps.getCurrentRound?.() ?? 0, // Phase 18 (AUDIT-03)
         });
         this.recordAgentFailure(agentName, 'empty_response');
         return;
@@ -432,7 +435,8 @@ export default class AgentTurnExecutor {
         model: agent.model,
         error: true,
         errorDetails: errorMsg + fallbackNote,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        roundNumber: this.deps.getCurrentRound?.() ?? 0, // Phase 18 (AUDIT-03)
       });
 
       // Circuit breaker: track consecutive failures
@@ -502,7 +506,8 @@ export default class AgentTurnExecutor {
         role: 'user',
         content: `[System: ${agentName} has been removed from the discussion after ${count} consecutive failures (${reason}). Remaining agents should continue without them.]`,
         speaker: 'System',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        roundNumber: this.deps.getCurrentRound?.() ?? 0, // Phase 18 (AUDIT-03)
       });
     }
   }
@@ -517,7 +522,8 @@ export default class AgentTurnExecutor {
       content: text,
       speaker,
       model,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      roundNumber: this.deps.getCurrentRound?.() ?? 0, // Phase 18 (AUDIT-03)
     };
     if (this.deps.config.contextOptimization?.enabled) {
       entry.positionSummary = ContextOptimizer.extractPosition(text);

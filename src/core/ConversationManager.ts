@@ -340,7 +340,8 @@ export default class ConversationManager {
       role: 'user',
       content: initialMessage,
       speaker: 'System',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      roundNumber: 0, // Phase 18 (AUDIT-03): pre-round-1 task lives at round 0
     });
 
     let consensusReached = false;
@@ -648,7 +649,8 @@ export default class ConversationManager {
           role: 'user',
           content: `Judge's evaluation: ${judgeContext}\n\nNote: While the above solution shows promise, we need more thorough discussion (round ${this.currentRound}/${this.minRounds}). Please challenge assumptions, explore edge cases, identify potential weaknesses, or offer alternative perspectives that haven't been fully considered yet.`,
           speaker: 'Judge',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          roundNumber: this.currentRound, // Phase 18 (AUDIT-03): Judge closes the round it evaluates
         });
       } else {
         console.log(`Judge: ${judgeResult.guidance}\n`);
@@ -662,7 +664,8 @@ export default class ConversationManager {
           role: 'user',
           content: `Judge's guidance: ${judgeResult.guidance}`,
           speaker: 'Judge',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          roundNumber: this.currentRound, // Phase 18 (AUDIT-03): Judge closes the round it evaluates
         });
       }
       
