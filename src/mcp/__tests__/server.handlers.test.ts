@@ -145,6 +145,16 @@ jest.mock('../StatusFileManager.js', () => ({
 
 import { createServer } from '../server';
 import { formatDiscussionResult, formatDiscussionResultJson } from '../server';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+// Phase 18 tests use the REAL StatusFileManager and SessionManager (bypassing the
+// module mocks above) to exercise the actual round-counter code paths that
+// handleStatus reads from in production.
+const {
+  StatusFileManager: RealStatusFileManager,
+} = jest.requireActual('../StatusFileManager');
+const { default: RealSessionManager } = jest.requireActual('../../core/SessionManager');
 
 // Import saveFullDiscussion and formatDiscussionResult for direct testing
 // They are not exported, so we test them indirectly through handleDiscuss.
@@ -1356,6 +1366,114 @@ describe('MCP Server Handlers', () => {
       // Additive keys from this phase must also be present.
       expect(json).toHaveProperty('per_agent_positions');
       expect(json).toHaveProperty('section_order');
+    });
+  });
+
+  describe('Phase 18 — Round Counter Unification (AUDIT-03)', () => {
+    const tmpDir = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-phase18-status-'));
+
+    // COST-02 tests above install jest.spyOn fs.writeFileSync / mkdirSync / existsSync
+    // without restoring — restore them here so our real StatusFileManager + SessionManager
+    // calls hit the real filesystem. Without this, writeFileSync is a no-op and renameSync
+    // fails with ENOENT because the .tmp file was never actually written.
+    beforeEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('AUDIT-03 status-active: round reported from status file equals the round stamped by DiscussionRunner', () => {
+      // Simulate the post-18-02 DiscussionRunner initial write:
+      // currentRound = (conversationManager.currentRound ?? 0) + 1
+      // For a continuation resuming at round 3, that's 3 + 1 = 4.
+      const baseDir = tmpDir();
+      const sfm = new RealStatusFileManager(baseDir);
+      sfm.writeStatus({
+        active: true,
+        task: 'continuation task',
+        startTime: new Date().toISOString(),
+        elapsedMs: 0,
+        agents: ['AgentA', 'AgentB'],
+        currentRound: 4,
+        maxRounds: 5,
+        currentAgent: null,
+        updatedAt: new Date().toISOString(),
+      });
+      const read = sfm.readStatus();
+      expect(read).not.toBeNull();
+      expect(read!.currentRound).toBe(4);
+      expect(read!.maxRounds).toBe(5);
+
+      // The server.ts L742 render line is literally `**Round:** ${active.currentRound}/${active.maxRounds}`.
+      // We don't import handleStatus directly (it's async with module side effects); instead we assert
+      // on the read shape, which is what handleStatus renders. This matches the Phase 17 pattern of
+      // testing the formatter inputs rather than the transport wrapper.
+      const expectedLine = `**Round:** ${read!.currentRound}/${read!.maxRounds}`;
+      expect(expectedLine).toBe('**Round:** 4/5');
+    });
+
+    it('AUDIT-03 status-last-completed: summary.roundCount equals session.currentRound (server.ts prints Rounds: N line correctly)', async () => {
+      const baseDir = tmpDir();
+      const sm = new RealSessionManager(baseDir);
+      const history: any[] = [
+        { role: 'user',      speaker: 'System', content: 'task',  roundNumber: 0 },
+        { role: 'assistant', speaker: 'AgentA', model: 'claude-x', content: 'r1', roundNumber: 1 },
+        { role: 'assistant', speaker: 'AgentB', model: 'gpt-x',    content: 'r1', roundNumber: 1 },
+        { role: 'user',      speaker: 'Judge',  content: 'g1',    roundNumber: 1 },
+        { role: 'assistant', speaker: 'AgentA', model: 'claude-x', content: 'r2', roundNumber: 2 },
+        { role: 'assistant', speaker: 'AgentB', model: 'gpt-x',    content: 'r2', roundNumber: 2 },
+      ];
+      const agents = [
+        { name: 'AgentA', model: 'claude-x', provider: { constructor: { name: 'ClaudeProvider' } }, systemPrompt: '' },
+        { name: 'AgentB', model: 'gpt-x',    provider: { constructor: { name: 'OpenAIProvider' } }, systemPrompt: '' },
+      ];
+      const manifest = sm.createSessionManifest('consensus', 'task', agents, history, {
+        rounds: 2,
+        solution: 'v',
+        consensusReached: true,
+      });
+      await sm.saveSession(manifest);
+      const summaries = await sm.listSessions({ limit: 1 });
+      expect(summaries).toHaveLength(1);
+
+      // server.ts L778 renders: `- **Rounds:** ${session.roundCount} | **Cost:** $${session.cost.toFixed(4)}\n`
+      // Lock the field the renderer reads.
+      expect(summaries[0].roundCount).toBe(2);
+      expect(summaries[0].roundCount).toBe(manifest.currentRound);
+      // And the per-message stamps agree with the session counter.
+      const stamps = manifest.conversationHistory.map((m: any) => m.roundNumber);
+      expect(Math.max(...stamps)).toBe(manifest.currentRound);
+    });
+
+    it('AUDIT-03 three-way parity: session.currentRound === max(history roundNumber) === summary.roundCount', async () => {
+      const sm = new RealSessionManager(tmpDir());
+      const history: any[] = [
+        { role: 'user',      speaker: 'System', content: 't',   roundNumber: 0 },
+        { role: 'assistant', speaker: 'AgentA', model: 'c', content: '1', roundNumber: 1 },
+        { role: 'user',      speaker: 'Judge',  content: 'g',   roundNumber: 1 },
+        { role: 'assistant', speaker: 'AgentA', model: 'c', content: '2', roundNumber: 2 },
+        { role: 'user',      speaker: 'Judge',  content: 'g',   roundNumber: 2 },
+        { role: 'assistant', speaker: 'AgentA', model: 'c', content: '3', roundNumber: 3 },
+      ];
+      const agents = [{ name: 'AgentA', model: 'c', provider: { constructor: { name: 'ClaudeProvider' } }, systemPrompt: '' }];
+      const manifest = sm.createSessionManifest('consensus', 't', agents, history, {
+        rounds: 3,
+        solution: 'v',
+        consensusReached: true,
+      });
+      await sm.saveSession(manifest);
+      const summaries = await sm.listSessions({ limit: 1 });
+
+      const sessionRound = manifest.currentRound;
+      const maxHistoryRound = Math.max(...manifest.conversationHistory.map((m: any) => m.roundNumber));
+      const summaryRound = summaries[0].roundCount;
+
+      // The exact failure signature from AUDIT-03 ("session says 4, history has 7"):
+      // these three values MUST equal each other. This is the single assertion that
+      // future regressions are guaranteed to trip over.
+      expect(sessionRound).toBe(3);
+      expect(maxHistoryRound).toBe(3);
+      expect(summaryRound).toBe(3);
+      expect(sessionRound).toBe(maxHistoryRound);
+      expect(maxHistoryRound).toBe(summaryRound);
     });
   });
 });
