@@ -1891,5 +1891,238 @@ describe('MCP Server Handlers', () => {
       expect(groundedManifest.judgeCoinage).toEqual([]);
     });
   });
+
+  describe('Phase 21 — REPLAY-01/02 show_turns inline turn delivery', () => {
+    beforeEach(() => { jest.restoreAllMocks(); });
+
+    // Shared fixture: result object with a conversationHistory containing
+    // System + agent + Judge turns — mirrors what ConversationManager produces.
+    function buildResultWithHistory() {
+      return {
+        task: 'phase 21 replay-01 test',
+        solution: 'Synthesis text grounded in positions A and B',
+        consensusReached: true,
+        rounds: 2,
+        maxRounds: 4,
+        failedAgents: [],
+        failedAgentDetails: {},
+        agentSubstitutions: {},
+        keyDecisions: [],
+        actionItems: [],
+        dissent: [],
+        agents_config: {},
+        conversationHistory: [
+          { role: 'user', content: 'task', speaker: 'System', roundNumber: 0, timestamp: '2026-04-17T12:00:00Z' },
+          { role: 'assistant', content: 'Position A', speaker: 'SecurityExpert', model: 'claude-sonnet-4-5', roundNumber: 1, timestamp: '2026-04-17T12:01:00Z' },
+          { role: 'assistant', content: 'Position B', speaker: 'Architect', model: 'gpt-4o', roundNumber: 1, timestamp: '2026-04-17T12:02:00Z' },
+          { role: 'assistant', content: 'Round 2 guidance', speaker: 'Judge', model: 'gemini-2.5-flash', roundNumber: 1, timestamp: '2026-04-17T12:03:00Z' },
+          { role: 'assistant', content: 'Refined A', speaker: 'SecurityExpert', model: 'claude-sonnet-4-5', roundNumber: 2, timestamp: '2026-04-17T12:04:00Z' },
+        ],
+        cost: { totalCost: 0.02, totalTokens: { input: 100, output: 200 } },
+      };
+    }
+
+    // --- Test 1: discuss inputSchema advertises show_turns (REPLAY-01) ---
+    it('REPLAY-01 llm_conclave_discuss inputSchema advertises show_turns: boolean default false', async () => {
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const listToolsHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'ListToolsRequestSchema'
+      )?.[1];
+      const { tools } = await listToolsHandler();
+      const discussTool = tools.find((t: any) => t.name === 'llm_conclave_discuss');
+      expect(discussTool).toBeDefined();
+      expect(discussTool.inputSchema.properties.show_turns).toBeDefined();
+      expect(discussTool.inputSchema.properties.show_turns.type).toBe('boolean');
+      expect(discussTool.inputSchema.properties.show_turns.default).toBe(false);
+      // Must not be required (opt-in flag)
+      expect(discussTool.inputSchema.required || []).not.toContain('show_turns');
+    });
+
+    // --- Test 2: continue inputSchema advertises show_turns (REPLAY-02) ---
+    it('REPLAY-02 llm_conclave_continue inputSchema advertises show_turns: boolean default false', async () => {
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const listToolsHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'ListToolsRequestSchema'
+      )?.[1];
+      const { tools } = await listToolsHandler();
+      const continueTool = tools.find((t: any) => t.name === 'llm_conclave_continue');
+      expect(continueTool).toBeDefined();
+      expect(continueTool.inputSchema.properties.show_turns).toBeDefined();
+      expect(continueTool.inputSchema.properties.show_turns.type).toBe('boolean');
+      expect(continueTool.inputSchema.properties.show_turns.default).toBe(false);
+      expect(continueTool.inputSchema.required || []).not.toContain('show_turns');
+    });
+
+    // --- Test 3: consult explicitly NOT advertised (scope-exclusion) ---
+    it('REPLAY-01 llm_conclave_consult inputSchema does NOT advertise show_turns (scope-excluded — markdown-only tool)', async () => {
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const listToolsHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'ListToolsRequestSchema'
+      )?.[1];
+      const { tools } = await listToolsHandler();
+      const consultTool = tools.find((t: any) => t.name === 'llm_conclave_consult');
+      expect(consultTool).toBeDefined();
+      expect(consultTool.inputSchema.properties.show_turns).toBeUndefined();
+    });
+
+    // --- Test 4: opt-out default — 3-arg call omits turns key ---
+    it('REPLAY-01 formatDiscussionResultJson(3-arg) returns no turns key (back-compat)', () => {
+      const json = formatDiscussionResultJson(buildResultWithHistory(), '/tmp/log.jsonl', 'sess-1');
+      expect('turns' in json).toBe(false);
+      expect((json as any).turns).toBeUndefined();
+    });
+
+    // --- Test 5: explicit showTurns: false — omits turns key ---
+    it('REPLAY-01 formatDiscussionResultJson with { showTurns: false } returns no turns key', () => {
+      const json = (formatDiscussionResultJson as any)(buildResultWithHistory(), '/tmp/log.jsonl', 'sess-1', { showTurns: false });
+      expect('turns' in json).toBe(false);
+      expect((json as any).turns).toBeUndefined();
+    });
+
+    // --- Test 6: opt-in — turns[] mirrors conversationHistory ---
+    it('REPLAY-01 formatDiscussionResultJson with { showTurns: true } returns turns[] mirroring conversationHistory', () => {
+      const result = buildResultWithHistory();
+      const json = (formatDiscussionResultJson as any)(result, '/tmp/log.jsonl', 'sess-1', { showTurns: true });
+      expect(Array.isArray((json as any).turns)).toBe(true);
+      expect((json as any).turns.length).toBe(result.conversationHistory.length);
+      // First entry (System welcome / user task) — round 0, role user, speaker System
+      const first = (json as any).turns[0];
+      expect(first.round).toBe(0);
+      expect(first.role).toBe('user');
+      expect(first.speaker).toBe('System');
+      expect(first.content).toBe('task');
+      expect(first.timestamp).toBe('2026-04-17T12:00:00Z');
+      // Second entry — SecurityExpert assistant turn with model
+      const second = (json as any).turns[1];
+      expect(second.round).toBe(1);
+      expect(second.role).toBe('assistant');
+      expect(second.speaker).toBe('SecurityExpert');
+      expect(second.model).toBe('claude-sonnet-4-5');
+      expect(second.content).toBe('Position A');
+      // Fourth entry — Judge turn is INCLUDED (not filtered)
+      const judgeTurn = (json as any).turns[3];
+      expect(judgeTurn.speaker).toBe('Judge');
+      expect(judgeTurn.model).toBe('gemini-2.5-flash');
+    });
+
+    // --- Test 7: REPLAY-02 sandbox-safety pin — opt-in works with non-existent log path ---
+    it('REPLAY-02 formatDiscussionResultJson with { showTurns: true } does NOT read log file from disk (sandbox-safety)', () => {
+      const bogusPath = `/tmp/does-not-exist-${Date.now()}-${Math.random()}.jsonl`;
+      expect(fs.existsSync(bogusPath)).toBe(false);
+      const result = buildResultWithHistory();
+      // Must not throw — proves no fs read happens on the opt-in branch
+      const json = (formatDiscussionResultJson as any)(result, bogusPath, 'sess-sandbox', { showTurns: true });
+      expect(Array.isArray((json as any).turns)).toBe(true);
+      expect((json as any).turns.length).toBe(result.conversationHistory.length);
+      expect((json as any).log_file).toBe(bogusPath);
+    });
+
+    // --- Test 8: SC#2 non-regression — every pre-Phase-21 top-level field preserved on opt-out ---
+    it('REPLAY-01 SC#2 opt-out JSON shape is byte-stable (all pre-Phase-21 top-level fields present, turns absent)', () => {
+      const result = buildResultWithHistory();
+      // Enrich result with fields that drive every pre-existing top-level key
+      (result as any).keyDecisions = ['decision-x'];
+      (result as any).actionItems = ['action-x'];
+      (result as any).dissent = ['dissent-x'];
+      (result as any).agents_config = { SecurityExpert: { model: 'claude-sonnet-4-5' } };
+      (result as any).finalConfidence = 'HIGH';
+      (result as any).confidenceReasoning = 'strong consensus';
+      const json: any = formatDiscussionResultJson(result, '/tmp/log.jsonl', 'sess-optout');
+      // Every pre-Phase-21 top-level key must exist
+      expect(json).toHaveProperty('task');
+      expect(json).toHaveProperty('summary');
+      expect(json).toHaveProperty('realized_panel');
+      expect(json).toHaveProperty('key_decisions');
+      expect(json).toHaveProperty('action_items');
+      expect(json).toHaveProperty('dissent');
+      expect(json).toHaveProperty('confidence');
+      expect(json).toHaveProperty('final_confidence');
+      expect(json).toHaveProperty('consensus_reached');
+      expect(json).toHaveProperty('rounds');
+      expect(json).toHaveProperty('agents');
+      expect(json).toHaveProperty('per_agent_positions');
+      expect(json).toHaveProperty('section_order');
+      expect(json).toHaveProperty('judge_coinage');
+      expect(json).toHaveProperty('session_id');
+      expect(json).toHaveProperty('log_file');
+      expect(json).toHaveProperty('session_status');
+      expect(json).toHaveProperty('conclave_home');
+      // Values unchanged
+      expect(json.task).toBe('phase 21 replay-01 test');
+      expect(json.key_decisions).toEqual(['decision-x']);
+      expect(json.action_items).toEqual(['action-x']);
+      expect(json.dissent).toEqual(['dissent-x']);
+      expect(json.confidence).toBe('high');
+      expect(json.final_confidence).toBe('HIGH');
+      expect(json.consensus_reached).toBe(true);
+      expect(json.session_id).toBe('sess-optout');
+      expect(json.log_file).toBe('/tmp/log.jsonl');
+      // turns must be ABSENT (not null, not [])
+      expect('turns' in json).toBe(false);
+      expect(json.turns).toBeUndefined();
+    });
+
+    // --- Test 9: Judge + System included (not filtered like judge_coinage grounding) ---
+    it('REPLAY-01 turns[] includes Judge and System turns (no filtering — full replay)', () => {
+      const result = buildResultWithHistory();
+      const json: any = (formatDiscussionResultJson as any)(result, '/tmp/log.jsonl', 'sess-filter', { showTurns: true });
+      const speakers = json.turns.map((t: any) => t.speaker);
+      expect(speakers).toContain('System');
+      expect(speakers).toContain('Judge');
+      expect(speakers).toContain('SecurityExpert');
+      expect(speakers).toContain('Architect');
+      // Length equals the full history
+      expect(json.turns.length).toBe(result.conversationHistory.length);
+    });
+
+    // --- Test 10: E2E handler-level test — handleDiscuss with show_turns: true surfaces turns[] in response ---
+    it('REPLAY-01 E2E handleDiscuss with show_turns: true emits turns[] in JSON response body', async () => {
+      const ConversationManager = require('../../core/ConversationManager').default;
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        createSessionManifest: jest.fn().mockReturnValue({ id: 'session-e2e-replay' }),
+        saveSession: jest.fn().mockResolvedValue('session-e2e-replay'),
+      }));
+      const localFs = require('fs');
+      jest.spyOn(localFs, 'existsSync').mockReturnValue(true);
+      jest.spyOn(localFs, 'writeFileSync').mockImplementation(() => {});
+      jest.spyOn(localFs, 'mkdirSync').mockImplementation(() => {});
+
+      const fixture = buildResultWithHistory();
+      ConversationManager.mockImplementation(() => ({
+        conversationHistory: [],
+        currentRound: 1,
+        abortSignal: undefined,
+        startConversation: jest.fn().mockResolvedValue(fixture),
+      }));
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const callToolHandler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+
+      const response = await callToolHandler({
+        params: {
+          name: 'llm_conclave_discuss',
+          arguments: { task: 'test task', format: 'json', show_turns: true },
+        },
+      });
+
+      expect(response.isError).toBeUndefined();
+      const parsed = JSON.parse(response.content[0].text);
+      expect(Array.isArray(parsed.turns)).toBe(true);
+      expect(parsed.turns.length).toBe(fixture.conversationHistory.length);
+      // First entry shape validated
+      const first = parsed.turns[0];
+      expect(first).toHaveProperty('round');
+      expect(first).toHaveProperty('role');
+      expect(first).toHaveProperty('speaker');
+      expect(first).toHaveProperty('content');
+    });
+  });
 });
 
