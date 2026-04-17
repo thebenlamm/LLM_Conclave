@@ -308,6 +308,10 @@ export default class SessionManager {
         consensus: result.consensus,
         json: result.json || '',
       },
+      // AUDIT-04: record the resolved LLM Conclave data root at save time so
+      // consumers reading session.json can confirm where the session lived
+      // without re-resolving getConclaveHome() (which may diverge later).
+      conclaveHome: getConclaveHome(),
     };
 
     return session;

@@ -414,6 +414,15 @@ export interface SessionManifest {
 
   // File paths
   outputFiles: SessionOutputFiles;
+
+  /**
+   * AUDIT-04: Absolute path to the resolved LLM Conclave data root at the
+   * time this manifest was saved. Matches `getConclaveHome()` output —
+   * reflects the `LLM_CONCLAVE_HOME` env var or `conclaveHome` config key
+   * if either was set, otherwise the default `~/.llm-conclave`.
+   * Optional for backward compatibility with pre-Phase-19 session.json files.
+   */
+  conclaveHome?: string;
 }
 
 export interface SessionAgentConfig {
