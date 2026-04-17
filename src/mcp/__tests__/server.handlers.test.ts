@@ -1531,5 +1531,181 @@ describe('MCP Server Handlers', () => {
       expect(Object.prototype.hasOwnProperty.call(json, 'conclave_home')).toBe(true);
     });
   });
+
+  describe('Phase 20 — Degraded Status (AUDIT-05)', () => {
+    beforeEach(() => { jest.restoreAllMocks(); });
+
+    const cleanRunIntegrity = () => ({
+      compression: {
+        active: false,
+        activatedAtRound: null,
+        tailSize: 0,
+        summaryRegenerations: 0,
+        summarizerFallback: null,
+      },
+      participation: [
+        { agent: 'AgentA', turns: 3, status: 'spoken' },
+        { agent: 'AgentB', turns: 3, status: 'spoken' },
+      ],
+    });
+
+    const buildCleanResult = () => ({
+      task: 'phase 20 clean task',
+      conversationHistory: [],
+      solution: 'clean summary',
+      consensusReached: true,
+      rounds: 2,
+      maxRounds: 4,
+      failedAgents: [],
+      agentSubstitutions: {},
+      keyDecisions: ['decision-alpha'],
+      actionItems: ['action-alpha'],
+      dissent: ['dissent-alpha'],
+      cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 } },
+      runIntegrity: cleanRunIntegrity(),
+      agents_config: {
+        AgentA: { model: 'claude-x' },
+        AgentB: { model: 'gpt-x' },
+      },
+    });
+
+    const buildDegradedResult = () => ({
+      ...buildCleanResult(),
+      agentSubstitutions: {
+        AgentB: { original: 'gpt-5', fallback: 'gpt-4o-mini', reason: '429' },
+      },
+    });
+
+    it('AUDIT-05 clean-run JSON: session_status === "completed"', () => {
+      const json = formatDiscussionResultJson(buildCleanResult(), '/tmp/log.jsonl', 'sess-clean');
+      expect(json.session_status).toBe('completed');
+    });
+
+    it('AUDIT-05 degraded-run JSON: session_status === "completed_degraded"', () => {
+      const json = formatDiscussionResultJson(buildDegradedResult(), '/tmp/log.jsonl', 'sess-deg');
+      expect(json.session_status).toBe('completed_degraded');
+    });
+
+    it('AUDIT-05 existing-fields-preserved (SC#5 non-regression): degraded JSON retains every pre-existing top-level field and leaves old degraded/degraded_reason untouched', () => {
+      const json = formatDiscussionResultJson(buildDegradedResult(), '/tmp/log.jsonl', 'sess-deg');
+      expect(json.task).toBeDefined();
+      expect(json.summary).toBeDefined();
+      expect(json.session_id).toBeDefined();
+      expect(json.log_file).toBeDefined();
+      expect(json.conclave_home).toBeDefined();
+      expect(json.substitutions).toBeDefined(); // non-empty on degraded run
+      expect(json.realized_panel).toBeDefined();
+      expect(json.section_order).toEqual(['summary', 'agent_positions', 'dissent', 'key_decisions', 'action_items']);
+      // Old pre-existing `degraded` / `degraded_reason` mean "discussion aborted"
+      // — NOT triggered by completed_degraded status. They remain undefined.
+      expect(json.degraded).toBeUndefined();
+      expect(json.degraded_reason).toBeUndefined();
+      // And the new additive field
+      expect(json.session_status).toBe('completed_degraded');
+    });
+
+    it('AUDIT-05 handleStatus last-completed branch renders degraded Status line', async () => {
+      const SessionManager = require('../../core/SessionManager').default;
+      const degradedSummary = {
+        id: 'sess-degraded',
+        timestamp: '2026-04-17T10:00:00Z',
+        mode: 'consensus',
+        task: 'degraded task',
+        status: 'completed_degraded',
+        roundCount: 3,
+        agentCount: 2,
+        cost: 0.0500,
+        consensusReached: true,
+      };
+      SessionManager.mockImplementation(() => ({
+        listSessions: jest.fn().mockResolvedValue([degradedSummary]),
+      }));
+      mockReadStatus.mockReturnValueOnce(null); // ensure no-active branch
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const handler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+      const result = await handler({
+        params: { name: 'llm_conclave_status', arguments: {} },
+      });
+      const text: string = result.content[0].text;
+      expect(text).toContain('**Status:** completed_degraded');
+    });
+
+    it('AUDIT-05 handleStatus last-completed branch renders clean Status line', async () => {
+      const SessionManager = require('../../core/SessionManager').default;
+      const cleanSummary = {
+        id: 'sess-clean',
+        timestamp: '2026-04-17T10:00:00Z',
+        mode: 'consensus',
+        task: 'clean task',
+        status: 'completed',
+        roundCount: 2,
+        agentCount: 2,
+        cost: 0.0200,
+        consensusReached: true,
+      };
+      SessionManager.mockImplementation(() => ({
+        listSessions: jest.fn().mockResolvedValue([cleanSummary]),
+      }));
+      mockReadStatus.mockReturnValueOnce(null); // ensure no-active branch
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const handler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+      const result = await handler({
+        params: { name: 'llm_conclave_status', arguments: {} },
+      });
+      const text: string = result.content[0].text;
+      expect(text).toContain('**Status:** completed');
+    });
+
+    it('AUDIT-05 sessions-listing renders Status per session (clean + degraded)', async () => {
+      const SessionManager = require('../../core/SessionManager').default;
+      const sampleSessions = [
+        {
+          id: 'sess-clean',
+          timestamp: '2026-04-17T10:00:00Z',
+          mode: 'consensus',
+          task: 'clean task',
+          status: 'completed',
+          roundCount: 2,
+          agentCount: 2,
+          cost: 0.02,
+          consensusReached: true,
+        },
+        {
+          id: 'sess-degraded',
+          timestamp: '2026-04-17T11:00:00Z',
+          mode: 'consensus',
+          task: 'degraded task',
+          status: 'completed_degraded',
+          roundCount: 3,
+          agentCount: 2,
+          cost: 0.05,
+          consensusReached: false,
+        },
+      ];
+      SessionManager.mockImplementation(() => ({
+        listSessions: jest.fn().mockResolvedValue(sampleSessions),
+      }));
+
+      mockSetRequestHandler.mockClear();
+      createServer();
+      const handler = mockSetRequestHandler.mock.calls.find(
+        (call: any) => call[0] === 'CallToolRequestSchema'
+      )?.[1];
+      const result = await handler({
+        params: { name: 'llm_conclave_sessions', arguments: {} },
+      });
+      const text: string = result.content[0].text;
+      expect(text).toContain('**Status:** completed');
+      expect(text).toContain('**Status:** completed_degraded');
+    });
+  });
 });
 
