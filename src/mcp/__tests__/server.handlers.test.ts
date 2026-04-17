@@ -60,6 +60,11 @@ jest.mock('../../core/SessionManager.js', () => ({
     loadSession: jest.fn(),
     getMostRecentSession: jest.fn(),
   })),
+  // AUDIT-05 (Phase 20): expose the pure helper to consumers of this mock.
+  // The production server.ts reads it to derive session_status on the MCP
+  // response. Delegates to the real implementation so signal detection logic
+  // is tested end-to-end rather than stubbed.
+  computeSessionStatus: jest.requireActual('../../core/SessionManager').computeSessionStatus,
 }));
 
 jest.mock('../../core/ContinuationHandler.js', () => ({

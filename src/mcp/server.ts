@@ -29,7 +29,7 @@ import * as path from 'path';
 import * as http from 'http';
 import express from 'express';
 import ConsultOrchestrator from '../orchestration/ConsultOrchestrator.js';
-import SessionManager from '../core/SessionManager.js';
+import SessionManager, { computeSessionStatus } from '../core/SessionManager.js';
 import ContinuationHandler from '../core/ContinuationHandler.js';
 import ConsultLogger from '../utils/ConsultLogger.js';
 import { PersonaSystem } from '../config/PersonaSystem.js';
@@ -710,6 +710,7 @@ async function handleSessions(args: {
     output += `- **Mode:** ${session.mode}\n`;
     output += `- **Task:** ${taskPreview}\n`;
     output += `- **Consensus:** ${session.consensusReached ? 'Yes' : session.consensusReached === false ? 'No' : 'N/A'}\n`;
+    output += `- **Status:** ${session.status}\n`; // AUDIT-05 (Phase 20): surface clean vs degraded completion
     output += `- **Rounds:** ${session.roundCount} | **Cost:** $${session.cost.toFixed(4)}\n\n`;
   }
 
@@ -781,6 +782,7 @@ async function handleStatus() {
       output += `- **Task:** ${taskPreview}\n`;
       output += `- **Completed:** ${date}\n`;
       output += `- **Consensus:** ${session.consensusReached ? 'Yes' : session.consensusReached === false ? 'No' : 'N/A'}\n`;
+      output += `- **Status:** ${session.status}\n`; // AUDIT-05 (Phase 20): surface clean vs degraded completion
       output += `- **Rounds:** ${session.roundCount} | **Cost:** $${session.cost.toFixed(4)}\n`;
       output += `- **Conclave home:** \`${conclaveHome}\`\n`;
 
@@ -1329,6 +1331,11 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     section_order: sectionOrder,
     session_id: sessionId || undefined,
     log_file: logFilePath,
+    // AUDIT-05 (Phase 20): additive session_status field distinguishes clean
+    // `completed` from `completed_degraded` runs (any fallback/substitution/
+    // absence). Independent from the pre-existing `degraded` / `degraded_reason`
+    // fields, which mean "discussion aborted mid-run" (a different concept).
+    session_status: computeSessionStatus(result),
     // AUDIT-04: resolved LLM Conclave data root. Sandboxed callers use this
     // to confirm where logs were written without parsing the log_file path.
     conclave_home: getConclaveHome(),
