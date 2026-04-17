@@ -82,13 +82,25 @@ export default class ContinuationHandler {
       msg => !(msg.role === 'user' && msg.speaker === 'Judge')
     );
 
+    // Phase 18 (AUDIT-03): derive the resume round from the maximum stamped
+    // roundNumber in the prior history. Falls back to filteredHistory.length
+    // only when NO entry is stamped (legacy sessions). The filtered history may
+    // omit Judge entries (INTEG-03), so array length is an especially poor
+    // fallback — but it preserves the pre-Phase-18 behaviour for ancient
+    // session.json files that lack roundNumber stamps entirely.
+    const maxStampedRound = filteredHistory.reduce(
+      (acc, msg) => (typeof msg.roundNumber === 'number' && msg.roundNumber > acc ? msg.roundNumber : acc),
+      0
+    );
+    const resumeRound = maxStampedRound > 0 ? maxStampedRound : filteredHistory.length;
+
     // Create a system message marking the continuation point
     const continuationMarker: SessionMessage = {
       role: 'system',
       content: '[CONTINUATION FROM PREVIOUS SESSION]',
       speaker: 'System',
       timestamp: new Date().toISOString(),
-      roundNumber: filteredHistory.length,
+      roundNumber: resumeRound, // Phase 18 (AUDIT-03): marker closes the parent's final round
       isContinuation: true,
     };
 
@@ -98,7 +110,7 @@ export default class ContinuationHandler {
       content: continuationPrompt,
       speaker: 'System',
       timestamp: new Date().toISOString(),
-      roundNumber: filteredHistory.length + 1,
+      roundNumber: resumeRound + 1, // Phase 18 (AUDIT-03): new follow-up task opens the next round
       isContinuation: true,
       continuationContext: followUpTask,
     };
@@ -130,7 +142,9 @@ export default class ContinuationHandler {
         role: 'system',
         content: `Previous session context:\nTask: ${session.task}\nOutcome: ${session.finalSolution || 'Discussion completed'}`,
         timestamp: new Date().toISOString(),
-        roundNumber: 0,
+        // Phase 18 (AUDIT-03): reset continuations inherit the parent's final round
+        // so the resumed ConversationManager.currentRound + message stamps agree.
+        roundNumber: session.currentRound ?? 0,
         isContinuation: true,
       };
       mergedHistory = [summaryMessage];
