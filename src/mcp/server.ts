@@ -1245,6 +1245,52 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
     };
   });
 
+  // AUDIT-01 / AUDIT-02 — Per-agent positions in the JSON twin. Mirrors the
+  // `## Agent Positions` markdown block added in 17-01 so non-human consumers
+  // see the same agent-by-agent breakdown without re-parsing markdown.
+  // Algorithm: first-speak order, last non-error assistant turn per speaker,
+  // 800-char truncation + '...' suffix (parity with 17-01 markdown).
+  const perAgentPositions: Array<{
+    agent: string;
+    model?: string;
+    final_turn_excerpt: string;
+    truncated: boolean;
+  }> = [];
+  if (conversationHistory && conversationHistory.length > 0) {
+    const lastByAgent = new Map<string, any>();
+    const firstSpeakOrder: string[] = [];
+    for (const entry of conversationHistory) {
+      if (entry.role !== 'assistant') continue;
+      if (entry.speaker === 'Judge' || entry.speaker === 'System') continue;
+      if (entry.error) continue;
+      if (!lastByAgent.has(entry.speaker)) {
+        firstSpeakOrder.push(entry.speaker);
+      }
+      lastByAgent.set(entry.speaker, entry);
+    }
+    for (const agent of firstSpeakOrder) {
+      const entry = lastByAgent.get(agent);
+      const raw: string = entry.content || '';
+      const truncated = raw.length > 800;
+      perAgentPositions.push({
+        agent,
+        model: entry.model,
+        final_turn_excerpt: truncated ? raw.substring(0, 800) + '...' : raw,
+        truncated,
+      });
+    }
+  }
+
+  // AUDIT-02 — Canonical section ordering so JSON consumers can mirror the
+  // markdown's dissent-above-actions layout without inspecting the text.
+  const sectionOrder: string[] = [
+    'summary',
+    'agent_positions',
+    'dissent',
+    'key_decisions',
+    'action_items',
+  ];
+
   return {
     task,
     summary: solution || null,
@@ -1258,6 +1304,7 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
     consensus_reached: consensusReached,
     rounds: { completed: rounds, max: maxRounds || rounds },
     agents,
+    per_agent_positions: perAgentPositions,
     failed_agents: failedAgentsList.length > 0 ? failedAgentsList : undefined,
     substitutions: substitutionsList.length > 0 ? substitutionsList : undefined,
     timed_out: timedOut || undefined,
@@ -1272,6 +1319,7 @@ function formatDiscussionResultJson(result: any, logFilePath: string, sessionId?
     runIntegrity: result.runIntegrity,
     turn_analytics: result.turn_analytics || null,
     dissent_quality: result.dissent_quality || null,
+    section_order: sectionOrder,
     session_id: sessionId || undefined,
     log_file: logFilePath,
   };
