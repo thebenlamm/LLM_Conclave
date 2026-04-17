@@ -290,6 +290,21 @@ JSON responses (`format: "json"` or `"both"`) include two additive fields alongs
 
 Both fields are additive — no existing JSON field was renamed or removed.
 
+## Round Counter (AUDIT-03)
+
+`session.json`, per-history-entry round numbers, and `llm_conclave_status` all report the same round value. The `"session says 4, history has 7"` discrepancy is gone — these values now agree by construction.
+
+Fields callers can rely on:
+
+- `SessionMessage.roundNumber` — stamped at push time on every production history entry; this is the authoritative per-turn round value. Optional in type for backward compatibility with pre-Phase-18 fixtures, but always present on entries written by the current server.
+- `SessionManifest.currentRound` — session-level round counter written into `session.json`.
+- `SessionSummary.roundCount` — round field surfaced in `llm_conclave_sessions` listings, derived from the same stamp.
+- `llm_conclave_status` active output — renders `**Round:** N/max` (1-indexed for display). Fresh runs report `1`; resumed runs report the actual resume round from the first write, not a transient `1`.
+
+Continuation sessions via `llm_conclave_continue` preserve the counter across resume boundaries. The resume point derives from `max(priorHistory[*].roundNumber)` when stamps are present (falling back to the legacy derived count only for pre-Phase-18 session files), so round numbering does not reset or drift when a session is continued.
+
+Which field to read: for a session-level round count, prefer `currentRound` on the manifest or `roundCount` in the sessions listing. For per-turn attribution, read `roundNumber` on the individual history entry. All three agree.
+
 ## Environment Variables
 
 ### `LLM_CONCLAVE_HOME` (AUDIT-04)

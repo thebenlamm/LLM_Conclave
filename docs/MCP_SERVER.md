@@ -311,6 +311,32 @@ A separate `## Agent Positions (Last Round)` block continues to appear only on t
 
 JSON plus a `markdown_summary` field.
 
+## Round Counter (AUDIT-03)
+
+Round numbering is unified across the three surfaces callers observe:
+
+| Surface | Field | Notes |
+|---------|-------|-------|
+| `session.json` (SessionManifest) | `currentRound` | Session-level counter; written at save time. |
+| `session.json` → `conversationHistory[]` (SessionMessage) | `roundNumber` | Stamped at push time on every production entry. Authoritative per-turn round. |
+| `llm_conclave_sessions` listing (SessionSummary) | `roundCount` | Derived from the same stamp as `currentRound`. |
+| `llm_conclave_status` active output | `**Round:** N/max` | 1-indexed display. Fresh runs report `1`; continuations report the real resume round from the first write. |
+
+`DiscussionHistoryEntry.roundNumber` (in-memory, pre-save) is typed as optional so legacy test fixtures without stamps still compile, but production push sites in `ConversationManager` and `AgentTurnExecutor` always stamp it.
+
+### Continuation (`llm_conclave_continue`)
+
+When a session is resumed, the counter is derived from `max(priorHistory[*].roundNumber)` whenever any entry in the prior history carries a stamp. A legacy Judge-delimiter count is retained as the fallback only for pre-Phase-18 session files with zero stamps. The resume round propagates through:
+
+- The continuation marker entry pushed by `ContinuationHandler.mergeContinuationContext`
+- The follow-up user message (`max + 1`)
+- The reset-branch summary written by `prepareForContinuation` (inherits `session.currentRound`)
+- The initial `llm_conclave_status` write from `DiscussionRunner` — continuations no longer briefly render `Round: 1` before the first heartbeat; the correct resume round appears from the first status write
+
+### Which field to read
+
+For a session-level round count, read `SessionManifest.currentRound` (or `SessionSummary.roundCount` in listings). For per-turn attribution, read `SessionMessage.roundNumber` on the individual history entry. All three agree by construction; a drift invariant in `SessionManager.createSessionManifest` throws under Jest (`NODE_ENV=test`) or when `LLM_CONCLAVE_STRICT_ROUND_COUNTER=1` is set, and warns via `console.warn` in production.
+
 ## Development Notes
 
 - `npm run mcp-dev` runs the server through `ts-node`
