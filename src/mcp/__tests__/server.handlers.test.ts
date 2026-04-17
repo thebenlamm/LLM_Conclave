@@ -1712,5 +1712,184 @@ describe('MCP Server Handlers', () => {
       expect(text).toContain('**Status:** completed_degraded');
     });
   });
+
+  describe('Phase 20 — AUDIT-06 judge_coinage reporting', () => {
+    beforeEach(() => { jest.restoreAllMocks(); });
+
+    // Test 1: grounded run — judge_coinage is an empty array (not undefined)
+    it('AUDIT-06 grounded-run JSON: judge_coinage is []', () => {
+      const result = {
+        task: 'phase 20 audit06 grounded',
+        solution: 'Adopt the Apollo Framework for the launch sequence.',
+        consensusReached: true,
+        rounds: 2,
+        maxRounds: 4,
+        failedAgents: [],
+        agentSubstitutions: {},
+        keyDecisions: [],
+        actionItems: [],
+        dissent: [],
+        conversationHistory: [
+          { role: 'assistant', speaker: 'Alice', content: 'I recommend the Apollo Framework — it is battle-tested.' },
+          { role: 'assistant', speaker: 'Bob', content: 'Agreed, Apollo Framework is the right choice.' },
+        ],
+        cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 } },
+      };
+      const json = formatDiscussionResultJson(result, '/tmp/log.jsonl', 'sess-grounded');
+      expect(Array.isArray(json.judge_coinage)).toBe(true);
+      expect(json.judge_coinage).toEqual([]);
+    });
+
+    // Test 2: coined run — judge_coinage contains the coined phrase
+    it('AUDIT-06 coined-run JSON: judge_coinage contains Benthic Protocol', () => {
+      const result = {
+        task: 'phase 20 audit06 coined',
+        solution: 'Deploy the Benthic Protocol in coordination with the team.',
+        consensusReached: true,
+        rounds: 2,
+        maxRounds: 4,
+        failedAgents: [],
+        agentSubstitutions: {},
+        keyDecisions: [],
+        actionItems: [],
+        dissent: [],
+        conversationHistory: [
+          { role: 'assistant', speaker: 'Alice', content: 'We should focus on deep-sea mining.' },
+          { role: 'assistant', speaker: 'Bob', content: 'Agreed — the seabed approach is sound.' },
+        ],
+        cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 } },
+      };
+      const json = formatDiscussionResultJson(result, '/tmp/log.jsonl', 'sess-coined');
+      expect(Array.isArray(json.judge_coinage)).toBe(true);
+      expect(json.judge_coinage).toContain('Benthic Protocol');
+    });
+
+    // Test 3: non-regression SC#5 — all pre-existing top-level fields preserved
+    it('AUDIT-06 existing-fields-preserved (SC#5 non-regression): coined JSON retains every pre-existing top-level field', () => {
+      const coinedResult = {
+        task: 'phase 20 audit06 coined existing-fields-preserved',
+        solution: 'Deploy the Benthic Protocol in coordination with the team.',
+        consensusReached: true,
+        rounds: 2,
+        maxRounds: 4,
+        failedAgents: [],
+        agentSubstitutions: {},
+        keyDecisions: ['decision-x'],
+        actionItems: ['action-x'],
+        dissent: ['dissent-x'],
+        conversationHistory: [
+          { role: 'assistant', speaker: 'Alice', content: 'We should focus on deep-sea mining.' },
+        ],
+        cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 } },
+        agents_config: {
+          Alice: { model: 'claude-x' },
+        },
+      };
+      const json = formatDiscussionResultJson(coinedResult, '/tmp/log.jsonl', 'sess-123');
+      expect(json.task).toBeDefined();
+      expect(json.summary).toBeDefined();
+      expect(json.section_order).toEqual(['summary', 'agent_positions', 'dissent', 'key_decisions', 'action_items']);
+      expect(json.session_id).toBe('sess-123');
+      expect(json.log_file).toBe('/tmp/log.jsonl');
+      expect(json.conclave_home).toBeDefined();
+      expect(json.rounds).toEqual({ completed: expect.any(Number), max: expect.any(Number) });
+      expect(json.agents).toBeDefined();
+      expect(json.per_agent_positions).toBeDefined();
+      expect(json.realized_panel).toBeDefined();
+      // New field present and populated
+      expect(Array.isArray(json.judge_coinage)).toBe(true);
+      expect(json.judge_coinage.length).toBeGreaterThan(0);
+      expect(json.judge_coinage).toContain('Benthic Protocol');
+      // AUDIT-05 session_status still present
+      expect(json.session_status).toBe('completed');
+    });
+
+    // Test 4: Judge-self-grounding does NOT count as grounding
+    it('AUDIT-06 excludes Judge and System turns from the grounding corpus (Platonic Ideal)', () => {
+      const result = {
+        task: 'phase 20 audit06 judge-self-grounding',
+        solution: 'Adopt the Platonic Ideal as guiding principle.',
+        consensusReached: true,
+        rounds: 2,
+        maxRounds: 4,
+        failedAgents: [],
+        agentSubstitutions: {},
+        keyDecisions: [],
+        actionItems: [],
+        dissent: [],
+        conversationHistory: [
+          { role: 'assistant', speaker: 'Alice', content: 'We should think about philosophy.' },
+          // Judge grounding does NOT count — Judge's own synthesis is what we're auditing
+          { role: 'assistant', speaker: 'Judge', content: 'The Platonic Ideal applies here.' },
+          // System grounding does NOT count either
+          { role: 'system', speaker: 'System', content: 'Platonic Ideal reference set' },
+        ],
+        cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 } },
+      };
+      const json = formatDiscussionResultJson(result, '/tmp/log.jsonl', 'sess-judge-grounding');
+      expect(json.judge_coinage).toContain('Platonic Ideal');
+    });
+
+    // Test 5: SessionManifest persists judgeCoinage
+    it('AUDIT-06 createSessionManifest stamps judgeCoinage on the manifest', () => {
+      // Use the REAL SessionManager (bypassing the module mock) so we exercise
+      // the production createSessionManifest code path. Mirrors 19-03's pattern.
+      const realMgr = new RealSessionManager(fs.mkdtempSync(path.join(os.tmpdir(), 'audit06-')));
+
+      const coinedHistory = [
+        { role: 'assistant', speaker: 'Alice', content: 'We should focus on deep-sea mining.', roundNumber: 1 },
+        { role: 'assistant', speaker: 'Bob', content: 'Agreed — atmospheric monitoring is also important.', roundNumber: 1 },
+      ];
+      const coinedResult = {
+        task: 'audit06 manifest',
+        solution: 'Adopt the Benthic Protocol in coordination with Operation Clearsky.',
+        rounds: 1,
+        maxRounds: 4,
+        consensusReached: true,
+        conversationHistory: coinedHistory,
+        cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 }, totalCalls: 0 },
+      };
+      const manifest = realMgr.createSessionManifest(
+        'consensus',
+        'audit06 manifest',
+        [
+          { name: 'Alice', model: 'claude-x', provider: { constructor: { name: 'ClaudeProvider' } }, systemPrompt: '' },
+          { name: 'Bob', model: 'gpt-x', provider: { constructor: { name: 'OpenAIProvider' } }, systemPrompt: '' },
+        ],
+        coinedHistory,
+        coinedResult,
+        undefined,
+        undefined
+      );
+      expect(Array.isArray(manifest.judgeCoinage)).toBe(true);
+      expect(manifest.judgeCoinage).toContain('Benthic Protocol');
+      expect(manifest.judgeCoinage).toContain('Operation Clearsky');
+
+      // And grounded run yields empty array
+      const groundedHistory = [
+        { role: 'assistant', speaker: 'Alice', content: 'Apollo Framework is battle-tested.', roundNumber: 1 },
+      ];
+      const groundedResult = {
+        task: 'audit06 grounded manifest',
+        solution: 'Adopt the Apollo Framework.',
+        rounds: 1,
+        maxRounds: 4,
+        consensusReached: true,
+        conversationHistory: groundedHistory,
+        cost: { totalCost: 0.01, totalTokens: { input: 10, output: 20 }, totalCalls: 0 },
+      };
+      const groundedManifest = realMgr.createSessionManifest(
+        'consensus',
+        'audit06 grounded manifest',
+        [{ name: 'Alice', model: 'claude-x', provider: { constructor: { name: 'ClaudeProvider' } }, systemPrompt: '' }],
+        groundedHistory,
+        groundedResult,
+        undefined,
+        undefined
+      );
+      expect(Array.isArray(groundedManifest.judgeCoinage)).toBe(true);
+      expect(groundedManifest.judgeCoinage).toEqual([]);
+    });
+  });
 });
 
