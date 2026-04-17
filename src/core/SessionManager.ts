@@ -52,6 +52,30 @@ export function computeSessionStatus(result: any): 'completed' | 'completed_degr
 }
 
 /**
+ * REPLAY-03 (Phase 21): Fold the `substituted` flag across a set of
+ * SessionSummary entries into a substitution-rate tool-health metric.
+ *
+ * Pure function, no I/O, matches the shape of computeSessionStatus above.
+ *
+ * Empty input → { total: 0, withSubstitution: 0, ratePct: 0 } (NaN avoided).
+ * Pre-Phase-21 entries (substituted absent) count as NOT substituted.
+ * ratePct is rounded to 1 decimal place (e.g., 33.3 not 33.33333).
+ */
+export function computeSubstitutionRate(
+  summaries: SessionSummary[]
+): { total: number; withSubstitution: number; ratePct: number } {
+  const total = summaries.length;
+  if (total === 0) return { total: 0, withSubstitution: 0, ratePct: 0 };
+  const withSubstitution = summaries.reduce(
+    (n, s) => n + ((s as any).substituted === true ? 1 : 0),
+    0
+  );
+  const raw = (withSubstitution / total) * 100;
+  const ratePct = Math.round(raw * 10) / 10;
+  return { total, withSubstitution, ratePct };
+}
+
+/**
  * Manages session persistence and retrieval
  */
 export default class SessionManager {
@@ -136,6 +160,8 @@ export default class SessionManager {
       cost: session.cost.totalCost,
       parentSessionId: session.parentSessionId,
       consensusReached: session.consensusReached,
+      // REPLAY-03 (Phase 21): stamp tool-health flag for substitution-rate telemetry.
+      substituted: Object.keys(session.agentSubstitutions || {}).length > 0,
     };
 
     manifest.sessions.unshift(summary); // Add to beginning

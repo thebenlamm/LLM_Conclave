@@ -511,6 +511,16 @@ export interface SessionSummary {
   cost: number;
   parentSessionId?: string;
   consensusReached?: boolean;
+  /**
+   * REPLAY-03 (Phase 21): true when this session ran with at least one agent
+   * model substituted (i.e., `Object.keys(agentSubstitutions).length > 0`).
+   * Surfaced to tool-health telemetry via `computeSubstitutionRate` and the
+   * Substitution rate line in `llm_conclave_status` / `llm_conclave_sessions`.
+   *
+   * Back-compat: absent on pre-Phase-21 index manifest entries. Consumers MUST
+   * treat `undefined` as NOT substituted — never coerce absent → true.
+   */
+  substituted?: boolean;
 }
 
 export interface SessionIndexManifest {
