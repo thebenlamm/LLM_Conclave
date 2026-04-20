@@ -115,6 +115,12 @@ describe('MCP Server Transport (SSE)', () => {
 
       // Should register close handler
       expect(mockRes.on).toHaveBeenCalledWith('close', expect.any(Function));
+
+      // Trigger the registered close handler so the heartbeat setInterval
+      // created inside the SSE route is cleared. Otherwise the timer keeps
+      // the Node event loop alive and Jest hangs after the run completes.
+      const closeHandler = mockRes.on.mock.calls.find((c: any) => c[0] === 'close')?.[1];
+      if (closeHandler) await closeHandler();
     });
   });
 
