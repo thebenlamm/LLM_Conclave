@@ -3,6 +3,7 @@ phase: 20-degraded-status-judge-coinage
 plan: 02
 subsystem: testing
 tags: [audit, judge-coinage, test-first, red-phase, tokenization, jest, ts-jest, AUDIT-06]
+requirements: [AUDIT-06]
 
 # Dependency graph
 requires:

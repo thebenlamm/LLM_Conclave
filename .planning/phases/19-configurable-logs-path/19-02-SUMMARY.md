@@ -3,6 +3,7 @@ phase: 19-configurable-logs-path
 plan: 02
 subsystem: infra
 tags: [config, env-var, audit-04, resolver, fs, discuss-flow]
+requirements: [AUDIT-04]
 
 # Dependency graph
 requires:

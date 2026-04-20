@@ -3,6 +3,7 @@ phase: 19-configurable-logs-path
 plan: 03
 subsystem: mcp
 tags: [config, env-var, audit-04, observability, mcp-response, session-manifest]
+requirements: [AUDIT-04]
 
 # Dependency graph
 requires:
