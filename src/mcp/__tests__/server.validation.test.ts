@@ -27,6 +27,7 @@ jest.mock('../../consult/context/ContextLoader.js', () => {
     ContextLoader: jest.fn(),
     parseExtraContextRoots: actual.parseExtraContextRoots,
     isPathWithinRoots: actual.isPathWithinRoots,
+    computeAllowedRoots: actual.computeAllowedRoots,
   };
 });
 jest.mock('../../constants.js', () => ({ DEFAULT_SELECTOR_MODEL: 'gpt-4o-mini' }));
@@ -94,6 +95,16 @@ describe('validatePath', () => {
     }).toThrow('Path escapes allowed directory');
   });
 
+  it('rejects prefix-confusion sibling of baseDir (e.g. project-evil vs project)', () => {
+    // Guards against the classic `startsWith` bug where '/a/projectX'
+    // is accepted because the allowed root is '/a/project' without a
+    // trailing separator in the compare. Mirror of the ContextLoader
+    // test so both gates are locked.
+    expect(() => {
+      validatePath('/home/user/project-evil/secret.txt', '/home/user/project');
+    }).toThrow('Path escapes allowed directory');
+  });
+
   describe('CONCLAVE_ALLOWED_CONTEXT_ROOTS allowlist', () => {
     const originalTransport = process.env.CONCLAVE_TRANSPORT;
     const originalRoots = process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS;
@@ -134,12 +145,22 @@ describe('validatePath', () => {
       }).toThrow('Path escapes allowed directory');
     });
 
-    it('error message lists the allowed roots', () => {
+    it('error message lists the allowed roots under stdio', () => {
       process.env.CONCLAVE_TRANSPORT = 'stdio';
       process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/home/user/other';
       expect(() => {
         validatePath('/etc/passwd', '/home/user/project');
       }).toThrow(/allowed:/);
+    });
+
+    it('error message does NOT list roots under sse (avoid leaking server fs layout in HTTP responses)', () => {
+      process.env.CONCLAVE_TRANSPORT = 'sse';
+      expect(() => {
+        validatePath('/etc/passwd', '/home/user/project');
+      }).toThrow(/Path escapes allowed directory: /);
+      expect(() => {
+        validatePath('/etc/passwd', '/home/user/project');
+      }).not.toThrow(/allowed: /);
     });
   });
 });

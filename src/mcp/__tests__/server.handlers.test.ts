@@ -130,12 +130,18 @@ jest.mock('../../consult/formatting/FormatterFactory.js', () => ({
   },
 }));
 
-jest.mock('../../consult/context/ContextLoader.js', () => ({
-  ContextLoader: jest.fn(() => ({
-    loadFileContext: jest.fn().mockResolvedValue({ formattedContent: 'context' }),
-    loadProjectContext: jest.fn().mockResolvedValue({ formattedContent: 'context' }),
-  })),
-}));
+jest.mock('../../consult/context/ContextLoader.js', () => {
+  const actual = jest.requireActual('../../consult/context/ContextLoader.js');
+  return {
+    ContextLoader: jest.fn(() => ({
+      loadFileContext: jest.fn().mockResolvedValue({ formattedContent: 'context' }),
+      loadProjectContext: jest.fn().mockResolvedValue({ formattedContent: 'context' }),
+    })),
+    parseExtraContextRoots: actual.parseExtraContextRoots,
+    isPathWithinRoots: actual.isPathWithinRoots,
+    computeAllowedRoots: actual.computeAllowedRoots,
+  };
+});
 
 jest.mock('../../constants.js', () => ({
   DEFAULT_SELECTOR_MODEL: 'gpt-4o-mini',

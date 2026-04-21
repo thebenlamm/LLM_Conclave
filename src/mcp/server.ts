@@ -16,6 +16,19 @@
 // This prevents interactive prompts from hanging (stdin is used for MCP protocol)
 process.env.LLM_CONCLAVE_MCP = '1';
 
+// Decide the transport discriminator BEFORE any module-level code in imported
+// files can read process.env.CONCLAVE_TRANSPORT. This must be observable no
+// later than module-evaluation time for any downstream code that computes
+// security-boundary state from the env. Async main() sets it again later for
+// symmetry, but this line is the authoritative pre-import assignment.
+//
+// parseExtraContextRoots() is the only current reader and it's called lazily,
+// so this placement is defensive-for-the-future rather than required today.
+if (!process.env.JEST_WORKER_ID) {
+  const hasSseFlag = process.argv.includes('--sse') || !!process.env.MCP_SSE_PORT;
+  process.env.CONCLAVE_TRANSPORT = hasSseFlag ? 'sse' : 'stdio';
+}
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -36,7 +49,7 @@ import { PersonaSystem } from '../config/PersonaSystem.js';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory.js';
 import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
-import { ContextLoader, parseExtraContextRoots, isPathWithinRoots } from '../consult/context/ContextLoader.js';
+import { ContextLoader, computeAllowedRoots, isPathWithinRoots } from '../consult/context/ContextLoader.js';
 import { DiscussionRunner } from './DiscussionRunner.js';
 import { PreFlightTpmError } from '../providers/tpmLimits.js';
 import { StrictModelError } from '../core/AgentTurnExecutor.js';
@@ -846,19 +859,19 @@ export function validatePath(filePath: string, baseDir: string): string {
   }
   const absolutePath = path.resolve(baseDir, filePath);
 
-  // In SSE mode, process.cwd() is often "/" (set by launchd/systemd),
-  // which makes subdirectory validation meaningless. Use HOME as the
-  // security boundary instead — only allow paths under the user's home dir.
-  const effectiveBase = (baseDir === '/' || baseDir === '')
-    ? (process.env.HOME || '/tmp')
-    : baseDir;
-
-  // Under stdio transport, extend the allowlist with CONCLAVE_ALLOWED_CONTEXT_ROOTS.
-  // parseExtraContextRoots() returns [] under any other transport — fail-closed.
-  const allowedRoots = Array.from(new Set([path.resolve(effectiveBase), ...parseExtraContextRoots()]));
+  // computeAllowedRoots centralizes the HOME fallback for SSE-under-launchd
+  // (cwd='/') and the stdio-only extension via CONCLAVE_ALLOWED_CONTEXT_ROOTS.
+  // Under SSE/REST the extra-roots list is empty — fail-closed.
+  const allowedRoots = computeAllowedRoots(baseDir);
 
   if (!isPathWithinRoots(absolutePath, allowedRoots)) {
-    throw new Error(`Path escapes allowed directory (allowed: ${allowedRoots.join(', ')}): ${filePath}`);
+    // Include the rootlist in stdio (helpful for local debugging) but keep
+    // the SSE/REST variant terse so the HTTP error response doesn't echo
+    // server filesystem layout.
+    const suffix = process.env.CONCLAVE_TRANSPORT === 'stdio'
+      ? ` (allowed: ${allowedRoots.join(', ')})`
+      : '';
+    throw new Error(`Path escapes allowed directory${suffix}: ${filePath}`);
   }
   return absolutePath;
 }
@@ -1628,10 +1641,12 @@ export async function startSSE(port: number) {
 }
 
 async function main() {
+  // CONCLAVE_TRANSPORT is set at module-eval time (top of this file) to close
+  // the race window where an import-time reader would observe `undefined`.
+  // getSSEPort() is re-queried here because getSSEPort has minor parsing
+  // quirks (e.g. explicit '--sse 3200') that the pre-import check approximates.
   const ssePort = getSSEPort();
   if (ssePort) {
-    // Transport flag read by ContextLoader / validatePath to gate
-    // CONCLAVE_ALLOWED_CONTEXT_ROOTS. Must never be set to 'stdio' here.
     process.env.CONCLAVE_TRANSPORT = 'sse';
     await startSSE(ssePort);
   } else {
@@ -1640,10 +1655,15 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error('Fatal error in MCP server:', error);
-  process.exit(1);
-});
+// Do not auto-run main() under Jest — tests import this module to exercise
+// individual exports (validatePath, helpers) and must not boot a real server
+// or mutate process.env.CONCLAVE_TRANSPORT across the worker's other tests.
+if (!process.env.JEST_WORKER_ID) {
+  main().catch((error) => {
+    console.error('Fatal error in MCP server:', error);
+    process.exit(1);
+  });
+}
 
 // Test seam — exported so Plan 13.1-07 integration test can import and exercise renderRunIntegrity directly.
 export { renderRunIntegrity };

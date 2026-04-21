@@ -33,6 +33,10 @@ describe('ContextLoader', () => {
   beforeEach(() => {
     loader = new ContextLoader();
     jest.clearAllMocks();
+    // Default: realpath is a passthrough — most tests don't exercise symlinks,
+    // so they expect the post-realpath allowlist check to agree with the
+    // lexical check. Tests that DO exercise symlinks override this.
+    (fs.realpath as jest.Mock).mockImplementation(async (p: string) => p);
   });
 
   describe('loadFileContext', () => {
@@ -354,11 +358,33 @@ describe('ContextLoader', () => {
 
     it('parseExtraContextRoots drops non-absolute entries', () => {
       process.env.CONCLAVE_TRANSPORT = 'stdio';
-      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/tmp/ok:relative/bad:/tmp/also-ok';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = `/tmp/ok${path.delimiter}relative/bad${path.delimiter}/tmp/also-ok`;
       const roots = parseExtraContextRoots();
       expect(roots).toContain(path.resolve('/tmp/ok'));
       expect(roots).toContain(path.resolve('/tmp/also-ok'));
       expect(roots.find(r => r.includes('relative/bad'))).toBeUndefined();
+    });
+
+    it('parseExtraContextRoots logs to stderr when dropping a non-absolute entry (loud-on-misconfig)', () => {
+      process.env.CONCLAVE_TRANSPORT = 'stdio';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '~/plans';
+      const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const roots = parseExtraContextRoots();
+        expect(roots).toEqual([]);
+        expect(spy).toHaveBeenCalledWith(
+          expect.stringContaining('CONCLAVE_ALLOWED_CONTEXT_ROOTS: dropping non-absolute entry "~/plans"')
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('parseExtraContextRoots uses path.delimiter (platform-native separator)', () => {
+      process.env.CONCLAVE_TRANSPORT = 'stdio';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = ['/tmp/a', '/tmp/b', '/tmp/c'].join(path.delimiter);
+      const roots = parseExtraContextRoots();
+      expect(roots).toHaveLength(3);
     });
 
     it('isPathWithinRoots accepts a file under an allowed root', () => {
@@ -397,10 +423,20 @@ describe('ContextLoader', () => {
         .rejects.toThrow(/Context file path escapes allowed roots/);
     });
 
-    it('loadFileContext error message includes the allowed-roots list', async () => {
+    it('loadFileContext error message includes the allowed-roots list under stdio transport', async () => {
+      process.env.CONCLAVE_TRANSPORT = 'stdio';
       const loader = new ContextLoader({ allowedRoots: ['/tmp/allowed'] });
       await expect(loader.loadFileContext(['../../../etc/passwd']))
         .rejects.toThrow(/allowed:/);
+    });
+
+    it('loadFileContext error message omits the allowed-roots list under sse transport (no fs-layout leak)', async () => {
+      process.env.CONCLAVE_TRANSPORT = 'sse';
+      const loader = new ContextLoader({ allowedRoots: ['/tmp/allowed'] });
+      await expect(loader.loadFileContext(['../../../etc/passwd']))
+        .rejects.toThrow(/Context file path escapes allowed roots: /);
+      await expect(loader.loadFileContext(['../../../etc/passwd']))
+        .rejects.not.toThrow(/allowed: /);
     });
 
     it('loadFileContext honors env-driven roots only when CONCLAVE_TRANSPORT=stdio', async () => {
@@ -427,6 +463,44 @@ describe('ContextLoader', () => {
 
       await expect(loader.loadFileContext(['/tmp/envroot/spec.md']))
         .rejects.toThrow(/Context file path escapes allowed roots/);
+    });
+
+    it('loadFileContext rejects when realpath reveals a symlinked intermediate directory pointing outside the allowlist', async () => {
+      // Scenario: allowed root is /tmp/allowed, user drops a symlink
+      // /tmp/allowed/pwn -> /.  Attacker requests /tmp/allowed/pwn/etc/passwd.
+      // path.resolve is lexical and the leaf isn't a symlink, so pre-realpath
+      // checks pass. realpath() MUST be consulted and the real path re-checked.
+      const loader = new ContextLoader({ allowedRoots: ['/tmp/allowed'] });
+      const lexicalPath = '/tmp/allowed/pwn/etc/passwd';
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 100
+      });
+      // realpath sees through the intermediate symlink
+      (fs.realpath as jest.Mock).mockResolvedValue('/etc/passwd');
+
+      await expect(loader.loadFileContext([lexicalPath]))
+        .rejects.toThrow(/Context file path escapes allowed roots/);
+    });
+
+    it('loadFileContext accepts a file when realpath stays within the allowlist', async () => {
+      const loader = new ContextLoader({ allowedRoots: ['/tmp/allowed'] });
+      const filePath = '/tmp/allowed/spec.md';
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 100
+      });
+      (fs.readFile as jest.Mock).mockResolvedValue('content');
+      (fs.realpath as jest.Mock).mockResolvedValue(filePath);
+
+      const result = await loader.loadFileContext([filePath]);
+      expect(result.sources).toHaveLength(1);
     });
   });
 

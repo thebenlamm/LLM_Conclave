@@ -14,8 +14,10 @@ export { ContextSource, LoadedContext };
  * Honored ONLY when CONCLAVE_TRANSPORT === 'stdio'. Returns [] otherwise —
  * fail-closed for SSE, REST, and any ambiguous case (env unset).
  *
- * Format: colon-separated absolute paths (PATH-style).
- * Non-absolute entries are silently dropped.
+ * Format: platform-native path list (path.delimiter — ':' on POSIX, ';' on
+ * Windows). Entries that are not absolute after trim are dropped with a
+ * warning to stderr, since silent drops on a security-boundary env var
+ * confuse callers who typed something like '~/plans'.
  *
  * This is a security-boundary input. Read directly from process.env —
  * never routed through ConfigCascade, since config files must not be
@@ -25,11 +27,23 @@ export function parseExtraContextRoots(): string[] {
   if (process.env.CONCLAVE_TRANSPORT !== 'stdio') return [];
   const raw = process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS;
   if (!raw) return [];
-  return raw
-    .split(':')
-    .map(s => s.trim())
-    .filter(s => s.length > 0 && path.isAbsolute(s))
-    .map(s => path.resolve(s));
+  const entries = raw.split(path.delimiter).map(s => s.trim()).filter(s => s.length > 0);
+  const kept: string[] = [];
+  for (const entry of entries) {
+    if (!path.isAbsolute(entry)) {
+      // Loud-on-misconfig: a silently-dropped entry produces a confusing
+      // "escapes allowed roots" error later, with a rootlist missing what
+      // the caller thought they configured. stderr keeps the MCP stdio
+      // protocol on stdout uncontaminated.
+      console.error(
+        `[llm-conclave] CONCLAVE_ALLOWED_CONTEXT_ROOTS: dropping non-absolute entry "${entry}" ` +
+        `(entries must be absolute paths; tilde expansion is not applied)`
+      );
+      continue;
+    }
+    kept.push(path.resolve(entry));
+  }
+  return kept;
 }
 
 /**
@@ -41,6 +55,26 @@ export function isPathWithinRoots(absolutePath: string, allowedRoots: string[]):
   return allowedRoots.some(root =>
     absolutePath === root || absolutePath.startsWith(root + path.sep)
   );
+}
+
+/**
+ * Compute the effective security boundary for a given nominal base dir.
+ *
+ * When the server runs as SSE under launchd/systemd, `process.cwd()` is
+ * often '/' (or empty), which collapses `isPathWithinRoots` to deny-all
+ * since `'/Users/x'.startsWith('//')` is false. Fall back to $HOME in that
+ * case so the SSE deployment remains usable without widening the sandbox
+ * across an arbitrary file system.
+ *
+ * The stdio-only extra roots from CONCLAVE_ALLOWED_CONTEXT_ROOTS are
+ * applied on top of this effective base.
+ */
+export function computeAllowedRoots(baseDir: string): string[] {
+  const effectiveBase = (baseDir === '/' || baseDir === '')
+    ? (process.env.HOME || '/tmp')
+    : baseDir;
+  const base = path.resolve(effectiveBase);
+  return Array.from(new Set([base, ...parseExtraContextRoots()]));
 }
 
 export interface ContextLoaderOptions {
@@ -56,12 +90,17 @@ export class ContextLoader {
 
   constructor(options?: ContextLoaderOptions) {
     this.baseDir = process.cwd();
-    const base = path.resolve(this.baseDir);
-    const extra = options?.allowedRoots
-      ? options.allowedRoots.filter(r => path.isAbsolute(r)).map(r => path.resolve(r))
-      : parseExtraContextRoots();
-    // baseDir is always allowed; dedup while preserving order.
-    this.allowedRoots = Array.from(new Set([base, ...extra]));
+    if (options?.allowedRoots) {
+      // Test seam — explicit override skips env parsing entirely.
+      const base = path.resolve(this.baseDir);
+      const extra = options.allowedRoots
+        .filter(r => path.isAbsolute(r))
+        .map(r => path.resolve(r));
+      this.allowedRoots = Array.from(new Set([base, ...extra]));
+    } else {
+      // Production path — same allowlist logic as validatePath in server.ts.
+      this.allowedRoots = computeAllowedRoots(this.baseDir);
+    }
   }
 
   async loadFileContext(filePaths: string[]): Promise<LoadedContext> {
@@ -87,9 +126,12 @@ export class ContextLoader {
       const absolutePath = path.resolve(this.baseDir, filePath);
 
       if (!isPathWithinRoots(absolutePath, this.allowedRoots)) {
-        errors.push(
-          `Context file path escapes allowed roots (allowed: ${this.allowedRoots.join(', ')}): ${filePath}`
-        );
+        // Include rootlist under stdio (local debugging); keep terse elsewhere
+        // so SSE/REST errors don't echo server filesystem layout to callers.
+        const suffix = process.env.CONCLAVE_TRANSPORT === 'stdio'
+          ? ` (allowed: ${this.allowedRoots.join(', ')})`
+          : '';
+        errors.push(`Context file path escapes allowed roots${suffix}: ${filePath}`);
         continue;
       }
 
@@ -120,6 +162,24 @@ export class ContextLoader {
          // Should have been caught by access, but just in case
          errors.push(`Error accessing: ${filePath}`);
          continue;
+      }
+
+      // SECURITY: path.resolve is lexical — it cannot see through a symlinked
+      // INTERMEDIATE directory (e.g., /tmp/allowed/pwn -> /). lstat above only
+      // checks the leaf. realpath resolves every component; re-check against
+      // the allowlist so no caller can escape via a planted symlink.
+      try {
+        const realPath = await fsPromises.realpath(absolutePath);
+        if (!isPathWithinRoots(realPath, this.allowedRoots)) {
+          const suffix = process.env.CONCLAVE_TRANSPORT === 'stdio'
+            ? ` (allowed: ${this.allowedRoots.join(', ')})`
+            : '';
+          errors.push(`Context file path escapes allowed roots${suffix}: ${filePath}`);
+          continue;
+        }
+      } catch {
+        errors.push(`Error resolving real path: ${filePath}`);
+        continue;
       }
 
       // Read file content
