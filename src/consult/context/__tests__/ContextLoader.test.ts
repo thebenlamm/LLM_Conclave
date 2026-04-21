@@ -1,4 +1,4 @@
-import { ContextLoader } from '../ContextLoader';
+import { ContextLoader, parseExtraContextRoots, isPathWithinRoots } from '../ContextLoader';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import inquirer from 'inquirer';
@@ -258,14 +258,14 @@ describe('ContextLoader', () => {
       const traversalPath = '../../../etc/passwd';
 
       await expect(loader.loadFileContext([traversalPath]))
-        .rejects.toThrow(/Context file path escapes working directory/);
+        .rejects.toThrow(/Context file path escapes allowed roots/);
     });
 
     it('rejects deeply nested traversal attempts', async () => {
       const deepTraversal = 'subdir/../../../../../../etc/passwd';
 
       await expect(loader.loadFileContext([deepTraversal]))
-        .rejects.toThrow(/Context file path escapes working directory/);
+        .rejects.toThrow(/Context file path escapes allowed roots/);
     });
 
     it('allows relative paths within working directory', async () => {
@@ -312,6 +312,121 @@ describe('ContextLoader', () => {
 
       const result = await loader.loadFileContext([regularFile]);
       expect(result.sources).toHaveLength(1);
+    });
+  });
+
+  describe('Security: Allowed Context Roots (stdio-only opt-in)', () => {
+    const originalTransport = process.env.CONCLAVE_TRANSPORT;
+    const originalRoots = process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS;
+
+    afterEach(() => {
+      if (originalTransport === undefined) {
+        delete process.env.CONCLAVE_TRANSPORT;
+      } else {
+        process.env.CONCLAVE_TRANSPORT = originalTransport;
+      }
+      if (originalRoots === undefined) {
+        delete process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS;
+      } else {
+        process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = originalRoots;
+      }
+    });
+
+    it('parseExtraContextRoots returns [] when transport is not stdio', () => {
+      process.env.CONCLAVE_TRANSPORT = 'sse';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/tmp/fixture';
+      expect(parseExtraContextRoots()).toEqual([]);
+    });
+
+    it('parseExtraContextRoots returns [] when transport env is unset (fail-closed)', () => {
+      delete process.env.CONCLAVE_TRANSPORT;
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/tmp/fixture';
+      expect(parseExtraContextRoots()).toEqual([]);
+    });
+
+    it('parseExtraContextRoots parses colon-separated absolute paths under stdio', () => {
+      process.env.CONCLAVE_TRANSPORT = 'stdio';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/tmp/a:/tmp/b';
+      const roots = parseExtraContextRoots();
+      expect(roots).toContain(path.resolve('/tmp/a'));
+      expect(roots).toContain(path.resolve('/tmp/b'));
+    });
+
+    it('parseExtraContextRoots drops non-absolute entries', () => {
+      process.env.CONCLAVE_TRANSPORT = 'stdio';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/tmp/ok:relative/bad:/tmp/also-ok';
+      const roots = parseExtraContextRoots();
+      expect(roots).toContain(path.resolve('/tmp/ok'));
+      expect(roots).toContain(path.resolve('/tmp/also-ok'));
+      expect(roots.find(r => r.includes('relative/bad'))).toBeUndefined();
+    });
+
+    it('isPathWithinRoots accepts a file under an allowed root', () => {
+      expect(isPathWithinRoots('/tmp/fixture/spec.md', ['/tmp/fixture'])).toBe(true);
+    });
+
+    it('isPathWithinRoots rejects a sibling of an allowed root (prefix-matching guard)', () => {
+      // '/tmp/fixture-evil/x' must NOT match '/tmp/fixture' via naive startsWith.
+      expect(isPathWithinRoots('/tmp/fixture-evil/x', ['/tmp/fixture'])).toBe(false);
+    });
+
+    it('isPathWithinRoots accepts the root itself', () => {
+      expect(isPathWithinRoots('/tmp/fixture', ['/tmp/fixture'])).toBe(true);
+    });
+
+    it('loadFileContext accepts absolute path under an allowed root when constructor is given explicit roots', async () => {
+      const loader = new ContextLoader({ allowedRoots: ['/tmp/allowed'] });
+      const filePath = '/tmp/allowed/spec.md';
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.readFile as jest.Mock).mockResolvedValue('content');
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 100
+      });
+
+      const result = await loader.loadFileContext([filePath]);
+      expect(result.sources).toHaveLength(1);
+      expect(result.sources[0].path).toBe(filePath);
+    });
+
+    it('loadFileContext rejects traversal under an allowed root', async () => {
+      const loader = new ContextLoader({ allowedRoots: ['/tmp/allowed'] });
+      await expect(loader.loadFileContext(['/tmp/allowed/../../etc/passwd']))
+        .rejects.toThrow(/Context file path escapes allowed roots/);
+    });
+
+    it('loadFileContext error message includes the allowed-roots list', async () => {
+      const loader = new ContextLoader({ allowedRoots: ['/tmp/allowed'] });
+      await expect(loader.loadFileContext(['../../../etc/passwd']))
+        .rejects.toThrow(/allowed:/);
+    });
+
+    it('loadFileContext honors env-driven roots only when CONCLAVE_TRANSPORT=stdio', async () => {
+      process.env.CONCLAVE_TRANSPORT = 'stdio';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/tmp/envroot';
+      const loader = new ContextLoader();
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.readFile as jest.Mock).mockResolvedValue('content');
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 100
+      });
+
+      const result = await loader.loadFileContext(['/tmp/envroot/spec.md']);
+      expect(result.sources).toHaveLength(1);
+    });
+
+    it('loadFileContext ignores env-driven roots under CONCLAVE_TRANSPORT=sse (fail-closed)', async () => {
+      process.env.CONCLAVE_TRANSPORT = 'sse';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/tmp/envroot';
+      const loader = new ContextLoader();
+
+      await expect(loader.loadFileContext(['/tmp/envroot/spec.md']))
+        .rejects.toThrow(/Context file path escapes allowed roots/);
     });
   });
 

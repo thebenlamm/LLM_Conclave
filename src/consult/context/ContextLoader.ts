@@ -9,10 +9,60 @@ import { StdinResult } from './StdinHandler';
 
 export { ContextSource, LoadedContext };
 
+/**
+ * Parse CONCLAVE_ALLOWED_CONTEXT_ROOTS into a list of absolute paths.
+ * Honored ONLY when CONCLAVE_TRANSPORT === 'stdio'. Returns [] otherwise —
+ * fail-closed for SSE, REST, and any ambiguous case (env unset).
+ *
+ * Format: colon-separated absolute paths (PATH-style).
+ * Non-absolute entries are silently dropped.
+ *
+ * This is a security-boundary input. Read directly from process.env —
+ * never routed through ConfigCascade, since config files must not be
+ * able to widen the sandbox.
+ */
+export function parseExtraContextRoots(): string[] {
+  if (process.env.CONCLAVE_TRANSPORT !== 'stdio') return [];
+  const raw = process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS;
+  if (!raw) return [];
+  return raw
+    .split(':')
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && path.isAbsolute(s))
+    .map(s => path.resolve(s));
+}
+
+/**
+ * Returns true iff absolutePath is exactly one of the allowed roots or
+ * lives strictly beneath one (separator-aware to prevent prefix confusions
+ * like "/tmp/fixture-evil" matching "/tmp/fixture").
+ */
+export function isPathWithinRoots(absolutePath: string, allowedRoots: string[]): boolean {
+  return allowedRoots.some(root =>
+    absolutePath === root || absolutePath.startsWith(root + path.sep)
+  );
+}
+
+export interface ContextLoaderOptions {
+  /** Override extra allowed roots (for testing). Non-absolute entries dropped. */
+  allowedRoots?: string[];
+}
+
 export class ContextLoader {
   private readonly tokenThreshold = 10000;
   private readonly maxFileBytes = 2 * 1024 * 1024;
-  private readonly baseDir = process.cwd();
+  private readonly baseDir: string;
+  private readonly allowedRoots: string[];
+
+  constructor(options?: ContextLoaderOptions) {
+    this.baseDir = process.cwd();
+    const base = path.resolve(this.baseDir);
+    const extra = options?.allowedRoots
+      ? options.allowedRoots.filter(r => path.isAbsolute(r)).map(r => path.resolve(r))
+      : parseExtraContextRoots();
+    // baseDir is always allowed; dedup while preserving order.
+    this.allowedRoots = Array.from(new Set([base, ...extra]));
+  }
 
   async loadFileContext(filePaths: string[]): Promise<LoadedContext> {
     // Validate input - filter empty strings and check for valid paths
@@ -30,14 +80,16 @@ export class ContextLoader {
         continue;
       }
 
-      // Resolve to absolute path and validate it stays within baseDir
-      // SECURITY: Validate ALL paths, not just relative ones (fixes absolute path bypass)
+      // Resolve to absolute path and validate it against the allowlist.
+      // SECURITY: Validate ALL paths, not just relative ones (fixes absolute path bypass).
+      // Allowlist always contains baseDir; under CONCLAVE_TRANSPORT=stdio it may also
+      // contain roots from CONCLAVE_ALLOWED_CONTEXT_ROOTS. Fail-closed otherwise.
       const absolutePath = path.resolve(this.baseDir, filePath);
-      const normalizedBase = path.resolve(this.baseDir) + path.sep;
 
-      // Check if resolved path is within sandbox (or IS the baseDir itself)
-      if (!absolutePath.startsWith(normalizedBase) && absolutePath !== path.resolve(this.baseDir)) {
-        errors.push(`Context file path escapes working directory: ${filePath}`);
+      if (!isPathWithinRoots(absolutePath, this.allowedRoots)) {
+        errors.push(
+          `Context file path escapes allowed roots (allowed: ${this.allowedRoots.join(', ')}): ${filePath}`
+        );
         continue;
       }
 

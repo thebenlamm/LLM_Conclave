@@ -147,7 +147,7 @@ Key parameters:
 | Parameter | Required | Notes |
 |-----------|----------|-------|
 | `question` | Yes | The decision or question to analyze |
-| `context` | No | File paths or a directory path to load into context |
+| `context` | No | File paths or a directory path to load into context. Sandboxed to the server's working directory; see [Context path allowlist](#context-path-allowlist-stdio-only). |
 | `personas` | No | Comma-separated personas or persona-set references from global config |
 | `rounds` | No | `1` to `4` |
 | `quick` | No | Shortcut for a 2-round consult |
@@ -396,6 +396,20 @@ curl -X POST http://localhost:3100/api/discuss \
 ```
 
 If `CONCLAVE_API_KEY` is set, `POST /api/discuss` requires `Authorization: Bearer <key>`.
+
+### Context path allowlist (stdio only)
+
+By default the `context` and `project` parameters only accept paths that resolve inside the MCP server's working directory. For local stdio setups where you want to reference specs in sibling repos (e.g. `/Users/you/Workspace/other-project/docs/spec.md`), declare extra roots via an env var:
+
+```bash
+export CONCLAVE_ALLOWED_CONTEXT_ROOTS=/Users/you/Workspace:/Users/you/.claude/plans
+```
+
+- **Format:** colon-separated absolute paths (PATH-style). Non-absolute entries are dropped silently.
+- **Scope:** honored **only** when the server runs as stdio MCP. Under SSE and REST the env var is ignored (fail-closed), so it is safe to leave set in a shared shell profile — but you should still **never** set it on a network-exposed Conclave deployment.
+- **Why an env var and not a config field:** this is a security boundary, so it is deliberately not routed through `ConfigCascade` where a committed config file could silently widen the sandbox.
+
+Error messages from the loader list the current allowed roots, so a caller who hits the sandbox can self-correct.
 
 ## Development
 

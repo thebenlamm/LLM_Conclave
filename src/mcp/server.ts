@@ -36,7 +36,7 @@ import { PersonaSystem } from '../config/PersonaSystem.js';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory.js';
 import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
-import { ContextLoader } from '../consult/context/ContextLoader.js';
+import { ContextLoader, parseExtraContextRoots, isPathWithinRoots } from '../consult/context/ContextLoader.js';
 import { DiscussionRunner } from './DiscussionRunner.js';
 import { PreFlightTpmError } from '../providers/tpmLimits.js';
 import { StrictModelError } from '../core/AgentTurnExecutor.js';
@@ -82,7 +82,7 @@ const TOOLS: Tool[] = [
         },
         context: {
           type: 'string',
-          description: 'File paths (comma-separated) or project directory path',
+          description: 'File paths (comma-separated) or project directory path. Paths must resolve within the MCP server working directory, or a root listed in CONCLAVE_ALLOWED_CONTEXT_ROOTS (honored only under stdio transport).',
         },
         personas: {
           type: 'string',
@@ -853,9 +853,12 @@ export function validatePath(filePath: string, baseDir: string): string {
     ? (process.env.HOME || '/tmp')
     : baseDir;
 
-  const normalizedBase = path.resolve(effectiveBase) + path.sep;
-  if (!absolutePath.startsWith(normalizedBase) && absolutePath !== path.resolve(effectiveBase)) {
-    throw new Error(`Path escapes allowed directory: ${filePath}`);
+  // Under stdio transport, extend the allowlist with CONCLAVE_ALLOWED_CONTEXT_ROOTS.
+  // parseExtraContextRoots() returns [] under any other transport — fail-closed.
+  const allowedRoots = Array.from(new Set([path.resolve(effectiveBase), ...parseExtraContextRoots()]));
+
+  if (!isPathWithinRoots(absolutePath, allowedRoots)) {
+    throw new Error(`Path escapes allowed directory (allowed: ${allowedRoots.join(', ')}): ${filePath}`);
   }
   return absolutePath;
 }
@@ -1627,8 +1630,12 @@ export async function startSSE(port: number) {
 async function main() {
   const ssePort = getSSEPort();
   if (ssePort) {
+    // Transport flag read by ContextLoader / validatePath to gate
+    // CONCLAVE_ALLOWED_CONTEXT_ROOTS. Must never be set to 'stdio' here.
+    process.env.CONCLAVE_TRANSPORT = 'sse';
     await startSSE(ssePort);
   } else {
+    process.env.CONCLAVE_TRANSPORT = 'stdio';
     await startStdio();
   }
 }

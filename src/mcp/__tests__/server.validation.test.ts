@@ -21,7 +21,14 @@ jest.mock('../../utils/ConsultLogger.js', () => jest.fn());
 jest.mock('../../config/ConfigCascade.js', () => ({ ConfigCascade: { resolve: jest.fn() } }));
 jest.mock('../../config/PersonaSystem.js', () => ({ PersonaSystem: { getPersonas: jest.fn(), personasToAgents: jest.fn() } }));
 jest.mock('../../consult/formatting/FormatterFactory.js', () => ({ FormatterFactory: { format: jest.fn() } }));
-jest.mock('../../consult/context/ContextLoader.js', () => ({ ContextLoader: jest.fn() }));
+jest.mock('../../consult/context/ContextLoader.js', () => {
+  const actual = jest.requireActual('../../consult/context/ContextLoader.js');
+  return {
+    ContextLoader: jest.fn(),
+    parseExtraContextRoots: actual.parseExtraContextRoots,
+    isPathWithinRoots: actual.isPathWithinRoots,
+  };
+});
 jest.mock('../../constants.js', () => ({ DEFAULT_SELECTOR_MODEL: 'gpt-4o-mini' }));
 jest.mock('../../types/consult.js', () => ({}));
 
@@ -85,5 +92,54 @@ describe('validatePath', () => {
     expect(() => {
       validatePath('/etc/passwd', '/home/user/project');
     }).toThrow('Path escapes allowed directory');
+  });
+
+  describe('CONCLAVE_ALLOWED_CONTEXT_ROOTS allowlist', () => {
+    const originalTransport = process.env.CONCLAVE_TRANSPORT;
+    const originalRoots = process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS;
+
+    afterEach(() => {
+      if (originalTransport === undefined) {
+        delete process.env.CONCLAVE_TRANSPORT;
+      } else {
+        process.env.CONCLAVE_TRANSPORT = originalTransport;
+      }
+      if (originalRoots === undefined) {
+        delete process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS;
+      } else {
+        process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = originalRoots;
+      }
+    });
+
+    it('accepts a path under an env-allowed root when transport is stdio', () => {
+      process.env.CONCLAVE_TRANSPORT = 'stdio';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/home/user/other';
+      const result = validatePath('/home/user/other/spec.md', '/home/user/project');
+      expect(result).toBe('/home/user/other/spec.md');
+    });
+
+    it('rejects a path under an env-allowed root when transport is sse (fail-closed)', () => {
+      process.env.CONCLAVE_TRANSPORT = 'sse';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/home/user/other';
+      expect(() => {
+        validatePath('/home/user/other/spec.md', '/home/user/project');
+      }).toThrow('Path escapes allowed directory');
+    });
+
+    it('rejects a path under an env-allowed root when transport is unset (fail-closed)', () => {
+      delete process.env.CONCLAVE_TRANSPORT;
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/home/user/other';
+      expect(() => {
+        validatePath('/home/user/other/spec.md', '/home/user/project');
+      }).toThrow('Path escapes allowed directory');
+    });
+
+    it('error message lists the allowed roots', () => {
+      process.env.CONCLAVE_TRANSPORT = 'stdio';
+      process.env.CONCLAVE_ALLOWED_CONTEXT_ROOTS = '/home/user/other';
+      expect(() => {
+        validatePath('/etc/passwd', '/home/user/project');
+      }).toThrow(/allowed:/);
+    });
   });
 });
