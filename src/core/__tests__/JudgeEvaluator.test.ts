@@ -692,12 +692,12 @@ CONFIDENCE: HIGH`;
       const deps = makeDeps();
       const evaluator = new JudgeEvaluator(deps);
       const result = await evaluator.judgeEvaluate(judge);
-      expect(result.consensusReached).toBe(true);
-      expect((result as any).constraintsDetected).toEqual([
+      if (!result.consensusReached) throw new Error('expected consensus');
+      expect(result.constraintsDetected).toEqual([
         'Yosef bandwidth: 2-4 hr/wk async (hard constraint)',
         'Budget ceiling: $10k',
       ]);
-      expect((result as any).provenance).toEqual([
+      expect(result.provenance).toEqual([
         'Use vendor A: Proposed by Systems Architect / concurred by Risk Analyst',
       ]);
     });
@@ -722,9 +722,9 @@ CONFIDENCE: HIGH`;
       const deps = makeDeps();
       const evaluator = new JudgeEvaluator(deps);
       const result = await evaluator.judgeEvaluate(judge);
-      expect(result.consensusReached).toBe(true);
-      expect((result as any).constraintsDetected).toEqual([]);
-      expect((result as any).provenance).toEqual([]);
+      if (!result.consensusReached) throw new Error('expected consensus');
+      expect(result.constraintsDetected).toEqual([]);
+      expect(result.provenance).toEqual([]);
     });
 
     // Documents a known limitation: if the LLM emits CRITICAL SUMMARY RULES with no blank line

@@ -1360,8 +1360,10 @@ describe('MCP Server Handlers', () => {
       expect(json.section_order).toEqual([
         'summary',
         'agent_positions',
+        'constraints_detected',
         'dissent',
         'key_decisions',
+        'provenance',
         'action_items',
       ]);
     });
@@ -1382,6 +1384,9 @@ describe('MCP Server Handlers', () => {
       // Additive keys from this phase must also be present.
       expect(json).toHaveProperty('per_agent_positions');
       expect(json).toHaveProperty('section_order');
+      // PR 1c keys — regression guard so removal triggers a schema-stability failure.
+      expect(json).toHaveProperty('constraints_detected');
+      expect(json).toHaveProperty('provenance');
     });
   });
 
@@ -1412,6 +1417,19 @@ describe('MCP Server Handlers', () => {
       expect(output).toContain('- Yosef bandwidth: 2-4 hr/wk async');
     });
 
+    it('markdown: ## Constraints Detected appears before ## Dissenting Views', () => {
+      const result = baseResult({
+        constraintsDetected: ['Budget: $10k max'],
+        dissent: ['Agent A wanted more budget'],
+      });
+      const output = formatDiscussionResult(result, '/tmp/log.jsonl');
+      const constraintsIdx = output.indexOf('## Constraints Detected');
+      const dissentIdx = output.indexOf('## Dissenting Views');
+      expect(constraintsIdx).toBeGreaterThan(-1);
+      expect(dissentIdx).toBeGreaterThan(-1);
+      expect(constraintsIdx).toBeLessThan(dissentIdx);
+    });
+
     it('markdown: omits ## Constraints Detected when constraintsDetected is empty', () => {
       const result = baseResult({ constraintsDetected: [] });
       const output = formatDiscussionResult(result, '/tmp/log.jsonl');
@@ -1422,6 +1440,27 @@ describe('MCP Server Handlers', () => {
       const result = baseResult();
       const output = formatDiscussionResult(result, '/tmp/log.jsonl');
       expect(output).not.toContain('## Constraints Detected');
+    });
+
+    it('markdown: renders ## Provenance section after ## Key Decisions when non-empty', () => {
+      const result = baseResult({
+        keyDecisions: ['Use vendor A'],
+        provenance: ['Use vendor A: Proposed by Systems Architect / concurred by Risk Analyst'],
+      });
+      const output = formatDiscussionResult(result, '/tmp/log.jsonl');
+      expect(output).toContain('## Provenance\n');
+      expect(output).toContain('- Use vendor A: Proposed by Systems Architect');
+      const decisionsIdx = output.indexOf('## Key Decisions');
+      const provenanceIdx = output.indexOf('## Provenance');
+      expect(decisionsIdx).toBeGreaterThan(-1);
+      expect(provenanceIdx).toBeGreaterThan(-1);
+      expect(provenanceIdx).toBeGreaterThan(decisionsIdx);
+    });
+
+    it('markdown: omits ## Provenance when provenance is empty', () => {
+      const result = baseResult({ provenance: [] });
+      const output = formatDiscussionResult(result, '/tmp/log.jsonl');
+      expect(output).not.toContain('## Provenance');
     });
 
     it('JSON: constraints_detected field present and populated when non-empty', () => {
@@ -1677,7 +1716,7 @@ describe('MCP Server Handlers', () => {
       expect(json.conclave_home).toBeDefined();
       expect(json.substitutions).toBeDefined(); // non-empty on degraded run
       expect(json.realized_panel).toBeDefined();
-      expect(json.section_order).toEqual(['summary', 'agent_positions', 'dissent', 'key_decisions', 'action_items']);
+      expect(json.section_order).toEqual(['summary', 'agent_positions', 'constraints_detected', 'dissent', 'key_decisions', 'provenance', 'action_items']);
       // Old pre-existing `degraded` / `degraded_reason` mean "discussion aborted"
       // — NOT triggered by completed_degraded status. They remain undefined.
       expect(json.degraded).toBeUndefined();
@@ -1865,7 +1904,7 @@ describe('MCP Server Handlers', () => {
       const json = formatDiscussionResultJson(coinedResult, '/tmp/log.jsonl', 'sess-123');
       expect(json.task).toBeDefined();
       expect(json.summary).toBeDefined();
-      expect(json.section_order).toEqual(['summary', 'agent_positions', 'dissent', 'key_decisions', 'action_items']);
+      expect(json.section_order).toEqual(['summary', 'agent_positions', 'constraints_detected', 'dissent', 'key_decisions', 'provenance', 'action_items']);
       expect(json.session_id).toBe('sess-123');
       expect(json.log_file).toBe('/tmp/log.jsonl');
       expect(json.conclave_home).toBeDefined();

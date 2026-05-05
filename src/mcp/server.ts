@@ -1111,11 +1111,6 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
     output += `*No final solution reached*\n\n`;
   }
 
-  if (constraintsDetected.length > 0) {
-    output += `## Constraints Detected\n\n`;
-    output += constraintsDetected.map((c: string) => `- ${c}`).join('\n') + '\n\n';
-  }
-
   // AUDIT-01 — Per-agent position block. Always-on; renders each participating
   // agent's FINAL non-error turn so the user can cross-check judge synthesis
   // against raw agent reasoning without opening the discuss log.
@@ -1169,6 +1164,14 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
     output += `> **Note:** This discussion ran without ${failedAgents.length} requested agent(s). Consider re-running if those perspectives are important.\n\n`;
   }
 
+  // Constraints Detected — surfaces any hard constraints the judge extracted from the task.
+  // Placed before Dissenting Views so readers see the constraints that were (or weren't) honoured
+  // before they read the dissent flags about violations.
+  if (constraintsDetected.length > 0) {
+    output += `## Constraints Detected\n\n`;
+    output += constraintsDetected.map((c: string) => `- ${c}`).join('\n') + '\n\n';
+  }
+
   // AUDIT-02 — Dissenting Views surface BEFORE Key Decisions and Action Items
   // so the user sees unresolved disagreement before recommendations. Moved
   // from post-Action-Items to pre-Key-Decisions in Phase 17.
@@ -1187,6 +1190,13 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
       output += `- ${decision}\n`;
     }
     output += `\n`;
+  }
+
+  // Provenance — per-decision attribution from the judge. Grouped after Key Decisions
+  // because each provenance bullet is keyed by a KEY_DECISION text.
+  if (provenance.length > 0) {
+    output += `## Provenance\n\n`;
+    output += provenance.map((p: string) => `- ${p}`).join('\n') + '\n\n';
   }
 
   // Action Items
@@ -1353,8 +1363,10 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
   const sectionOrder: string[] = [
     'summary',
     'agent_positions',
+    'constraints_detected',
     'dissent',
     'key_decisions',
+    'provenance',
     'action_items',
   ];
 
