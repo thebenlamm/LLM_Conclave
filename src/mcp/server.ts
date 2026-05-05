@@ -1030,6 +1030,8 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
     keyDecisions = [],
     actionItems = [],
     dissent = [],
+    constraintsDetected = [],
+    provenance = [],
   } = result;
 
   // Phase 13 Plan 04 — single source of truth for confidence. Header, body, and
@@ -1107,6 +1109,11 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
     output += `## Summary\n\n${solution}\n\n`;
   } else {
     output += `*No final solution reached*\n\n`;
+  }
+
+  if (constraintsDetected.length > 0) {
+    output += `## Constraints Detected\n\n`;
+    output += constraintsDetected.map((c: string) => `- ${c}`).join('\n') + '\n\n';
   }
 
   // AUDIT-01 — Per-agent position block. Always-on; renders each participating
@@ -1250,6 +1257,8 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     keyDecisions = [],
     actionItems = [],
     dissent = [],
+    constraintsDetected: jsonConstraintsDetected = [],
+    provenance: jsonProvenance = [],
     timedOut = false,
     degraded = false,
     degradedReason,
@@ -1386,6 +1395,8 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     key_decisions: keyDecisions,
     action_items: actionItems,
     dissent,
+    constraints_detected: jsonConstraintsDetected,
+    provenance: jsonProvenance,
     confidence: finalConfidence.toLowerCase(),
     final_confidence: finalConfidence,
     confidence_reasoning: confidenceReasoning,

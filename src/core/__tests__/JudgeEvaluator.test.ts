@@ -665,6 +665,68 @@ CONFIDENCE: HIGH`;
       expect(result.solution).not.toContain('KEY_DECISIONS');
     });
 
+    it('extracts CONSTRAINTS_DETECTED and PROVENANCE when present', async () => {
+      const judgeResponse = `CONSENSUS_REACHED
+
+SUMMARY:
+Agents agreed on vendor A.
+
+KEY_DECISIONS:
+- Use vendor A
+
+ACTION_ITEMS:
+- Sign contract
+
+DISSENT:
+- None
+
+CONSTRAINTS_DETECTED:
+- Yosef bandwidth: 2-4 hr/wk async (hard constraint)
+- Budget ceiling: $10k
+
+PROVENANCE:
+- Use vendor A: Proposed by Systems Architect / concurred by Risk Analyst
+
+CONFIDENCE: HIGH`;
+      const judge = makeJudge(judgeResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      const result = await evaluator.judgeEvaluate(judge);
+      expect(result.consensusReached).toBe(true);
+      expect((result as any).constraintsDetected).toEqual([
+        'Yosef bandwidth: 2-4 hr/wk async (hard constraint)',
+        'Budget ceiling: $10k',
+      ]);
+      expect((result as any).provenance).toEqual([
+        'Use vendor A: Proposed by Systems Architect / concurred by Risk Analyst',
+      ]);
+    });
+
+    it('returns empty arrays for constraintsDetected and provenance when sections absent', async () => {
+      const judgeResponse = `CONSENSUS_REACHED
+
+SUMMARY:
+Agents agreed on REST.
+
+KEY_DECISIONS:
+- Use REST
+
+ACTION_ITEMS:
+- Build it
+
+DISSENT:
+- None
+
+CONFIDENCE: HIGH`;
+      const judge = makeJudge(judgeResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      const result = await evaluator.judgeEvaluate(judge);
+      expect(result.consensusReached).toBe(true);
+      expect((result as any).constraintsDetected).toEqual([]);
+      expect((result as any).provenance).toEqual([]);
+    });
+
     // Documents a known limitation: if the LLM emits CRITICAL SUMMARY RULES with no blank line
     // before it, the regex cannot distinguish it from body text. PR 1b (moving the scaffold out
     // of the prompt template) is the correct fix for that case.

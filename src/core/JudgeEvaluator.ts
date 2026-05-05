@@ -178,9 +178,11 @@ export default class JudgeEvaluator {
     actionItems: string[];
     dissent: string[];
     confidence: string;
+    constraintsDetected: string[];
+    provenance: string[];
   } {
     if (!text) {
-      return { summary: '', keyDecisions: [], actionItems: [], dissent: [], confidence: 'LOW' };
+      return { summary: '', keyDecisions: [], actionItems: [], dissent: [], confidence: 'LOW', constraintsDetected: [], provenance: [] };
     }
 
     const extractSection = (sectionName: string): string[] => {
@@ -207,7 +209,9 @@ export default class JudgeEvaluator {
       keyDecisions: extractSection('KEY_DECISIONS'),
       actionItems: extractSection('ACTION_ITEMS'),
       dissent: extractSection('DISSENT'),
-      confidence: confidenceMatch ? confidenceMatch[1].toUpperCase() : 'MEDIUM'
+      confidence: confidenceMatch ? confidenceMatch[1].toUpperCase() : 'MEDIUM',
+      constraintsDetected: extractSection('CONSTRAINTS_DETECTED'),
+      provenance: extractSection('PROVENANCE'),
     };
   }
 
@@ -420,6 +424,8 @@ export default class JudgeEvaluator {
     actionItems: string[];
     dissent: string[];
     confidence: string;
+    constraintsDetected: string[];
+    provenance: string[];
   } {
     // Extract unique agent positions from the last round
     const roundGroups = this.deps.history.groupHistoryByRound();
@@ -455,7 +461,9 @@ export default class JudgeEvaluator {
       keyDecisions: [],
       actionItems: [],
       dissent: ['Judge model exceeded context limits — results are approximate'],
-      confidence: 'LOW'
+      confidence: 'LOW',
+      constraintsDetected: [],
+      provenance: [],
     };
   }
 
@@ -604,6 +612,8 @@ A consensus is GENUINE when:
 
 When writing your SUMMARY, include only what the agents finally agreed upon. Do not include proposals that were mentioned early but later rejected or superseded — the summary must reflect the actual final position, not a balanced synthesis of all options mentioned.
 
+If the task contains explicit numerics, phrases like "hard constraint" or "non-negotiable", list them under CONSTRAINTS_DETECTED. For any ACTION_ITEM that violates a listed constraint, flag it in DISSENT and set CONFIDENCE to LOW.
+
 If YES (genuine consensus reached), respond with EXACTLY this format:
 CONSENSUS_REACHED
 
@@ -622,6 +632,12 @@ ACTION_ITEMS:
 
 DISSENT:
 - [Any minority opinions or unresolved concerns, or "None" if full agreement]
+
+CONSTRAINTS_DETECTED:
+- [Any explicit constraint from the task: exact numerics, phrases like "hard constraint" or "non-negotiable". Write "None" if none found.]
+
+PROVENANCE:
+- [KEY_DECISION text]: Proposed by [Agent] / concurred by [Agent, Agent]
 
 CONFIDENCE: [HIGH/MEDIUM/LOW based on strength of agreement]
 
@@ -677,7 +693,9 @@ Your guidance should FORCE new insights, not just encourage more discussion. Alw
           keyDecisions: structured.keyDecisions,
           actionItems: structured.actionItems,
           dissent: structured.dissent,
-          confidence: structured.confidence
+          confidence: structured.confidence,
+          constraintsDetected: structured.constraintsDetected,
+          provenance: structured.provenance,
         };
       }
 
@@ -731,7 +749,9 @@ Your guidance should FORCE new insights, not just encourage more discussion. Alw
                 keyDecisions: structured.keyDecisions,
                 actionItems: structured.actionItems,
                 dissent: structured.dissent,
-                confidence: structured.confidence
+                confidence: structured.confidence,
+                constraintsDetected: structured.constraintsDetected,
+                provenance: structured.provenance,
               };
             }
             return { consensusReached: false, guidance: text };
@@ -767,6 +787,8 @@ Your guidance should FORCE new insights, not just encourage more discussion. Alw
     actionItems: string[];
     dissent: string[];
     confidence: string;
+    constraintsDetected: string[];
+    provenance: string[];
   }> {
     try {
       const rawDiscussion = this.deps.conversationHistory
@@ -788,6 +810,8 @@ CRITICAL: Your summary must reflect where the discussion CONVERGED, not a "balan
 
 When writing your SUMMARY, identify which position gained the most support by the end of the discussion. Do not include proposals that were mentioned but later rejected, superseded, or abandoned — the summary must reflect the actual trajectory, not an average of all positions.
 
+If the task contains explicit numerics, phrases like "hard constraint" or "non-negotiable", list them under CONSTRAINTS_DETECTED. For any ACTION_ITEM that violates a listed constraint, flag it in DISSENT and set CONFIDENCE to LOW.
+
 Respond with EXACTLY this format:
 
 SUMMARY:
@@ -805,6 +829,12 @@ ACTION_ITEMS:
 
 DISSENT:
 - [Any minority opinions or unresolved concerns from specific agents]
+
+CONSTRAINTS_DETECTED:
+- [Any explicit constraint from the task: exact numerics, phrases like "hard constraint" or "non-negotiable". Write "None" if none found.]
+
+PROVENANCE:
+- [KEY_DECISION text]: Proposed by [Agent] / concurred by [Agent, Agent]
 
 CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
 
@@ -841,7 +871,9 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
         keyDecisions: structured.keyDecisions,
         actionItems: structured.actionItems,
         dissent: structured.dissent,
-        confidence: structured.confidence
+        confidence: structured.confidence,
+        constraintsDetected: structured.constraintsDetected,
+        provenance: structured.provenance,
       };
 
     } catch (error: any) {
@@ -872,6 +904,8 @@ CRITICAL: Your summary must reflect where the discussion CONVERGED, not a "balan
 
 When writing your SUMMARY, identify which position gained the most support by the end of the discussion. Do not include proposals that were mentioned but later rejected, superseded, or abandoned — the summary must reflect the actual trajectory, not an average of all positions.
 
+If the task contains explicit numerics, phrases like "hard constraint" or "non-negotiable", list them under CONSTRAINTS_DETECTED. For any ACTION_ITEM that violates a listed constraint, flag it in DISSENT and set CONFIDENCE to LOW.
+
 Respond with EXACTLY this format:
 
 SUMMARY:
@@ -885,6 +919,12 @@ ACTION_ITEMS:
 
 DISSENT:
 - [Minority opinions or unresolved concerns from specific agents]
+
+CONSTRAINTS_DETECTED:
+- [Any explicit constraint from the task: exact numerics, phrases like "hard constraint" or "non-negotiable". Write "None" if none found.]
+
+PROVENANCE:
+- [KEY_DECISION text]: Proposed by [Agent] / concurred by [Agent, Agent]
 
 CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
           const { controller: fbController, cleanup: fbCleanup } = this.createCallAbortController(60_000);
@@ -908,7 +948,9 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
               keyDecisions: structured.keyDecisions,
               actionItems: structured.actionItems,
               dissent: structured.dissent,
-              confidence: structured.confidence
+              confidence: structured.confidence,
+              constraintsDetected: structured.constraintsDetected,
+              provenance: structured.provenance,
             };
           }
         } catch (fallbackError: any) {
@@ -924,7 +966,9 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
         keyDecisions: bestEffort.keyDecisions,
         actionItems: bestEffort.actionItems,
         dissent: [...bestEffort.dissent, `Judge error: ${errorMsg.substring(0, 200)}`],
-        confidence: bestEffort.confidence
+        confidence: bestEffort.confidence,
+        constraintsDetected: bestEffort.constraintsDetected,
+        provenance: bestEffort.provenance,
       };
     }
   }

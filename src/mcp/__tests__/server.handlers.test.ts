@@ -1385,6 +1385,72 @@ describe('MCP Server Handlers', () => {
     });
   });
 
+  describe('PR 1c — CONSTRAINTS_DETECTED + PROVENANCE fields', () => {
+    const baseResult = (overrides: Record<string, any> = {}) => ({
+      task: 'pick a vendor; Yosef bandwidth is a hard constraint: 2-4 hr/wk',
+      conversationHistory: [],
+      solution: 'Use vendor A.',
+      consensusReached: true,
+      rounds: 2,
+      maxRounds: 4,
+      failedAgents: [],
+      agentSubstitutions: {},
+      keyDecisions: ['Use vendor A'],
+      actionItems: ['Sign contract'],
+      dissent: [],
+      finalConfidence: 'HIGH',
+      confidenceReasoning: 'clean run',
+      runIntegrity: { participation: [] },
+      agents_config: {},
+      ...overrides,
+    });
+
+    it('markdown: renders ## Constraints Detected section when constraintsDetected is non-empty', () => {
+      const result = baseResult({ constraintsDetected: ['Yosef bandwidth: 2-4 hr/wk async'] });
+      const output = formatDiscussionResult(result, '/tmp/log.jsonl');
+      expect(output).toContain('## Constraints Detected\n');
+      expect(output).toContain('- Yosef bandwidth: 2-4 hr/wk async');
+    });
+
+    it('markdown: omits ## Constraints Detected when constraintsDetected is empty', () => {
+      const result = baseResult({ constraintsDetected: [] });
+      const output = formatDiscussionResult(result, '/tmp/log.jsonl');
+      expect(output).not.toContain('## Constraints Detected');
+    });
+
+    it('markdown: omits ## Constraints Detected when field is absent (default [])', () => {
+      const result = baseResult();
+      const output = formatDiscussionResult(result, '/tmp/log.jsonl');
+      expect(output).not.toContain('## Constraints Detected');
+    });
+
+    it('JSON: constraints_detected field present and populated when non-empty', () => {
+      const result = baseResult({ constraintsDetected: ['budget ≤ $10k', 'launch by Q3'] });
+      const json = formatDiscussionResultJson(result, '/tmp/log.jsonl', 'sess-1');
+      expect(json).toHaveProperty('constraints_detected');
+      expect(json.constraints_detected).toEqual(['budget ≤ $10k', 'launch by Q3']);
+    });
+
+    it('JSON: constraints_detected is [] when field absent from result', () => {
+      const result = baseResult();
+      const json = formatDiscussionResultJson(result, '/tmp/log.jsonl', 'sess-1');
+      expect(json.constraints_detected).toEqual([]);
+    });
+
+    it('JSON: provenance field present and populated when non-empty', () => {
+      const result = baseResult({ provenance: ['Use vendor A: Proposed by Systems Architect / concurred by Risk Analyst'] });
+      const json = formatDiscussionResultJson(result, '/tmp/log.jsonl', 'sess-1');
+      expect(json).toHaveProperty('provenance');
+      expect(json.provenance).toEqual(['Use vendor A: Proposed by Systems Architect / concurred by Risk Analyst']);
+    });
+
+    it('JSON: provenance is [] when field absent from result', () => {
+      const result = baseResult();
+      const json = formatDiscussionResultJson(result, '/tmp/log.jsonl', 'sess-1');
+      expect(json.provenance).toEqual([]);
+    });
+  });
+
   describe('Phase 18 — Round Counter Unification (AUDIT-03)', () => {
     const tmpDir = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-phase18-status-'));
 

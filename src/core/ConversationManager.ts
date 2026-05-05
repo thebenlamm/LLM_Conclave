@@ -350,6 +350,8 @@ export default class ConversationManager {
     let actionItems: string[] = [];
     let dissent: string[] = [];
     let confidence: string = 'MEDIUM';
+    let constraintsDetected: string[] = [];
+    let provenance: string[] = [];
 
     // Main conversation loop
     while (this.currentRound < this.maxRounds && !consensusReached) {
@@ -542,6 +544,8 @@ export default class ConversationManager {
           actionItems: [] as string[],
           dissent: [degradedReason],
           confidence: degradedReconciled.finalConfidence,
+          constraintsDetected: [] as string[],
+          provenance: [] as string[],
           finalConfidence: degradedReconciled.finalConfidence,
           confidenceReasoning: degradedReconciled.confidenceReasoning,
           conversationHistory: this.conversationHistory,
@@ -627,6 +631,8 @@ export default class ConversationManager {
         actionItems = judgeResult.actionItems || [];
         dissent = judgeResult.dissent || [];
         confidence = judgeResult.confidence || 'MEDIUM';
+        constraintsDetected = judgeResult.constraintsDetected || [];
+        provenance = judgeResult.provenance || [];
         console.log(`\n${'='.repeat(80)}`);
         console.log(`CONSENSUS REACHED after ${this.currentRound} rounds!`);
         console.log(`${'='.repeat(80)}\n`);
@@ -719,6 +725,8 @@ export default class ConversationManager {
       let actionItems: string[] = [];
       let dissent: string[] = [`Discussion was interrupted (${abortReason})`];
       let confidence: string = 'LOW';
+      let abortConstraintsDetected: string[] = [];
+      let abortProvenance: string[] = [];
 
       // Phase 13.1 Plan 05 — runIntegrity for aborted path. Use the
       // already-deduped failed-agent list built above from the same
@@ -752,6 +760,8 @@ export default class ConversationManager {
         dissent = [...(voteResult.dissent || []), `Discussion was interrupted after ${this.currentRound}/${this.maxRounds} rounds (${abortReason})`];
         confidence = voteResult.confidence;
         abortedJudgeConfidence = this.normalizeConfidence(voteResult.confidence);
+        abortConstraintsDetected = voteResult.constraintsDetected || [];
+        abortProvenance = voteResult.provenance || [];
         console.log(`[Judge summary succeeded despite timeout]`);
       } catch (judgeError: any) {
         console.error(`[Judge summary failed after timeout: ${judgeError.message}]`);
@@ -795,6 +805,8 @@ export default class ConversationManager {
         actionItems,
         dissent,
         confidence,
+        constraintsDetected: abortConstraintsDetected,
+        provenance: abortProvenance,
         finalConfidence: abortedReconciled.finalConfidence,
         confidenceReasoning: abortedReconciled.confidenceReasoning,
         conversationHistory: this.conversationHistory,
@@ -861,6 +873,8 @@ export default class ConversationManager {
       actionItems = voteResult.actionItems;
       dissent = voteResult.dissent;
       confidence = voteResult.confidence;
+      constraintsDetected = voteResult.constraintsDetected || [];
+      provenance = voteResult.provenance || [];
     }
 
     // Count failed agents for reporting
@@ -967,6 +981,8 @@ export default class ConversationManager {
       actionItems: actionItems,
       dissent: dissent,
       confidence: confidence,
+      constraintsDetected: constraintsDetected,
+      provenance: provenance,
       finalConfidence: happyReconciled.finalConfidence,
       confidenceReasoning: happyReconciled.confidenceReasoning,
       conversationHistory: this.conversationHistory,
