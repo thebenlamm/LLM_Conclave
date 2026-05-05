@@ -602,18 +602,13 @@ A consensus is GENUINE when:
 - Trade-offs were named (not just acknowledged abstractly)
 - Novel proposals were stress-tested (risks, costs, edge cases explored)
 
+When writing your SUMMARY, include only what the agents finally agreed upon. Do not include proposals that were mentioned early but later rejected or superseded — the summary must reflect the actual final position, not a balanced synthesis of all options mentioned.
+
 If YES (genuine consensus reached), respond with EXACTLY this format:
 CONSENSUS_REACHED
 
 SUMMARY:
 [2-3 sentence summary of the FINAL agreed solution]
-
-CRITICAL SUMMARY RULES:
-- ONLY summarize what the agents FINALLY agreed upon
-- Do NOT include proposals that were mentioned but later REJECTED or SUPERSEDED
-- Do NOT synthesize a "balanced" view that includes options the agents explicitly moved away from
-- If an option was proposed in Round 1 but rejected in Round 2, it should NOT appear in the summary
-- The summary must reflect the ACTUAL FINAL POSITION, not a compromise of all positions mentioned
 
 KEY_DECISIONS:
 - [Decision 1 - must reflect final agreed position only]
@@ -791,17 +786,12 @@ The agents haven't reached full consensus within the allowed rounds. Given the c
 
 CRITICAL: Your summary must reflect where the discussion CONVERGED, not a "balanced synthesis" of all options mentioned.
 
+When writing your SUMMARY, identify which position gained the most support by the end of the discussion. Do not include proposals that were mentioned but later rejected, superseded, or abandoned — the summary must reflect the actual trajectory, not an average of all positions.
+
 Respond with EXACTLY this format:
 
 SUMMARY:
 [2-3 sentence summary of the direction the discussion was heading]
-
-CRITICAL SUMMARY RULES:
-- Identify which position gained the most support by the END of the discussion
-- Do NOT include proposals that were mentioned but later REJECTED or SUPERSEDED
-- Do NOT create a "fair compromise" that includes options agents moved away from
-- If Agent A proposed X in Round 1 but agents converged on Y in later rounds, summarize Y not X
-- The summary must reflect the ACTUAL TRAJECTORY, not an average of all positions
 
 KEY_DECISIONS:
 - [Decision 1 - based on where discussion was heading]
@@ -880,16 +870,12 @@ The agents haven't reached full consensus within the allowed rounds. Given the c
 
 CRITICAL: Your summary must reflect where the discussion CONVERGED, not a "balanced synthesis" of all options mentioned.
 
+When writing your SUMMARY, identify which position gained the most support by the end of the discussion. Do not include proposals that were mentioned but later rejected, superseded, or abandoned — the summary must reflect the actual trajectory, not an average of all positions.
+
 Respond with EXACTLY this format:
 
 SUMMARY:
 [2-3 sentence summary of the direction the discussion was heading]
-
-CRITICAL SUMMARY RULES:
-- Identify which position gained the most support by the END of the discussion
-- Do NOT include proposals that were mentioned but later REJECTED or SUPERSEDED
-- Do NOT create a "fair compromise" that includes options agents moved away from
-- The summary must reflect the ACTUAL TRAJECTORY, not an average of all positions
 
 KEY_DECISIONS:
 - [Decision 1 - based on where discussion was heading]
