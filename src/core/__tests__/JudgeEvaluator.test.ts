@@ -521,4 +521,99 @@ CONFIDENCE: HIGH`;
       expect(result.confidence).toBe('LOW');
     });
   });
+
+  describe('parseStructuredOutput (via judgeEvaluate)', () => {
+    it('does not capture CRITICAL SUMMARY RULES into summary', async () => {
+      const judgeResponse = `CONSENSUS_REACHED
+
+SUMMARY:
+The agents agreed on a REST-based approach.
+
+CRITICAL SUMMARY RULES:
+- Only summarize what agents finally agreed upon.
+- Do not include rejected proposals.
+
+KEY_DECISIONS:
+- Use REST API
+
+ACTION_ITEMS:
+- Implement endpoints
+
+DISSENT:
+- None
+
+CONFIDENCE: HIGH`;
+      const judge = makeJudge(judgeResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      const result = await evaluator.judgeEvaluate(judge);
+      expect(result.consensusReached).toBe(true);
+      expect(result.solution).not.toContain('CRITICAL SUMMARY RULES');
+      expect(result.solution).toContain('REST-based approach');
+    });
+
+    it('does not truncate summary at acronym-colon patterns like "AWS:"', async () => {
+      const judgeResponse = `CONSENSUS_REACHED
+
+SUMMARY:
+The agents agreed to deploy on AWS: us-east-1 is the preferred region for latency reasons.
+
+KEY_DECISIONS:
+- Deploy to AWS us-east-1
+
+ACTION_ITEMS:
+- Configure region
+
+DISSENT:
+- None
+
+CONFIDENCE: HIGH`;
+      const judge = makeJudge(judgeResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      const result = await evaluator.judgeEvaluate(judge);
+      expect(result.consensusReached).toBe(true);
+      expect(result.solution).toContain('us-east-1 is the preferred region');
+    });
+
+    it('captures summary to end of string when no section separator present', async () => {
+      const judgeResponse = `CONSENSUS_REACHED
+
+SUMMARY:
+The agents reached agreement on using TypeScript throughout.`;
+      const judge = makeJudge(judgeResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      const result = await evaluator.judgeEvaluate(judge);
+      expect(result.consensusReached).toBe(true);
+      expect(result.solution).toContain('TypeScript throughout');
+    });
+
+    it('excludes CRITICAL SUMMARY RULES when separated by blank line from summary', async () => {
+      const judgeResponse = `CONSENSUS_REACHED
+
+SUMMARY:
+Short summary here.
+
+CRITICAL SUMMARY RULES:
+- This should not appear in the summary.
+
+KEY_DECISIONS:
+- Use microservices
+
+ACTION_ITEMS:
+- Split services
+
+DISSENT:
+- None
+
+CONFIDENCE: MEDIUM`;
+      const judge = makeJudge(judgeResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      const result = await evaluator.judgeEvaluate(judge);
+      expect(result.solution).toBe('Short summary here.');
+      expect(result.solution).not.toContain('CRITICAL SUMMARY RULES');
+    });
+  });
 });

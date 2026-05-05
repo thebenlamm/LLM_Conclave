@@ -194,7 +194,9 @@ export default class JudgeEvaluator {
         .filter(line => line.length > 0 && line.toLowerCase() !== 'none');
     };
 
-    const summaryMatch = text.match(/SUMMARY:\s*\n([^\n]+(?:\n[^\n]+)*?)(?=\n\nKEY_DECISIONS:|$)/i);
+    // Stop at any double-newline + all-caps section header (e.g. KEY_DECISIONS:, CRITICAL SUMMARY RULES:).
+    // Requires \n\n before the header so mid-sentence "AWS:" or "e.g.:" are never mistaken for sections.
+    const summaryMatch = text.match(/SUMMARY:\s*\n([\s\S]*?)(?=\n\n[A-Z][A-Z _]*:|$)/i);
     const confidenceMatch = text.match(/CONFIDENCE:\s*(HIGH|MEDIUM|LOW)/i);
 
     return {
