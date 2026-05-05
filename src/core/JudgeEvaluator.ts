@@ -194,9 +194,12 @@ export default class JudgeEvaluator {
         .filter(line => line.length > 0 && line.toLowerCase() !== 'none');
     };
 
-    // Stop at any double-newline + all-caps section header (e.g. KEY_DECISIONS:, CRITICAL SUMMARY RULES:).
-    // Requires \n\n before the header so mid-sentence "AWS:" or "e.g.:" are never mistaken for sections.
-    const summaryMatch = text.match(/SUMMARY:\s*\n([\s\S]*?)(?=\n\n[A-Z][A-Z _]*:|$)/i);
+    // Stop at any double-newline + ALL-CAPS section header (e.g. KEY_DECISIONS:, CRITICAL SUMMARY RULES:).
+    // No /i flag: lookahead is case-sensitive so mixed-case labels like "Note:" or "Conclusion:" in
+    // body text are never mistaken for section breaks. \n\n guards against inline "AWS:" mid-sentence.
+    // Note: the no-blank-line leak case (LLM omits blank line before CRITICAL SUMMARY RULES:) requires
+    // the prompt fix in PR 1b to fully resolve — the regex alone can't distinguish it from body text.
+    const summaryMatch = text.match(/SUMMARY:\s*\n([\s\S]*?)(?=\n\n[A-Z][A-Z _]*:|$)/);
     const confidenceMatch = text.match(/CONFIDENCE:\s*(HIGH|MEDIUM|LOW)/i);
 
     return {

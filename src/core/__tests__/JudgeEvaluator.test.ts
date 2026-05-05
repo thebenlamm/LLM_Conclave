@@ -615,5 +615,64 @@ CONFIDENCE: MEDIUM`;
       expect(result.solution).toBe('Short summary here.');
       expect(result.solution).not.toContain('CRITICAL SUMMARY RULES');
     });
+
+    it('does not truncate summary at mixed-case labels like "Note:" or "Conclusion:"', async () => {
+      // Regression guard for /i flag removal: mixed-case words after \n\n must not stop the summary.
+      const judgeResponse = `CONSENSUS_REACHED
+
+SUMMARY:
+The agents agreed on microservices.
+
+Note: this was a contentious decision requiring three rounds.
+
+Conclusion: REST over gRPC for external APIs.
+
+KEY_DECISIONS:
+- Use microservices
+
+ACTION_ITEMS:
+- Define service boundaries
+
+DISSENT:
+- None
+
+CONFIDENCE: HIGH`;
+      const judge = makeJudge(judgeResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      const result = await evaluator.judgeEvaluate(judge);
+      expect(result.solution).toContain('Note: this was a contentious decision');
+      expect(result.solution).toContain('Conclusion: REST over gRPC');
+      expect(result.solution).not.toContain('KEY_DECISIONS');
+    });
+
+    // Documents a known limitation: if the LLM emits CRITICAL SUMMARY RULES with no blank line
+    // before it, the regex cannot distinguish it from body text. PR 1b (moving the scaffold out
+    // of the prompt template) is the correct fix for that case.
+    it('known gap: does not stop at CRITICAL SUMMARY RULES with no preceding blank line', async () => {
+      const judgeResponse = `CONSENSUS_REACHED
+
+SUMMARY:
+The agents agreed on REST.
+CRITICAL SUMMARY RULES:
+- This leaks because there is no blank line above it.
+
+KEY_DECISIONS:
+- Use REST
+
+ACTION_ITEMS:
+- Implement
+
+DISSENT:
+- None
+
+CONFIDENCE: HIGH`;
+      const judge = makeJudge(judgeResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      const result = await evaluator.judgeEvaluate(judge);
+      // This is the known gap — body leaks. PR 1b (prompt fix) resolves it.
+      expect(result.solution).toContain('CRITICAL SUMMARY RULES');
+    });
   });
 });
