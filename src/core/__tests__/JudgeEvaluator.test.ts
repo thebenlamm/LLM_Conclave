@@ -447,6 +447,15 @@ CONFIDENCE: HIGH`;
       const messages = callArgs[0];
       expect(messages[0].content).toContain('Be very strict');
     });
+
+    it('outgoing prompt does not contain CRITICAL SUMMARY RULES: as a section header (PR 1b regression guard)', async () => {
+      const judge = makeJudge('No consensus. Continue.');
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      await evaluator.judgeEvaluate(judge);
+      const prompt = (judge.provider.chat as jest.Mock).mock.calls[0][0][0].content;
+      expect(prompt).not.toContain('CRITICAL SUMMARY RULES:');
+    });
   });
 
   describe('conductFinalVote', () => {
@@ -519,6 +528,16 @@ CONFIDENCE: HIGH`;
       const result = await evaluator.conductFinalVote(judge);
       expect(result.solution).toContain('Agent1');
       expect(result.confidence).toBe('LOW');
+    });
+
+    it('outgoing prompt does not contain CRITICAL SUMMARY RULES: as a section header (PR 1b regression guard)', async () => {
+      const voteResponse = `SUMMARY:\nThe discussion converged on REST.\n\nKEY_DECISIONS:\n- REST selected\n\nACTION_ITEMS:\n- Build it\n\nDISSENT:\n- None\n\nCONFIDENCE: HIGH`;
+      const judge = makeJudge(voteResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      await evaluator.conductFinalVote(judge);
+      const prompt = (judge.provider.chat as jest.Mock).mock.calls[0][0][0].content;
+      expect(prompt).not.toContain('CRITICAL SUMMARY RULES:');
     });
   });
 
