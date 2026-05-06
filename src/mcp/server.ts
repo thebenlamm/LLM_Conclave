@@ -1021,12 +1021,14 @@ function renderRunIntegrity(
 export function truncateAtSentence(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   const segment = text.substring(0, maxLen);
-  // Find last sentence-ending boundary (period/!/? followed by space or end)
+  // Find last sentence-ending boundary (period/!/? followed by space or end).
+  // Use boundary (not boundary+1) as slice end so the punctuation char itself
+  // is excluded — avoids producing '....' when the segment ends with a period.
   const sentenceEnd = segment.search(/[.!?](?:\s|$)(?=[^.!?]*$)/);
   const lineEnd = segment.lastIndexOf('\n');
   const boundary = Math.max(sentenceEnd, lineEnd);
   return boundary > maxLen * 0.5
-    ? text.substring(0, boundary + 1).trimEnd() + '...'
+    ? text.substring(0, boundary).trimEnd() + '...'
     : segment + '...';
 }
 
@@ -1034,7 +1036,9 @@ export function stripOwnNamePrefix(content: string, agentName: string): string {
   const match = content.match(LEADING_ROLE_PREFIX);
   if (!match) return content;
   if (match[1].trim().toLowerCase() === agentName.toLowerCase()) {
-    return content.replace(LEADING_ROLE_PREFIX, '').trim();
+    // Remove the opening prefix and also any unmatched closing '**' that the
+    // bold span leaves behind (e.g. "**Name: body**" → "body**" before this).
+    return content.replace(LEADING_ROLE_PREFIX, '').replace(/\*\*$/, '').trim();
   }
   return content;
 }
@@ -1373,7 +1377,9 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
       const raw: string = entry.content || '';
       const stripped = stripOwnNamePrefix(raw, agent);
       const preview = truncateAtSentence(stripped, 800);
-      const truncated = preview.endsWith('...');
+      // Derive truncated from actual content loss, not endsWith('...') which
+      // fires false positives when the agent's text naturally ends with ellipsis.
+      const truncated = preview !== stripped;
       perAgentPositions.push({
         agent,
         model: entry.model,

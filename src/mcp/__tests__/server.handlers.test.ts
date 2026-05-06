@@ -1496,29 +1496,42 @@ describe('MCP Server Handlers', () => {
         expect(truncateAtSentence('short', 800)).toBe('short');
       });
 
-      it('cuts at sentence boundary, not at decimal point', () => {
-        // Must not truncate at ".2" in "v1.2.3"; must find the sentence end after "good."
-        const result = truncateAtSentence('v1.2.3 is good. Use it.', 12);
-        expect(result).toContain('...');
-        expect(result).not.toMatch(/v1\.2\.\.\./);
+      it('cuts at sentence boundary and produces exactly 3-dot suffix (not 4)', () => {
+        // "Hello world." is 12 chars — boundary at index 11 (the '.'), slice ends at 11
+        // (excluding the period itself) → "Hello world" + "..." = "Hello world..."
+        const result = truncateAtSentence('Hello world. This is a test.', 12);
+        expect(result).toBe('Hello world...');
       });
 
-      it('appends ... suffix on truncation', () => {
-        const result = truncateAtSentence('Hello world. This is a test.', 12);
-        expect(result.endsWith('...')).toBe(true);
+      it('falls back to raw substring when no sentence boundary exists in window', () => {
+        // No punctuation in the first 10 chars — falls back to segment + '...'
+        const result = truncateAtSentence('abcdefghijklmnop', 10);
+        expect(result).toBe('abcdefghij...');
       });
 
       it('does not truncate text exactly at maxLen', () => {
         const text = 'x'.repeat(800);
         expect(truncateAtSentence(text, 800)).toBe(text);
       });
+
+      it('handles ! and ? as sentence terminators', () => {
+        const result = truncateAtSentence('Stop! This goes on.', 6);
+        expect(result).toBe('Stop...');
+      });
     });
 
     describe('stripOwnNamePrefix', () => {
-      it('strips leading bold name prefix when name matches agent', () => {
+      it('strips bold name prefix including closing ** when name matches agent', () => {
+        // Verify the trailing ** from the bold span is also removed (C1 fix)
         const result = stripOwnNamePrefix('**Creative Innovator: body text here**', 'Creative Innovator');
         expect(result).not.toContain('Creative Innovator:');
+        expect(result).not.toContain('**');
         expect(result).toContain('body text here');
+      });
+
+      it('strips prefix in Name: body (no closing **) format', () => {
+        const result = stripOwnNamePrefix('**Creative Innovator: body text here', 'Creative Innovator');
+        expect(result).toBe('body text here');
       });
 
       it('does NOT strip when prefix belongs to a different agent', () => {
