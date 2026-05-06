@@ -221,7 +221,7 @@ Custom personas and persona sets can be defined in `~/.llm-conclave/config.json`
   "custom_personas": {
     "healthCoach": {
       "name": "Health Coach",
-      "model": "claude-sonnet-4-5",
+      "model": "claude-sonnet-4-6",
       "systemPrompt": "You are a certified health coach..."
     }
   },
@@ -241,11 +241,11 @@ Project-local agent config lives in `.llm-conclave.json`.
 {
   "agents": {
     "Architect": {
-      "model": "gpt-4o",
+      "model": "gpt-5.5",
       "prompt": "You are a senior software architect..."
     },
     "Reviewer": {
-      "model": "claude-sonnet-4-5",
+      "model": "claude-sonnet-4-6",
       "prompt": "You identify risks and challenge assumptions..."
     }
   }
@@ -256,11 +256,13 @@ The `config` parameter on `llm_conclave_discuss` also accepts inline JSON.
 
 ## Supported Model Families
 
-- OpenAI: `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o`, `gpt-4-turbo`
-- Anthropic: `claude-sonnet-4-5`, `claude-opus-4-5`, `claude-haiku-4-5`
-- Google: `gemini-3-pro`, `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.0-flash`
-- xAI: `grok-3`, `grok-vision-3`
+- OpenAI: `gpt-5.5`, `gpt-5.5-pro`, `gpt-4.1-mini`
+- Anthropic: `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`
+- Google: `gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-2.5-flash`
+- xAI: `grok-4.3`
 - Mistral: `mistral-large-latest`, `mistral-small-latest`, `codestral-latest`
+
+Any model string from a supported provider family works — the provider is resolved by prefix. Run `node scripts/check-models.js` to see what each provider's API currently offers.
 
 Shorthand aliases such as `sonnet`, `opus`, `haiku`, `gemini`, `gemini-pro`, and `gemini-flash` are expanded by the provider factory.
 
@@ -360,7 +362,7 @@ The resolved path is surfaced to callers in three places:
 ### The server starts but mixed-model runs fail
 
 - When Anthropic, OpenAI, and Google are all configured, the default discussion panel uses multiple providers.
-- In that mixed case, `llm_conclave_discuss` defaults to `Primary=claude-sonnet-4-5`, `Validator=gpt-4o`, `Reviewer=gemini-2.5-pro`.
+- In that mixed case, `llm_conclave_discuss` defaults to `Primary=claude-sonnet-4-6`, `Validator=gpt-5.5`, `Reviewer=gemini-2.5-pro`.
 - In that mixed case, the default judge model is `gemini-2.5-flash`.
 - If only one or two provider keys are configured, defaults are chosen from the available providers automatically.
 - If OpenAI or Google billing is not enabled, those calls can fail with `429` or quota errors.
@@ -420,12 +422,23 @@ npm run test:coverage -- --runInBand --watchman=false
 npm run mcp-dev
 ```
 
-Current local snapshot from `2026-04-07`:
+Current local snapshot from `2026-05-06`:
 
-- `78` test suites total
-- `1,048` tests total
-- `76` suites and `1,028` tests passing in the sandbox
-- The remaining failures are artifact-store tests that try to write under `~/.llm-conclave`, which the sandbox blocks
+- `94` test suites total
+- `1,366` tests total
+- All suites and tests pass locally; artifact-store tests fail in CI sandboxes that block writes to `~/.llm-conclave`
+
+### Keeping model defaults current
+
+When providers release new models, run the check script to see what's live:
+
+```bash
+node scripts/check-models.js
+```
+
+It hits each provider's models API and compares the results against the defaults hardcoded in `src/config/ConfigCascade.ts`. Any configured model that no longer appears in the live list is flagged. Source URLs for all five provider APIs are in the script header.
+
+After updating defaults in `ConfigCascade.ts`, also check `src/core/ConfigLoader.ts` (validation defaults and example config), `src/core/AgentTurnExecutor.ts` (cross-provider fallbacks), and `src/core/JudgeEvaluator.ts` (judge overflow fallbacks).
 
 ## Architecture
 
