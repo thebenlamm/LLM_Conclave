@@ -56,6 +56,7 @@ import { StrictModelError } from '../core/AgentTurnExecutor.js';
 import { StatusFileManager } from './StatusFileManager.js';
 import { getConclaveHome } from '../utils/ConfigPaths.js';
 import { detectJudgeCoinage } from '../consult/coinage/detectJudgeCoinage.js';
+import { LEADING_ROLE_PREFIX } from '../core/personaBoundary.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -1017,6 +1018,27 @@ function renderRunIntegrity(
 /**
  * Format a brief summary for MCP response (keeps context small)
  */
+export function truncateAtSentence(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  const segment = text.substring(0, maxLen);
+  // Find last sentence-ending boundary (period/!/? followed by space or end)
+  const sentenceEnd = segment.search(/[.!?](?:\s|$)(?=[^.!?]*$)/);
+  const lineEnd = segment.lastIndexOf('\n');
+  const boundary = Math.max(sentenceEnd, lineEnd);
+  return boundary > maxLen * 0.5
+    ? text.substring(0, boundary + 1).trimEnd() + '...'
+    : segment + '...';
+}
+
+export function stripOwnNamePrefix(content: string, agentName: string): string {
+  const match = content.match(LEADING_ROLE_PREFIX);
+  if (!match) return content;
+  if (match[1].trim().toLowerCase() === agentName.toLowerCase()) {
+    return content.replace(LEADING_ROLE_PREFIX, '').trim();
+  }
+  return content;
+}
+
 export function formatDiscussionResult(result: any, logFilePath: string, sessionId?: string, options?: { includeTranscript?: boolean }): string {
   const {
     task,
@@ -1133,7 +1155,8 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
       for (const agent of firstSpeakOrder) {
         const entry = lastByAgent.get(agent);
         const raw: string = entry.content || '';
-        const preview = raw.length > 800 ? raw.substring(0, 800) + '...' : raw;
+        const stripped = stripOwnNamePrefix(raw, agent);
+        const preview = truncateAtSentence(stripped, 800);
         output += `### ${agent}\n\n${preview}\n\n`;
       }
     }
@@ -1151,9 +1174,9 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
       output += `## Agent Positions (Last Round)\n\n`;
       output += `> *Judge evaluation failed. Full agent responses from the final round:*\n\n`;
       for (const entry of lastRoundEntries) {
-        const preview = entry.content.length > 800
-          ? entry.content.substring(0, 800) + '...'
-          : entry.content;
+        const raw: string = entry.content || '';
+        const stripped = stripOwnNamePrefix(raw, entry.speaker);
+        const preview = truncateAtSentence(stripped, 800);
         output += `### ${entry.speaker}\n\n${preview}\n\n`;
       }
     }
@@ -1348,11 +1371,13 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     for (const agent of firstSpeakOrder) {
       const entry = lastByAgent.get(agent);
       const raw: string = entry.content || '';
-      const truncated = raw.length > 800;
+      const stripped = stripOwnNamePrefix(raw, agent);
+      const preview = truncateAtSentence(stripped, 800);
+      const truncated = preview.endsWith('...');
       perAgentPositions.push({
         agent,
         model: entry.model,
-        final_turn_excerpt: truncated ? raw.substring(0, 800) + '...' : raw,
+        final_turn_excerpt: preview,
         truncated,
       });
     }

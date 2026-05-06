@@ -50,7 +50,7 @@ export interface ImpersonationResult {
  * The lazy quantifier on the name prevents eating past the first colon, which
  * is what distinguishes this from mid-body bold phrases containing colons.
  */
-const LEADING_ROLE_PREFIX = /^\s*\*\*([A-Za-z][A-Za-z][A-Za-z '\-]*?):(?:\*\*|\s)/;
+export const LEADING_ROLE_PREFIX = /^\s*\*\*([A-Za-z][A-Za-z][A-Za-z '\-]*?):(?:\*\*|\s)/;
 
 export function detectImpersonation(
   content: string,

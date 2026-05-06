@@ -160,7 +160,7 @@ jest.mock('../StatusFileManager.js', () => ({
 }));
 
 import { createServer } from '../server';
-import { formatDiscussionResult, formatDiscussionResultJson } from '../server';
+import { formatDiscussionResult, formatDiscussionResultJson, truncateAtSentence, stripOwnNamePrefix } from '../server';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -1487,6 +1487,55 @@ describe('MCP Server Handlers', () => {
       const result = baseResult();
       const json = formatDiscussionResultJson(result, '/tmp/log.jsonl', 'sess-1');
       expect(json.provenance).toEqual([]);
+    });
+  });
+
+  describe('PR 2 — truncateAtSentence + stripOwnNamePrefix helpers', () => {
+    describe('truncateAtSentence', () => {
+      it('returns original when text is within limit', () => {
+        expect(truncateAtSentence('short', 800)).toBe('short');
+      });
+
+      it('cuts at sentence boundary, not at decimal point', () => {
+        // Must not truncate at ".2" in "v1.2.3"; must find the sentence end after "good."
+        const result = truncateAtSentence('v1.2.3 is good. Use it.', 12);
+        expect(result).toContain('...');
+        expect(result).not.toMatch(/v1\.2\.\.\./);
+      });
+
+      it('appends ... suffix on truncation', () => {
+        const result = truncateAtSentence('Hello world. This is a test.', 12);
+        expect(result.endsWith('...')).toBe(true);
+      });
+
+      it('does not truncate text exactly at maxLen', () => {
+        const text = 'x'.repeat(800);
+        expect(truncateAtSentence(text, 800)).toBe(text);
+      });
+    });
+
+    describe('stripOwnNamePrefix', () => {
+      it('strips leading bold name prefix when name matches agent', () => {
+        const result = stripOwnNamePrefix('**Creative Innovator: body text here**', 'Creative Innovator');
+        expect(result).not.toContain('Creative Innovator:');
+        expect(result).toContain('body text here');
+      });
+
+      it('does NOT strip when prefix belongs to a different agent', () => {
+        const result = stripOwnNamePrefix('**Creative Innovator: body text here**', 'Systems Architect');
+        expect(result).toContain('Creative Innovator:');
+      });
+
+      it('does NOT strip a legitimate bolded heading that is not a name prefix', () => {
+        // "**Strategy: Pursue option B**" — "Strategy" != "Architect"
+        const result = stripOwnNamePrefix('**Strategy: Pursue option B**\nMore content', 'Architect');
+        expect(result).toContain('Strategy:');
+      });
+
+      it('returns content unchanged when no bold prefix present', () => {
+        const content = 'Plain text without any prefix.';
+        expect(stripOwnNamePrefix(content, 'Any Agent')).toBe(content);
+      });
     });
   });
 
