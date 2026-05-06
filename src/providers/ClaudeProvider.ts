@@ -90,7 +90,8 @@ export default class ClaudeProvider extends LLMProvider {
         model: this.modelName,
         max_tokens: 4096,
         messages: messageArray,
-        temperature: 0.7,
+        // temperature is deprecated in Claude 4.x models (400 error); only set for claude-3.x
+        ...(this.modelName.startsWith('claude-3') ? { temperature: 0.7 } : {}),
       };
 
       // Merge system prompt with any system messages found in conversation
