@@ -101,7 +101,7 @@ export class ConfigCascade {
         judge: { model: 'gemini-2.5-flash', provider: 'google' },
         agents: {
           'Primary': {
-            model: 'claude-sonnet-4-5',
+            model: 'claude-sonnet-4-6',
             provider: 'anthropic',
             systemPrompt: 'You are a helpful AI assistant focused on solving problems accurately and efficiently.'
           },
@@ -121,9 +121,9 @@ export class ConfigCascade {
 
     const panels: Record<string, { model: string; provider: string }[]> = {
       anthropic: [
-        { model: 'claude-sonnet-4-5', provider: 'anthropic' },
+        { model: 'claude-sonnet-4-6', provider: 'anthropic' },
         { model: 'claude-haiku-4-5', provider: 'anthropic' },
-        { model: 'claude-sonnet-4-5', provider: 'anthropic' }
+        { model: 'claude-sonnet-4-6', provider: 'anthropic' }
       ],
       openai: [
         { model: 'gpt-5.5', provider: 'openai' },
@@ -132,7 +132,7 @@ export class ConfigCascade {
       ],
       google: [
         { model: 'gemini-2.5-pro', provider: 'google' },
-        { model: 'gemini-2.0-flash', provider: 'google' },
+        { model: 'gemini-2.5-flash', provider: 'google' },
         { model: 'gemini-2.5-pro', provider: 'google' }
       ],
       xai: [
@@ -148,7 +148,7 @@ export class ConfigCascade {
     };
 
     const judgeByProvider: Record<string, { model: string; provider: string }> = {
-      anthropic: { model: 'claude-sonnet-4-5', provider: 'anthropic' },
+      anthropic: { model: 'claude-sonnet-4-6', provider: 'anthropic' },
       openai: { model: 'gpt-5.5', provider: 'openai' },
       google: { model: 'gemini-2.5-flash', provider: 'google' },
       xai: { model: 'grok-4.3', provider: 'xai' },
