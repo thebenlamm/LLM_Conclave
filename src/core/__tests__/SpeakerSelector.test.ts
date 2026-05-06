@@ -325,15 +325,16 @@ describe('SpeakerSelector', () => {
   });
 
   describe('PR 4 — diversity table regression guards', () => {
-    it('prompt includes Token share column header when fairnessContext provided', async () => {
+    const fairnessContext = {
+      totalTurnsThisRound: 2,
+      stats: {
+        Architect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.4 },
+        ChiefArchitect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.6 },
+      },
+    };
+
+    it('prompt includes diversity table structure when fairnessContext provided', async () => {
       mockProvider.chat.mockResolvedValue(JSON.stringify({ nextSpeaker: 'Architect', shouldContinue: true }));
-      const fairnessContext = {
-        totalTurnsThisRound: 2,
-        stats: {
-          Architect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.4 },
-          ChiefArchitect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.6 },
-        },
-      };
       await selector.selectNextSpeaker([], 'gpt-4', 'msg', 1, 'task', undefined, fairnessContext as any);
       const prompt = (mockProvider.chat as jest.Mock).mock.calls[0][0][0].content;
       expect(prompt).toContain('Token share');
@@ -341,13 +342,6 @@ describe('SpeakerSelector', () => {
 
     it('prompt includes SPEAKER PRIORITY dissent nudge when fairnessContext provided', async () => {
       mockProvider.chat.mockResolvedValue(JSON.stringify({ nextSpeaker: 'Architect', shouldContinue: true }));
-      const fairnessContext = {
-        totalTurnsThisRound: 2,
-        stats: {
-          Architect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.4 },
-          ChiefArchitect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.6 },
-        },
-      };
       await selector.selectNextSpeaker([], 'gpt-4', 'msg', 1, 'task', undefined, fairnessContext as any);
       const prompt = (mockProvider.chat as jest.Mock).mock.calls[0][0][0].content;
       expect(prompt).toContain('SPEAKER PRIORITY');
