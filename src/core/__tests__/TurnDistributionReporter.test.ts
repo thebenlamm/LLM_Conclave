@@ -124,4 +124,21 @@ describe('TurnDistributionReporter — Phase 13.1 cap-exclusion + participation 
     expect(types).toContain('turn_distribution_updated');
     expect(types).toContain('fairness_alarm');
   });
+
+  it('PR 4 — turn_distribution_updated payload includes maxTokenShare', () => {
+    reporter.report(
+      [
+        { name: 'alice', turns: 10, tokens: 6000 },
+        { name: 'bob', turns: 5, tokens: 4000 },
+      ],
+      2,
+      eventBus
+    );
+    const call = spy.mock.calls.find(c => c[0] === 'turn_distribution_updated');
+    expect(call).toBeDefined();
+    const payload = call![1] as any;
+    expect(payload).toHaveProperty('maxTokenShare');
+    // alice has 6000/10000 = 0.6; bob has 4000/10000 = 0.4 → max is 0.6
+    expect(payload.maxTokenShare).toBeCloseTo(0.6, 5);
+  });
 });

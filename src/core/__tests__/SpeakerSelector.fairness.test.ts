@@ -122,7 +122,7 @@ describe('SpeakerSelector fairness (Phase 13)', () => {
     expect(promptArg).toContain('| Agent |');
     expect(promptArg).toContain('Turns this round');
     expect(promptArg).toContain('Token share');
-    expect(promptArg).toContain('Favor under-represented voices');
+    expect(promptArg).toContain('SPEAKER PRIORITY');
   });
 
   test('Test 5: resetForRound clears forced-rotation flag so it can fire again', async () => {

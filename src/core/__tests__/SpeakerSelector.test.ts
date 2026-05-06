@@ -314,13 +314,52 @@ describe('SpeakerSelector', () => {
     test('should return empty result if all agents excluded', async () => {
       const allNames = agentInfos.map(a => a.name);
       const excludeSet = new Set(allNames);
-      
+
       const result = await selector.selectNextSpeaker(
         [], 'gpt-4', 'msg', 1, 'task', excludeSet
       );
-      
+
       expect(result.nextSpeaker).toBe('');
       expect(result.shouldContinue).toBe(false);
+    });
+  });
+
+  describe('PR 4 — diversity table regression guards', () => {
+    it('prompt includes Token share column header when fairnessContext provided', async () => {
+      mockProvider.chat.mockResolvedValue(JSON.stringify({ nextSpeaker: 'Architect', shouldContinue: true }));
+      const fairnessContext = {
+        totalTurnsThisRound: 2,
+        stats: {
+          Architect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.4 },
+          ChiefArchitect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.6 },
+        },
+      };
+      await selector.selectNextSpeaker([], 'gpt-4', 'msg', 1, 'task', undefined, fairnessContext as any);
+      const prompt = (mockProvider.chat as jest.Mock).mock.calls[0][0][0].content;
+      expect(prompt).toContain('Token share');
+    });
+
+    it('prompt includes SPEAKER PRIORITY dissent nudge when fairnessContext provided', async () => {
+      mockProvider.chat.mockResolvedValue(JSON.stringify({ nextSpeaker: 'Architect', shouldContinue: true }));
+      const fairnessContext = {
+        totalTurnsThisRound: 2,
+        stats: {
+          Architect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.4 },
+          ChiefArchitect: { turnsThisRound: 1, turnsOverall: 3, tokenShare: 0.6 },
+        },
+      };
+      await selector.selectNextSpeaker([], 'gpt-4', 'msg', 1, 'task', undefined, fairnessContext as any);
+      const prompt = (mockProvider.chat as jest.Mock).mock.calls[0][0][0].content;
+      expect(prompt).toContain('SPEAKER PRIORITY');
+      expect(prompt).toContain('Dissenting views must be fully explored');
+    });
+
+    it('prompt does NOT include diversity table when no fairnessContext', async () => {
+      mockProvider.chat.mockResolvedValue(JSON.stringify({ nextSpeaker: 'Architect', shouldContinue: true }));
+      await selector.selectNextSpeaker([], 'gpt-4', 'msg', 1, 'task');
+      const prompt = (mockProvider.chat as jest.Mock).mock.calls[0][0][0].content;
+      expect(prompt).not.toContain('Token share');
+      expect(prompt).not.toContain('SPEAKER PRIORITY');
     });
   });
 });

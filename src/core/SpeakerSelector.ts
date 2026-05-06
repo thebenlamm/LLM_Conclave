@@ -601,7 +601,7 @@ export class SpeakerSelector {
           return `| ${a} | ${s.turnsThisRound} | ${s.turnsOverall} | ${(s.tokenShare * 100).toFixed(1)}% |`;
         })
         .join('\n');
-      diversityTable = `\nTurn distribution so far:\n\n| Agent | Turns this round | Total turns | Token share |\n|---|---|---|---|\n${rows}\n\nFavor under-represented voices when they have relevant context.\n`;
+      diversityTable = `\nTurn distribution so far:\n\n| Agent | Turns this round | Total turns | Token share |\n|---|---|---|---|\n${rows}\n\nSPEAKER PRIORITY: (1) If any agent expressed disagreement or challenged the emerging direction in the last 3 turns, give them the next turn. (2) Otherwise, choose the agent with the lowest token share from the table above. Dissenting views must be fully explored before the round closes.\n`;
     }
 
     // Get recent conversation context (last 3 messages)

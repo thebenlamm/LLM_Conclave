@@ -75,7 +75,8 @@ export default class TurnDistributionReporter {
 
     if (!eventBus) return;
 
-    eventBus.emitEvent('turn_distribution_updated', { round, perAgent });
+    const maxTokenShare = Math.max(...perAgent.map(a => a.tokenShare));
+    eventBus.emitEvent('turn_distribution_updated', { round, perAgent, maxTokenShare });
 
     for (const a of perAgent) {
       if (a.tokenShare > FAIRNESS_TOKEN_SHARE_THRESHOLD && !this.alarmedThisRound.has(a.name)) {
