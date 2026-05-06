@@ -15,6 +15,12 @@ describe('detectEnumeratedOptions', () => {
     expect(detectEnumeratedOptions('A.I. usage is growing\nB2B markets are shifting\nC-suite priorities')).toBeNull();
   });
 
+  it('does not match whitespace-only separator (A  sentence style)', () => {
+    // [.):] excludes whitespace — "A  sentence" must not match.
+    const prose = 'A  sentence one\nB  sentence two\nC  sentence three';
+    expect(detectEnumeratedOptions(prose)).toBeNull();
+  });
+
   it('matches A. B. C. format with trailing text', () => {
     const task = 'A. Migrate to microservices\nB. Stay monolithic\nC. Hybrid approach';
     const result = detectEnumeratedOptions(task);
@@ -22,11 +28,18 @@ describe('detectEnumeratedOptions', () => {
     expect(result).toHaveLength(3);
   });
 
-  it('matches (A) parenthesized format', () => {
+  it('matches (A) parenthesized format and extracts letter A not paren', () => {
+    // l.trim()[0] would yield '(' — extractOptionLabel must yield 'A'.
     const task = '(A) Option one text\n(B) Option two text\n(C) Option three text';
     const result = detectEnumeratedOptions(task);
     expect(result).not.toBeNull();
     expect(result).toHaveLength(3);
+    // Verify the first character of the first match is '(' (as stored),
+    // and that the label extractor produces 'A', not '('.
+    const firstLine = result![0].trim();
+    expect(firstLine[0]).toBe('(');                        // raw line starts with (
+    const m = firstLine.match(/^\(?([A-E])/);
+    expect(m?.[1]).toBe('A');                              // extracted label is A
   });
 
   it('matches A: colon format', () => {

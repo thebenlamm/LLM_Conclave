@@ -29,9 +29,18 @@ import { CostTracker } from './CostTracker';
 // from prose that incidentally starts a line with "A." or "B.".
 // Limitation: does not detect "Option A" or numeric "1) 2) 3)" forms.
 export function detectEnumeratedOptions(task: string): string[] | null {
-  const pattern = /^\(?[A-E][.):\s]\s+\S/;
+  // [.):] requires explicit punctuation after the letter — excludes whitespace-only
+  // separators that would match normal prose starting with "A  sentence...".
+  const pattern = /^\(?[A-E][.):]\s+\S/;
   const matches = task.split('\n').filter(l => pattern.test(l.trim()));
   return matches.length >= 3 ? matches : null;
+}
+
+// Extracts the option letter (A–E) from a matched line regardless of format:
+// "A) text" → "A", "(A) text" → "A", "A. text" → "A".
+function extractOptionLabel(line: string): string {
+  const m = line.trim().match(/^\(?([A-E])/);
+  return m ? m[1] : line.trim()[0] ?? '?';
 }
 
 export default class ConversationManager {
@@ -348,7 +357,7 @@ export default class ConversationManager {
     const framing = enumOpts
       ? `The question includes ${enumOpts.length} labeled options. Evaluate each option explicitly — ` +
         `state which you recommend and why, engaging directly with each labeled option ` +
-        `(${enumOpts.map(l => l.trim()[0]).join(', ')}).`
+        `(${enumOpts.map(extractOptionLabel).join(', ')}).`
       : `Please share your perspective on how to approach this task.`;
     initialMessage += `Task: ${task}\n\n${framing}`;
 
