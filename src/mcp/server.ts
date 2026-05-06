@@ -1027,8 +1027,10 @@ export function truncateAtSentence(text: string, maxLen: number): string {
   const sentenceEnd = segment.search(/[.!?](?:\s|$)(?=[^.!?]*$)/);
   const lineEnd = segment.lastIndexOf('\n');
   const boundary = Math.max(sentenceEnd, lineEnd);
+  // Strip trailing punctuation before appending ellipsis so existing sentence-ending
+  // punctuation (e.g. "Wait...") doesn't combine with '...' to produce 5+ dots.
   return boundary > maxLen * 0.5
-    ? text.substring(0, boundary).trimEnd() + '...'
+    ? text.substring(0, boundary).trimEnd().replace(/[.!?]+$/, '') + '...'
     : segment + '...';
 }
 
@@ -1036,9 +1038,15 @@ export function stripOwnNamePrefix(content: string, agentName: string): string {
   const match = content.match(LEADING_ROLE_PREFIX);
   if (!match) return content;
   if (match[1].trim().toLowerCase() === agentName.toLowerCase()) {
-    // Remove the opening prefix and also any unmatched closing '**' that the
-    // bold span leaves behind (e.g. "**Name: body**" → "body**" before this).
-    return content.replace(LEADING_ROLE_PREFIX, '').replace(/\*\*$/, '').trim();
+    const stripped = content.replace(LEADING_ROLE_PREFIX, '').trim();
+    // When the prefix ends with whitespace (e.g. "**Name: body**"), the opening bold's
+    // paired closer is the FIRST ** in the remaining content. Remove only that first
+    // occurrence — not any trailing ** that may belong to inline bold elsewhere (e.g.
+    // "body** and **important**" → "body and **important**", not "body** and **important").
+    if (!match[0].endsWith('**')) {
+      return stripped.replace(/\*\*/, '').trim();
+    }
+    return stripped;
   }
   return content;
 }

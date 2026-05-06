@@ -196,16 +196,24 @@ export default class JudgeEvaluator {
         .filter(line => line.length > 0 && line.toLowerCase() !== 'none');
     };
 
-    // Stop at any double-newline + ALL-CAPS section header (e.g. KEY_DECISIONS:, CRITICAL SUMMARY RULES:).
-    // No /i flag: lookahead is case-sensitive so mixed-case labels like "Note:" or "Conclusion:" in
-    // body text are never mistaken for section breaks. \n\n guards against inline "AWS:" mid-sentence.
-    // Note: the no-blank-line leak case (LLM omits blank line before CRITICAL SUMMARY RULES:) requires
-    // the prompt fix in PR 1b to fully resolve — the regex alone can't distinguish it from body text.
-    const summaryMatch = text.match(/SUMMARY:\s*\n([\s\S]*?)(?=\n\n[A-Z][A-Z _]*:|$)/);
+    // Two-phase summary extraction: locate the SUMMARY header case-insensitively (handles
+    // "Summary:" emitted by some models), then apply a case-sensitive section-boundary
+    // lookahead (\n\n[A-Z][A-Z _]*:) so mixed-case labels like "Note:" or "Conclusion:"
+    // in body text are never mistaken for section breaks.
+    // Note: the no-blank-line leak case (LLM omits blank line before CRITICAL SUMMARY RULES:)
+    // requires the prompt fix in PR 1b to fully resolve — the regex alone can't distinguish it.
+    const summaryHeaderMatch = text.match(/SUMMARY:\s*\n/i);
+    const summaryContent = summaryHeaderMatch
+      ? (() => {
+          const afterHeader = text.slice((summaryHeaderMatch.index ?? 0) + summaryHeaderMatch[0].length);
+          const m = afterHeader.match(/^([\s\S]*?)(?=\n\n[A-Z][A-Z _]*:|$)/);
+          return m ? m[1].trim() : afterHeader.trim();
+        })()
+      : null;
     const confidenceMatch = text.match(/CONFIDENCE:\s*(HIGH|MEDIUM|LOW)/i);
 
     return {
-      summary: summaryMatch ? summaryMatch[1].trim() : text.replace('CONSENSUS_REACHED', '').trim(),
+      summary: summaryContent ?? text.replace('CONSENSUS_REACHED', '').trim(),
       keyDecisions: extractSection('KEY_DECISIONS'),
       actionItems: extractSection('ACTION_ITEMS'),
       dissent: extractSection('DISSENT'),

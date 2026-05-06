@@ -260,6 +260,10 @@ export interface DiscussionResult {
   keyDecisions: string[];
   actionItems: string[];
   dissent: string[];
+  /** Explicit constraints detected in the task (Phase 1c). Optional for session-file compatibility. */
+  constraintsDetected?: string[];
+  /** Attribution lines for key decisions (Phase 1c). Optional for session-file compatibility. */
+  provenance?: string[];
   /** @deprecated — use `finalConfidence` (reconciled). Retained for session-file compatibility. */
   confidence: string;
   /** Reconciled confidence — single source of truth for all output formatters. */

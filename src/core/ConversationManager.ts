@@ -528,10 +528,20 @@ export default class ConversationManager {
         // Attempt judge summary of whatever exists
         let degradedSolution: string;
         let degradedJudgeConfidence: Confidence | undefined;
+        let degradedKeyDecisions: string[] = [];
+        let degradedActionItems: string[] = [];
+        let degradedDissent: string[] = [degradedReason];
+        let degradedConstraintsDetected: string[] = [];
+        let degradedProvenance: string[] = [];
         try {
           const voteResult = await this.judgeEvaluator.conductFinalVote(judge, degradedMachinery);
           degradedSolution = voteResult.solution;
           degradedJudgeConfidence = this.normalizeConfidence(voteResult.confidence);
+          degradedKeyDecisions = voteResult.keyDecisions;
+          degradedActionItems = voteResult.actionItems;
+          degradedDissent = [degradedReason, ...voteResult.dissent];
+          degradedConstraintsDetected = voteResult.constraintsDetected;
+          degradedProvenance = voteResult.provenance;
         } catch {
           const bestEffort = this.judgeEvaluator.bestEffortJudgeResult();
           degradedSolution = bestEffort.solution;
@@ -566,12 +576,12 @@ export default class ConversationManager {
           minRounds: this.minRounds,
           consensusReached: false,
           solution: degradedSolution,
-          keyDecisions: [] as string[],
-          actionItems: [] as string[],
-          dissent: [degradedReason],
+          keyDecisions: degradedKeyDecisions,
+          actionItems: degradedActionItems,
+          dissent: degradedDissent,
           confidence: degradedReconciled.finalConfidence,
-          constraintsDetected: [] as string[],
-          provenance: [] as string[],
+          constraintsDetected: degradedConstraintsDetected,
+          provenance: degradedProvenance,
           finalConfidence: degradedReconciled.finalConfidence,
           confidenceReasoning: degradedReconciled.confidenceReasoning,
           conversationHistory: this.conversationHistory,
