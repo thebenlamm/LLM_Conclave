@@ -87,8 +87,8 @@ That launcher reads provider keys from the repo's `.env` file before starting th
 - After rebuilding or changing config, restart or start a fresh MCP client session
 - If the client prompts for MCP server approval, approve `llm-conclave`
 - When Anthropic, OpenAI, and Google are all configured, the default zero-config discussion panel is mixed-provider:
-  - `Primary`: `claude-sonnet-4-5`
-  - `Validator`: `gpt-4o`
+  - `Primary`: `claude-sonnet-4-6`
+  - `Validator`: `gpt-5.5`
   - `Reviewer`: `gemini-2.5-pro`
   - Judge default: `gemini-2.5-flash`
 - If only a subset of provider keys is present, defaults are selected from the available providers automatically
@@ -188,7 +188,7 @@ Example:
   "custom_personas": {
     "healthCoach": {
       "name": "Health Coach",
-      "model": "claude-sonnet-4-5",
+      "model": "claude-sonnet-4-6",
       "systemPrompt": "You are a certified health coach..."
     }
   },
@@ -224,11 +224,11 @@ Minimal example:
 {
   "agents": {
     "Architect": {
-      "model": "gpt-4o",
+      "model": "gpt-5.5",
       "prompt": "You are a senior software architect..."
     },
     "Reviewer": {
-      "model": "claude-sonnet-4-5",
+      "model": "claude-sonnet-4-6",
       "prompt": "You challenge assumptions and identify risks..."
     }
   }

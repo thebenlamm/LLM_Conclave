@@ -58,6 +58,16 @@ function getConfiguredModels() {
   return models;
 }
 
+// Extract model keys from CostTracker.ts pricing table
+function getPricedModels() {
+  const src = readFileSync(join(ROOT, 'src/core/CostTracker.ts'), 'utf8');
+  const models = new Set();
+  for (const match of src.matchAll(/'([^']+)':\s*\{\s*input:/g)) {
+    models.add(match[1]);
+  }
+  return models;
+}
+
 async function fetchModels(provider, apiKey, url, headers, extractIds) {
   if (!apiKey) return { provider, error: 'no API key' };
   try {
@@ -87,6 +97,7 @@ function sortedIds(ids) {
 async function main() {
   loadEnv();
   const configured = getConfiguredModels();
+  const priced = getPricedModels();
 
   const googleKey = key('GOOGLE_API_KEY', 'GEMINI_API_KEY');
   const providers = [
@@ -148,6 +159,13 @@ async function main() {
       status = '  ✗  NOT found in any live model list (may be deprecated)';
     }
     console.log(`  ${model}${status}`);
+  }
+
+  console.log('\n=== Pricing coverage (CostTracker.ts) ===\n');
+  for (const model of [...configured].sort()) {
+    const covered = priced.has(model) || [...priced].some(p => model.startsWith(p + '-') || p.startsWith(model + '-'));
+    const mark = covered ? '✓' : '✗  MISSING — cost estimates will be $0';
+    console.log(`  ${mark}  ${model}`);
   }
 
   console.log('\n=== Live model lists by provider ===\n');

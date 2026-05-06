@@ -170,7 +170,7 @@ Define custom agents directly in MCP tool parameters without a config file:
 
 ```json
 {
-  "config": "{\"agents\":{\"Expert\":{\"model\":\"claude-sonnet-4-5\",\"prompt\":\"...\"}}}"
+  "config": "{\"agents\":{\"Expert\":{\"model\":\"claude-sonnet-4-6\",\"prompt\":\"...\"}}}"
 }
 ```
 

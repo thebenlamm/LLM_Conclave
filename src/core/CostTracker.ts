@@ -20,7 +20,7 @@ export interface ModelPricing {
 export class CostTracker {
   private static instance: CostTracker;
   private logs: CallLog[] = [];
-  // Last Updated: 2026-04-06
+  // Last Updated: 2026-05-06
   // Pricing sources:
   // - OpenAI: https://openai.com/api/pricing/
   // - Anthropic: https://www.anthropic.com/pricing
@@ -28,6 +28,8 @@ export class CostTracker {
   // - Mistral: https://mistral.ai/technology/#pricing
   private readonly pricing: ModelPricing = {
     // OpenAI
+    'gpt-5.5': { input: 0.005, output: 0.03 },         // $5/$30 per 1M tokens
+    'gpt-5.5-pro': { input: 0.005, output: 0.03 },     // same tier as gpt-5.5
     'gpt-5': { input: 0.00125, output: 0.01 },
     'gpt-5-mini': { input: 0.00025, output: 0.002 },
     'gpt-5-nano': { input: 0.0001, output: 0.0004 }, // Estimated: reported to scale down further
@@ -48,6 +50,8 @@ export class CostTracker {
     'claude-3-5-sonnet-20241022': { input: 0.003, output: 0.015 },
     'claude-3-5-haiku-20241022': { input: 0.0008, output: 0.004 },
     // Shorthand names (mapped by ProviderFactory)
+    'claude-opus-4-7': { input: 0.005, output: 0.025 },  // $5/$25 per 1M tokens
+    'claude-sonnet-4-6': { input: 0.003, output: 0.015 }, // $3/$15 per 1M tokens
     'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
     'claude-opus-4-5': { input: 0.005, output: 0.025 },
     'claude-haiku-4-5': { input: 0.001, output: 0.005 },
@@ -69,7 +73,8 @@ export class CostTracker {
     'codestral-latest': { input: 0.008, output: 0.024 },
 
     // Grok
-    'grok-3': { input: 0.003, output: 0.015 }, // xAI Grok 3: $3/$15 per 1M tokens (source: pricepertoken.com, multiple aggregators)
+    'grok-4.3': { input: 0.00125, output: 0.0025 }, // $1.25/$2.50 per 1M tokens (source: openrouter, apiyi.com, May 2026)
+    'grok-3': { input: 0.003, output: 0.015 },      // $3/$15 per 1M tokens
   };
 
   constructor() {}
