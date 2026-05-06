@@ -106,7 +106,7 @@ export class ConfigCascade {
             systemPrompt: 'You are a helpful AI assistant focused on solving problems accurately and efficiently.'
           },
           'Validator': {
-            model: 'gpt-4o',
+            model: 'gpt-5.5',
             provider: 'openai',
             systemPrompt: 'You validate solutions and provide constructive feedback to improve quality.'
           },
@@ -126,9 +126,9 @@ export class ConfigCascade {
         { model: 'claude-sonnet-4-5', provider: 'anthropic' }
       ],
       openai: [
-        { model: 'gpt-4o', provider: 'openai' },
-        { model: 'gpt-4.1-mini', provider: 'openai' },
-        { model: 'gpt-4o', provider: 'openai' }
+        { model: 'gpt-5.5', provider: 'openai' },
+        { model: 'gpt-5.5', provider: 'openai' },
+        { model: 'gpt-5.5', provider: 'openai' }
       ],
       google: [
         { model: 'gemini-2.5-pro', provider: 'google' },
@@ -136,9 +136,9 @@ export class ConfigCascade {
         { model: 'gemini-2.5-pro', provider: 'google' }
       ],
       xai: [
-        { model: 'grok-3', provider: 'xai' },
-        { model: 'grok-3', provider: 'xai' },
-        { model: 'grok-3', provider: 'xai' }
+        { model: 'grok-4.3', provider: 'xai' },
+        { model: 'grok-4.3', provider: 'xai' },
+        { model: 'grok-4.3', provider: 'xai' }
       ],
       mistral: [
         { model: 'mistral-large-latest', provider: 'mistral' },
@@ -149,9 +149,9 @@ export class ConfigCascade {
 
     const judgeByProvider: Record<string, { model: string; provider: string }> = {
       anthropic: { model: 'claude-sonnet-4-5', provider: 'anthropic' },
-      openai: { model: 'gpt-4o', provider: 'openai' },
+      openai: { model: 'gpt-5.5', provider: 'openai' },
       google: { model: 'gemini-2.5-flash', provider: 'google' },
-      xai: { model: 'grok-3', provider: 'xai' },
+      xai: { model: 'grok-4.3', provider: 'xai' },
       mistral: { model: 'mistral-large-latest', provider: 'mistral' }
     };
 
