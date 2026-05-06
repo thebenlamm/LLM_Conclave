@@ -614,6 +614,8 @@ When writing your SUMMARY, include only what the agents finally agreed upon. Do 
 
 From the original task message only (not from agent turns), extract any explicit numerics or phrases the user marked as "hard constraint" or "non-negotiable" and list them under CONSTRAINTS_DETECTED. Agent proposals that happen to mention numbers do NOT count. For any ACTION_ITEM that violates a listed constraint, flag it in DISSENT and set CONFIDENCE to LOW.
 
+If the task contained labeled options (A, B, C…) and agents debated without directly addressing those labels, note this as a meta-finding in DISSENT (e.g. "Agents did not engage with the labeled options A/B/C from the task").
+
 If YES (genuine consensus reached), respond with EXACTLY this format:
 CONSENSUS_REACHED
 
@@ -812,6 +814,8 @@ When writing your SUMMARY, identify which position gained the most support by th
 
 From the original task message only (not from agent turns), extract any explicit numerics or phrases the user marked as "hard constraint" or "non-negotiable" and list them under CONSTRAINTS_DETECTED. Agent proposals that happen to mention numbers do NOT count. For any ACTION_ITEM that violates a listed constraint, flag it in DISSENT and set CONFIDENCE to LOW.
 
+If the task contained labeled options (A, B, C…) and agents debated without directly addressing those labels, note this as a meta-finding in DISSENT (e.g. "Agents did not engage with the labeled options A/B/C from the task").
+
 Respond with EXACTLY this format:
 
 SUMMARY:
@@ -905,6 +909,8 @@ CRITICAL: Your summary must reflect where the discussion CONVERGED, not a "balan
 When writing your SUMMARY, identify which position gained the most support by the end of the discussion. Do not include proposals that were mentioned but later rejected, superseded, or abandoned — the summary must reflect the actual trajectory, not an average of all positions.
 
 From the original task message only (not from agent turns), extract any explicit numerics or phrases the user marked as "hard constraint" or "non-negotiable" and list them under CONSTRAINTS_DETECTED. Agent proposals that happen to mention numbers do NOT count. For any ACTION_ITEM that violates a listed constraint, flag it in DISSENT and set CONFIDENCE to LOW.
+
+If the task contained labeled options (A, B, C…) and agents debated without directly addressing those labels, note this as a meta-finding in DISSENT (e.g. "Agents did not engage with the labeled options A/B/C from the task").
 
 Respond with EXACTLY this format:
 

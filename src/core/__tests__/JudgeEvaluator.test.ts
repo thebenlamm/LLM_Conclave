@@ -456,6 +456,15 @@ CONFIDENCE: HIGH`;
       const prompt = (judge.provider.chat as jest.Mock).mock.calls[0][0][0].content;
       expect(prompt).not.toContain('CRITICAL SUMMARY RULES:');
     });
+
+    it('outgoing prompt contains labeled-options meta-check instruction (PR 3 regression guard)', async () => {
+      const judge = makeJudge('No consensus. Continue.');
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      await evaluator.judgeEvaluate(judge);
+      const prompt = (judge.provider.chat as jest.Mock).mock.calls[0][0][0].content;
+      expect(prompt).toContain('labeled options (A, B, C');
+    });
   });
 
   describe('conductFinalVote', () => {
@@ -538,6 +547,16 @@ CONFIDENCE: HIGH`;
       await evaluator.conductFinalVote(judge);
       const prompt = (judge.provider.chat as jest.Mock).mock.calls[0][0][0].content;
       expect(prompt).not.toContain('CRITICAL SUMMARY RULES:');
+    });
+
+    it('outgoing prompt contains labeled-options meta-check instruction (PR 3 regression guard)', async () => {
+      const voteResponse = `SUMMARY:\nThe discussion converged on REST.\n\nKEY_DECISIONS:\n- REST selected\n\nACTION_ITEMS:\n- Build it\n\nDISSENT:\n- None\n\nCONFIDENCE: HIGH`;
+      const judge = makeJudge(voteResponse);
+      const deps = makeDeps();
+      const evaluator = new JudgeEvaluator(deps);
+      await evaluator.conductFinalVote(judge);
+      const prompt = (judge.provider.chat as jest.Mock).mock.calls[0][0][0].content;
+      expect(prompt).toContain('labeled options (A, B, C');
     });
   });
 

@@ -23,6 +23,17 @@ import { CostTracker } from './CostTracker';
  *
  * CONTEXT_OVERFLOW_PATTERN has been moved to JudgeEvaluator (sole owner).
  */
+
+// Matches "A) text", "A. text", "A: text", "(A) text" with at least one
+// non-whitespace char after the label. Threshold ≥3 prevents false positives
+// from prose that incidentally starts a line with "A." or "B.".
+// Limitation: does not detect "Option A" or numeric "1) 2) 3)" forms.
+export function detectEnumeratedOptions(task: string): string[] | null {
+  const pattern = /^\(?[A-E][.):\s]\s+\S/;
+  const matches = task.split('\n').filter(l => pattern.test(l.trim()));
+  return matches.length >= 3 ? matches : null;
+}
+
 export default class ConversationManager {
   config: Config;
   agents: { [key: string]: any };
@@ -333,7 +344,13 @@ export default class ConversationManager {
       initialMessage += '\n---\n\n';
     }
 
-    initialMessage += `Task: ${task}\n\nPlease share your perspective on how to approach this task.`;
+    const enumOpts = detectEnumeratedOptions(task);
+    const framing = enumOpts
+      ? `The question includes ${enumOpts.length} labeled options. Evaluate each option explicitly — ` +
+        `state which you recommend and why, engaging directly with each labeled option ` +
+        `(${enumOpts.map(l => l.trim()[0]).join(', ')}).`
+      : `Please share your perspective on how to approach this task.`;
+    initialMessage += `Task: ${task}\n\n${framing}`;
 
     // Add initial task to conversation history
     this.conversationHistory.push({
