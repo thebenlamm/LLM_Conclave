@@ -582,11 +582,11 @@ export default class AgentTurnExecutor {
     }
     // OpenAI reasoning models (o1-*, o3-*) — match at word boundary to avoid date false positives
     if (/\bo[13]-/.test(model) || /\bo[13]$/.test(model)) {
-      return 'claude-sonnet-4-5';
+      return 'claude-sonnet-4-6';
     }
     // For GPT, Grok, Mistral — fall back to Claude
     if (model.includes('gpt') || model.includes('grok') || model.includes('mistral')) {
-      return 'claude-sonnet-4-5';
+      return 'claude-sonnet-4-6';
     }
     return 'gpt-4o-mini';
   }

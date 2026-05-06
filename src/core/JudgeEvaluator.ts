@@ -726,7 +726,7 @@ Your guidance should FORCE new insights, not just encourage more discussion. Alw
       const isContextOverflow = CONTEXT_OVERFLOW_PATTERN.test(errorMsg);
       if (isContextOverflow) {
         // Cross provider boundaries to avoid correlated failures
-        const fallbackModel = judge.model.includes('gemini') ? 'claude-sonnet-4-5' :
+        const fallbackModel = judge.model.includes('gemini') ? 'claude-sonnet-4-6' :
                               judge.model.includes('claude') ? 'gemini-2.5-flash' :
                               'gemini-2.5-flash'; // OpenAI/Grok → Gemini (1M context)
         console.log(`[Judge ${judge.model} context/TPM overflow, retrying with ${fallbackModel}]`);
@@ -898,7 +898,7 @@ CONFIDENCE: [HIGH/MEDIUM/LOW based on clarity of the discussion direction]`;
 
       if (isContextOverflow) {
         // Cross provider boundaries to avoid correlated failures
-        const fallbackModel = judge.model.includes('gemini') ? 'claude-sonnet-4-5' :
+        const fallbackModel = judge.model.includes('gemini') ? 'claude-sonnet-4-6' :
                               judge.model.includes('claude') ? 'gemini-2.5-flash' :
                               'gemini-2.5-flash'; // OpenAI/Grok → Gemini (1M context)
         console.log(`[Final vote: ${judge.model} overflow, retrying with ${fallbackModel}]`);

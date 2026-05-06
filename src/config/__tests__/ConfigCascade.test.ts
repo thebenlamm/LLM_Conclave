@@ -58,7 +58,7 @@ describe('ConfigCascade', () => {
 
       expect(config.agents).toBeDefined();
       expect(config.agents.Primary).toBeDefined();
-      expect(config.agents.Primary.model).toBe('claude-sonnet-4-5');
+      expect(config.agents.Primary.model).toBe('claude-sonnet-4-6');
       expect(config.agents.Validator).toBeDefined();
       expect(config.agents.Reviewer).toBeDefined();
     });
@@ -73,10 +73,10 @@ describe('ConfigCascade', () => {
       expect(config.providers.anthropic.enabled).toBe(true);
       expect(config.providers.openai.enabled).toBe(false);
       expect(config.providers.google.enabled).toBe(false);
-      expect(config.judge.model).toBe('claude-sonnet-4-5');
-      expect(config.agents.Primary.model).toBe('claude-sonnet-4-5');
+      expect(config.judge.model).toBe('claude-sonnet-4-6');
+      expect(config.agents.Primary.model).toBe('claude-sonnet-4-6');
       expect(config.agents.Validator.model).toBe('claude-haiku-4-5');
-      expect(config.agents.Reviewer.model).toBe('claude-sonnet-4-5');
+      expect(config.agents.Reviewer.model).toBe('claude-sonnet-4-6');
     });
 
     it('should keep the mixed default panel when anthropic, openai, and google are all available', () => {
@@ -89,8 +89,8 @@ describe('ConfigCascade', () => {
       });
 
       expect(config.judge.model).toBe('gemini-2.5-flash');
-      expect(config.agents.Primary.model).toBe('claude-sonnet-4-5');
-      expect(config.agents.Validator.model).toBe('gpt-4o');
+      expect(config.agents.Primary.model).toBe('claude-sonnet-4-6');
+      expect(config.agents.Validator.model).toBe('gpt-5.5');
       expect(config.agents.Reviewer.model).toBe('gemini-2.5-pro');
     });
 
@@ -106,8 +106,8 @@ describe('ConfigCascade', () => {
       expect(config.providers.google.enabled).toBe(true);
       expect(config.providers.anthropic.enabled).toBe(false);
       expect(config.judge.model).toBe('gemini-2.5-flash');
-      expect(config.agents.Primary.model).toBe('gpt-4o');
-      expect(config.agents.Validator.model).toBe('gemini-2.0-flash');
+      expect(config.agents.Primary.model).toBe('gpt-5.5');
+      expect(config.agents.Validator.model).toBe('gemini-2.5-flash');
       expect(config.agents.Reviewer.model).toBe('gemini-2.5-pro');
     });
 
@@ -278,7 +278,7 @@ describe('ConfigCascade', () => {
 
       expect(message).toContain('No configuration found');
       expect(message).toContain('smart defaults');
-      expect(message).toContain('claude-sonnet-4-5');
+      expect(message).toContain('claude-sonnet-4-6');
       expect(message).toContain('llm-conclave init');
     });
   });

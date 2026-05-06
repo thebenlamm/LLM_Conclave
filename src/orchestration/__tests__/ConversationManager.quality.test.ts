@@ -111,7 +111,7 @@ describe('ConversationManager Quality Tests', () => {
     (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
       if (model === 'gpt-4o') {
         return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-      } else if (model === 'claude-sonnet-4-5') {
+      } else if (model === 'claude-sonnet-4-6') {
         return { chat: mockAgent2Chat, getProviderName: jest.fn().mockReturnValue('Claude') };
       } else if (model === 'gemini-2.5-flash') {
         return { chat: mockFallbackChat, getProviderName: jest.fn().mockReturnValue('Gemini') };
@@ -125,7 +125,7 @@ describe('ConversationManager Quality Tests', () => {
       turn_management: 'roundrobin',
       agents: {
         Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
-        Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
+        Agent2: { model: 'claude-sonnet-4-6', prompt: 'You are Agent2' },
       },
       judge: { model: judgeModel, prompt: 'You are the judge' },
       max_rounds: opts.maxRounds ?? 3,
@@ -236,7 +236,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o', prompt: 'Judge' },
         max_rounds: 1,
@@ -303,7 +303,7 @@ describe('ConversationManager Quality Tests', () => {
 
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o') return { chat: jest.fn().mockResolvedValue({ text: 'Agent response' }), getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5') return { chat: model === 'claude-sonnet-4-5' ? mockClaudeFallback : jest.fn().mockResolvedValue({ text: 'Agent response' }), getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'claude-sonnet-4-6') return { chat: model === 'claude-sonnet-4-6' ? mockClaudeFallback : jest.fn().mockResolvedValue({ text: 'Agent response' }), getProviderName: jest.fn().mockReturnValue('Claude') };
         if (model === 'gemini-2.5-flash') return { chat: mockGeminiChat, getProviderName: jest.fn().mockReturnValue('Gemini') };
         return { chat: jest.fn().mockResolvedValue({ text: 'fallback' }), getProviderName: jest.fn().mockReturnValue('Unknown') };
       });
@@ -328,8 +328,8 @@ describe('ConversationManager Quality Tests', () => {
 
       const result = await cm.startConversation('Test', judge);
 
-      // Should have tried claude-sonnet-4-5 as fallback (cross-provider from Gemini)
-      expect(ProviderFactory.createProvider).toHaveBeenCalledWith('claude-sonnet-4-5');
+      // Should have tried claude-sonnet-4-6 as fallback (cross-provider from Gemini)
+      expect(ProviderFactory.createProvider).toHaveBeenCalledWith('claude-sonnet-4-6');
     });
   });
 
@@ -435,7 +435,7 @@ describe('ConversationManager Quality Tests', () => {
     });
 
     it('returns a populated plain object when an agent is substituted via fallback', async () => {
-      // Agent1 (gpt-4o) throws a retryable 429 on first call → triggers fallback to claude-sonnet-4-5
+      // Agent1 (gpt-4o) throws a retryable 429 on first call → triggers fallback to claude-sonnet-4-6
       let agent1Calls = 0;
       const mockAgent1Chat = jest.fn().mockImplementation(() => {
         agent1Calls++;
@@ -444,7 +444,7 @@ describe('ConversationManager Quality Tests', () => {
         }
         return Promise.resolve({ text: 'Should not be called again' });
       });
-      // claude-sonnet-4-5 plays both Agent2 AND fallback for Agent1
+      // claude-sonnet-4-6 plays both Agent2 AND fallback for Agent1
       const mockClaudeChat = jest.fn().mockResolvedValue({
         text: 'Substituted-model response with substance',
       });
@@ -456,7 +456,7 @@ describe('ConversationManager Quality Tests', () => {
         if (model === 'gpt-4o') {
           return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
         }
-        if (model === 'claude-sonnet-4-5') {
+        if (model === 'claude-sonnet-4-6') {
           return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         }
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
@@ -466,7 +466,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 1,
@@ -486,7 +486,7 @@ describe('ConversationManager Quality Tests', () => {
       expect(result.agentSubstitutions instanceof Map).toBe(false);
       expect(result.agentSubstitutions.Agent1).toBeTruthy();
       expect(result.agentSubstitutions.Agent1.original).toBe('gpt-4o');
-      expect(result.agentSubstitutions.Agent1.fallback).toBe('claude-sonnet-4-5');
+      expect(result.agentSubstitutions.Agent1.fallback).toBe('claude-sonnet-4-6');
       expect(typeof result.agentSubstitutions.Agent1.reason).toBe('string');
       expect(result.agentSubstitutions.Agent1.reason).toMatch(/429|rate/i);
     });
@@ -507,7 +507,7 @@ describe('ConversationManager Quality Tests', () => {
 
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5') return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
 
@@ -515,7 +515,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 1,
@@ -535,7 +535,7 @@ describe('ConversationManager Quality Tests', () => {
       expect(roundtripped).toEqual(result.agentSubstitutions);
       expect(roundtripped.Agent1).toEqual({
         original: 'gpt-4o',
-        fallback: 'claude-sonnet-4-5',
+        fallback: 'claude-sonnet-4-6',
         reason: result.agentSubstitutions.Agent1.reason,
       });
     });
@@ -567,7 +567,7 @@ describe('ConversationManager Quality Tests', () => {
 
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5') return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
 
@@ -575,7 +575,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 1,
@@ -610,7 +610,7 @@ describe('ConversationManager Quality Tests', () => {
       expect(caught).toBeInstanceOf(StrictModelError);
       expect(caught.agentName).toBe('Agent1');
       expect(caught.originalModel).toBe('gpt-4o');
-      expect(caught.attemptedFallback).toBe('claude-sonnet-4-5');
+      expect(caught.attemptedFallback).toBe('claude-sonnet-4-6');
       expect(caught.reason).toMatch(/429|rate/i);
     });
 
@@ -630,7 +630,7 @@ describe('ConversationManager Quality Tests', () => {
 
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5') return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockClaudeChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
 
@@ -638,7 +638,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 1,
@@ -657,7 +657,7 @@ describe('ConversationManager Quality Tests', () => {
 
       const result: any = await cm.startConversation('Test default fallback', judge);
       expect(result.agentSubstitutions.Agent1).toBeTruthy();
-      expect(result.agentSubstitutions.Agent1.fallback).toBe('claude-sonnet-4-5');
+      expect(result.agentSubstitutions.Agent1.fallback).toBe('claude-sonnet-4-6');
     });
   });
 
@@ -731,7 +731,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 2,
@@ -790,7 +790,7 @@ describe('ConversationManager Quality Tests', () => {
 
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o') return { chat: mockHogChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5') return { chat: mockQuietChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockQuietChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
 
@@ -798,7 +798,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Hog: { model: 'gpt-4o', prompt: 'Hog' },
-          Quiet: { model: 'claude-sonnet-4-5', prompt: 'Quiet' },
+          Quiet: { model: 'claude-sonnet-4-6', prompt: 'Quiet' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 2,
@@ -834,7 +834,7 @@ describe('ConversationManager Quality Tests', () => {
 
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o') return { chat: mockGoodChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5') return { chat: mockBadChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockBadChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
 
@@ -842,7 +842,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 1,
@@ -884,7 +884,7 @@ describe('ConversationManager Quality Tests', () => {
 
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o') return { chat: mockGoodChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5') return { chat: mockBadChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockBadChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
 
@@ -892,7 +892,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 1,
@@ -934,7 +934,7 @@ describe('ConversationManager Quality Tests', () => {
 
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o') return { chat: mockHogChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5') return { chat: mockQuietChat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockQuietChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
 
@@ -942,7 +942,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Hog: { model: 'gpt-4o', prompt: 'Hog' },
-          Quiet: { model: 'claude-sonnet-4-5', prompt: 'Quiet' },
+          Quiet: { model: 'claude-sonnet-4-6', prompt: 'Quiet' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 1,
@@ -1086,7 +1086,7 @@ describe('ConversationManager Quality Tests', () => {
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o')
           return { chat: mockGoodChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5')
+        if (model === 'claude-sonnet-4-6')
           return { chat: mockBadChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
@@ -1095,7 +1095,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 1,
@@ -1151,7 +1151,7 @@ describe('ConversationManager Quality Tests', () => {
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o')
           return { chat: mockGoodChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5')
+        if (model === 'claude-sonnet-4-6')
           return { chat: mockFlakyChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
@@ -1160,7 +1160,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 2,
@@ -1207,7 +1207,7 @@ describe('ConversationManager Quality Tests', () => {
       (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
         if (model === 'gpt-4o')
           return { chat: mockSlowChat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
-        if (model === 'claude-sonnet-4-5')
+        if (model === 'claude-sonnet-4-6')
           return { chat: mockSlowChat, getProviderName: jest.fn().mockReturnValue('Claude') };
         return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
       });
@@ -1216,7 +1216,7 @@ describe('ConversationManager Quality Tests', () => {
         turn_management: 'roundrobin',
         agents: {
           Agent1: { model: 'gpt-4o', prompt: 'Agent1' },
-          Agent2: { model: 'claude-sonnet-4-5', prompt: 'Agent2' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'Agent2' },
         },
         judge: { model: 'gpt-4o-mini', prompt: 'Judge' },
         max_rounds: 3,

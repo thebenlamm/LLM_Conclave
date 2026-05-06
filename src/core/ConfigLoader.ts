@@ -65,12 +65,12 @@ export default class ConfigLoader {
     // Validate judge configuration
     if (!config.judge) {
       config.judge = {
-        model: 'gpt-4o',
+        model: 'gpt-5.5',
         prompt: 'You are the judge and coordinator of a multi-agent discussion. Your role is to evaluate whether the agents have reached a sufficient consensus on the task at hand. After each round, analyze the agents\' responses and determine if they have converged on a solution. If consensus is reached, state "CONSENSUS_REACHED" and summarize the agreed-upon solution. If not, provide guidance to help the agents move toward agreement.'
       };
     } else {
       if (!config.judge.model) {
-        config.judge.model = 'gpt-4o'; // Default
+        config.judge.model = 'gpt-5.5'; // Default
       }
       // Normalize systemPrompt to prompt for judge (same as agents)
       if (!config.judge.prompt && config.judge.systemPrompt) {
@@ -132,20 +132,20 @@ export default class ConfigLoader {
       turn_management: 'roundrobin',
       max_rounds: 20,
       judge: {
-        model: 'gpt-4o',
+        model: 'gpt-5.5',
         prompt: 'You are the judge and coordinator of this discussion. Evaluate whether consensus has been reached. If yes, respond with "CONSENSUS_REACHED" followed by the solution. If not, guide the discussion toward resolution.'
       },
       agents: {
         'Architect': {
-          model: 'gpt-4o',
+          model: 'gpt-5.5',
           prompt: 'You are a senior software architect. Approach problems from a systems design perspective, considering scalability, maintainability, and best practices.'
         },
         'Critic': {
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-4-6',
           prompt: 'You are a critical thinker and devil\'s advocate. Challenge assumptions, identify potential issues, and push for robust solutions.'
         },
         'Pragmatist': {
-          model: 'grok-3',
+          model: 'grok-4.3',
           prompt: 'You are a pragmatic engineer focused on practical, implementable solutions. Balance idealism with real-world constraints.'
         }
       }
