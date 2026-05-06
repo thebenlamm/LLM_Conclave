@@ -558,6 +558,39 @@ CONFIDENCE: HIGH`;
       const prompt = (judge.provider.chat as jest.Mock).mock.calls[0][0][0].content;
       expect(prompt).toContain('labeled options (A, B, C');
     });
+
+    it('Fix 1 regression — returns all structured fields (keyDecisions, actionItems, dissent, constraintsDetected, provenance)', async () => {
+      // ConversationManager's degraded path extracts all these fields from conductFinalVote().
+      // If any field is missing from the return object the degraded result silently reverts to [].
+      const voteResponse = `SUMMARY:
+Decision finalized.
+
+KEY_DECISIONS:
+- Use microservices
+- Deploy on Kubernetes
+
+ACTION_ITEMS:
+- Write migration plan
+
+DISSENT:
+- Agent2 preferred monolith
+
+CONSTRAINTS_DETECTED:
+- Budget: $50k hard cap
+
+PROVENANCE:
+- Use microservices: Proposed by Agent1 / concurred by Agent2
+
+CONFIDENCE: HIGH`;
+      const judge = makeJudge(voteResponse);
+      const evaluator = new JudgeEvaluator(makeDeps());
+      const result = await evaluator.conductFinalVote(judge);
+      expect(result.keyDecisions).toEqual(['Use microservices', 'Deploy on Kubernetes']);
+      expect(result.actionItems).toEqual(['Write migration plan']);
+      expect(result.dissent).toEqual(['Agent2 preferred monolith']);
+      expect(result.constraintsDetected).toEqual(['Budget: $50k hard cap']);
+      expect(result.provenance).toEqual(['Use microservices: Proposed by Agent1 / concurred by Agent2']);
+    });
   });
 
   describe('parseStructuredOutput (via judgeEvaluate)', () => {
@@ -744,6 +777,32 @@ CONFIDENCE: HIGH`;
       if (!result.consensusReached) throw new Error('expected consensus');
       expect(result.constraintsDetected).toEqual([]);
       expect(result.provenance).toEqual([]);
+    });
+
+    it('Fix 2 regression — extracts summary when judge emits title-case "Summary:" header', async () => {
+      // Before the fix, /SUMMARY:\s*\n/ (no /i) missed "Summary:" and fell through to the
+      // full-text fallback, returning KEY_DECISIONS/ACTION_ITEMS etc. as the solution.
+      const judgeResponse = `CONSENSUS_REACHED
+
+Summary:
+Agents settled on microservices.
+
+KEY_DECISIONS:
+- Use microservices
+
+ACTION_ITEMS:
+- Define service boundaries
+
+DISSENT:
+- None
+
+CONFIDENCE: HIGH`;
+      const judge = makeJudge(judgeResponse);
+      const evaluator = new JudgeEvaluator(makeDeps());
+      const result = await evaluator.judgeEvaluate(judge);
+      expect(result.solution).toBe('Agents settled on microservices.');
+      expect(result.solution).not.toContain('KEY_DECISIONS');
+      expect(result.solution).not.toContain('ACTION_ITEMS');
     });
 
     // Documents a known limitation: if the LLM emits CRITICAL SUMMARY RULES with no blank line

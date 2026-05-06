@@ -1518,6 +1518,14 @@ describe('MCP Server Handlers', () => {
         const result = truncateAtSentence('Stop! This goes on.', 6);
         expect(result).toBe('Stop...');
       });
+
+      it('Fix 4 regression — content ending in ellipsis does not produce 5+ dots', () => {
+        // "Wait..." truncated at the last '.' in the ellipsis gave "Wait.." + "..." = "Wait....."
+        // before the trailing-punctuation strip was added.
+        const result = truncateAtSentence('Wait... More text here to push past the limit', 10);
+        expect(result).toMatch(/\.{3}$/);    // ends in exactly 3 dots
+        expect(result).not.toMatch(/\.{4}/); // no 4+ consecutive dots anywhere
+      });
     });
 
     describe('stripOwnNamePrefix', () => {
@@ -1548,6 +1556,16 @@ describe('MCP Server Handlers', () => {
       it('returns content unchanged when no bold prefix present', () => {
         const content = 'Plain text without any prefix.';
         expect(stripOwnNamePrefix(content, 'Any Agent')).toBe(content);
+      });
+
+      it('Fix 3 regression — removes only the paired closing ** not any trailing ** in the content', () => {
+        // Before the fix: .replace(/\*\*$/) removed the LAST ** in the string, leaving the
+        // prefix-paired closer in place ("body**") and destroying the inline bold ("important").
+        const result = stripOwnNamePrefix(
+          '**Creative Innovator: body** and **important**',
+          'Creative Innovator'
+        );
+        expect(result).toBe('body and **important**');
       });
     });
   });
