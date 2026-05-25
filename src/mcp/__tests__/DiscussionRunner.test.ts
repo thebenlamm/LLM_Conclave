@@ -93,6 +93,8 @@ import { EventBus } from '../../core/EventBus.js';
 import SessionManager from '../../core/SessionManager.js';
 import { ConfigCascade } from '../../config/ConfigCascade.js';
 import { PersonaSystem } from '../../config/PersonaSystem.js';
+import { PreflightChecker } from '../../providers/PreflightChecker.js';
+import { DEFAULT_SELECTOR_MODEL } from '../../constants.js';
 
 // Default mock config returned by ConfigCascade.resolve
 const defaultConfig = {
@@ -425,6 +427,36 @@ describe('DiscussionRunner', () => {
       const options = cmCall[6]; // 7th argument = options object
       expect(options).toBeDefined();
       expect(options.costTracker).toBeDefined();
+    });
+  });
+
+  // Test 7c: dynamic mode preflights the selector model
+  describe('Test 7c: selector model preflight', () => {
+    it('includes the selector in preflight specs when dynamic', async () => {
+      const runner = new DiscussionRunner();
+      await runner.run(makeOptions({ dynamic: true, selectorModel: 'grok-4' }));
+
+      const specs = (PreflightChecker.check as jest.Mock).mock.calls[0][0];
+      const selector = specs.find((s: any) => s.name === 'Selector');
+      expect(selector).toBeDefined();
+      expect(selector.model).toBe('grok-4');
+    });
+
+    it('defaults the selector spec to DEFAULT_SELECTOR_MODEL when dynamic and unspecified', async () => {
+      const runner = new DiscussionRunner();
+      await runner.run(makeOptions({ dynamic: true }));
+
+      const specs = (PreflightChecker.check as jest.Mock).mock.calls[0][0];
+      const selector = specs.find((s: any) => s.name === 'Selector');
+      expect(selector?.model).toBe(DEFAULT_SELECTOR_MODEL);
+    });
+
+    it('omits the selector spec when not dynamic', async () => {
+      const runner = new DiscussionRunner();
+      await runner.run(makeOptions({ dynamic: false }));
+
+      const specs = (PreflightChecker.check as jest.Mock).mock.calls[0][0];
+      expect(specs.find((s: any) => s.name === 'Selector')).toBeUndefined();
     });
   });
 

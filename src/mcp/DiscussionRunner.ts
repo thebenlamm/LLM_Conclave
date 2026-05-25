@@ -284,6 +284,12 @@ export class DiscussionRunner {
       })),
       { name: 'Judge', model: judgeModelForPreflight },
     ];
+    // In dynamic mode the selector model makes real API calls to choose the next
+    // speaker. Preflight it too, or a bad key / stale name there would pass
+    // validation and then kill the run at the first speaker selection.
+    if (dynamic) {
+      agentSpecs.push({ name: 'Selector', model: selectorModel });
+    }
     await PreflightChecker.check(agentSpecs, skipPreflight);
 
     // 4. Round validation
