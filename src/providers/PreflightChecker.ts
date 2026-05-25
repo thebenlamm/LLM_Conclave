@@ -107,7 +107,11 @@ async function pingModel(type: ProviderType, resolvedModel: string): Promise<Pin
         const key = process.env.ANTHROPIC_API_KEY;
         if (!key) return missingKey('ANTHROPIC_API_KEY not set');
         const client = new Anthropic({ apiKey: key, maxRetries: 0, timeout: PING_TIMEOUT_MS });
-        await withTimeout((client.models as any).retrieve(resolvedModel), PING_TIMEOUT_MS);
+        // `models.retrieve` is a typed, documented method on the Anthropic SDK
+        // (resources/models.d.ts) that resolves a model alias to its ID — the
+        // same shape as the OpenAI/Grok/Mistral ping below. It validates both
+        // credentials (401) and model existence (404) without spending tokens.
+        await withTimeout(client.models.retrieve(resolvedModel), PING_TIMEOUT_MS);
         return null;
       }
       case 'openai': {
