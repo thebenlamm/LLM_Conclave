@@ -99,6 +99,11 @@ export default class ConversationManager {
   // persisted to session.json (D-09).
   private terminated: boolean = false;
 
+  // "Don't bill a doomed run" — one-shot guard so the cost-awareness gate
+  // surfaces remaining estimated spend at most once when the panel degrades but
+  // is still runnable (≥2 agents alive). In-memory only; not persisted.
+  private costAwarenessSurfaced: boolean = false;
+
   constructor(
     config: Config,
     memoryManager: any = null,
@@ -725,6 +730,39 @@ export default class ConversationManager {
       
       if (this.eventBus) {
         this.eventBus.emitEvent('round:complete', { round: this.currentRound });
+      }
+
+      // "Don't bill a doomed run" — cost-awareness gate. Reaching here means the
+      // round reached no consensus (the consensus path breaks above) and the loop
+      // will spend at least one more round. If the panel has degraded — some
+      // agents permanently disabled by the circuit breaker, but ≥2 still alive so
+      // the run was not aborted — surface the remaining estimated spend ONCE, so a
+      // reduced-panel run is never silently billed. We surface and proceed: a
+      // 3-of-5 panel is still a valid discussion. The fully-doomed cases
+      // (<2 contributors this round, ≤1 agent alive) already abort/break above.
+      const persistentlyFailed = this.agentExecutor.getPersistentlyFailedAgents();
+      const willRunAnotherRound = !this.terminated && this.currentRound < this.maxRounds;
+      if (!this.costAwarenessSurfaced && persistentlyFailed.size > 0 && willRunAnotherRound) {
+        this.costAwarenessSurfaced = true;
+        const costSoFar = this.costTracker.getSummary().totalCost;
+        const roundsRun = this.currentRound;
+        const remainingRounds = this.maxRounds - this.currentRound;
+        // Extrapolate from observed per-round spend; a conservative upper bound
+        // that assumes every remaining round runs to completion.
+        const estPerRound = roundsRun > 0 ? costSoFar / roundsRun : 0;
+        const estRemaining = estPerRound * remainingRounds;
+        const aliveCount = this.agentOrder.length - persistentlyFailed.size;
+        const totalCount = this.agentOrder.length;
+        const costMsg =
+          `Cost awareness: panel degraded to ${aliveCount}/${totalCount} agents ` +
+          `(${persistentlyFailed.size} disabled after repeated failures). ` +
+          `Spent $${costSoFar.toFixed(4)} over ${roundsRun} round${roundsRun === 1 ? '' : 's'}; ` +
+          `~$${estRemaining.toFixed(4)} more estimated for up to ${remainingRounds} remaining ` +
+          `round${remainingRounds === 1 ? '' : 's'}. Proceeding with the reduced panel.`;
+        console.log(`\n[${costMsg}]\n`);
+        if (this.eventBus) {
+          this.eventBus.emitEvent('status', { message: costMsg });
+        }
       }
 
       // Compress history if it's getting too large (prevents context overflow in later rounds)

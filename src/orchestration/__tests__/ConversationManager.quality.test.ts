@@ -1253,4 +1253,112 @@ describe('ConversationManager Quality Tests', () => {
       expect(Array.isArray(result.runIntegrity.participation)).toBe(true);
     });
   });
+
+  // =========================================================================
+  // Cost-awareness gate — "don't bill a doomed run" (beta-feedback #6)
+  // =========================================================================
+  describe("Cost-awareness gate (don't bill a doomed run)", () => {
+    it('surfaces remaining estimated cost ONCE when the panel degrades but stays runnable', async () => {
+      // AgentFail fails every turn with a hard (non-retryable, non-timeout) error,
+      // so it is NOT substituted and DOES count toward the circuit breaker. The
+      // breaker trips after 2 consecutive failures (during round 2), leaving a
+      // runnable 2-of-3 panel. The judge never reaches consensus, so the loop
+      // spends another round past the degradation → the gate fires exactly once.
+      //
+      // AgentFail is listed FIRST in round order: when its 2nd failure trips the
+      // breaker mid-round-2 it appends a System note to history, and the per-round
+      // contributor scan stops at that note. With the failing agent first, the two
+      // healthy agents take their turns AFTER the note, so the round still counts
+      // ≥2 contributors and the run is NOT aborted by the <2 guard — exactly the
+      // degraded-but-runnable case this gate exists for.
+      const mockAgentOk = jest.fn().mockResolvedValue({ text: 'Substantive position with real detail and tradeoffs.' });
+      const mockAgentFail = jest.fn().mockRejectedValue(new Error('fatal agent meltdown'));
+      const mockJudgeChat = jest.fn().mockResolvedValue({ text: 'No consensus yet. Keep discussing the tradeoffs.' });
+      const mockFallbackChat = jest.fn().mockResolvedValue({ text: buildFinalVoteText({ summary: 'fallback summary' }) });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'mistral-large-latest') return { chat: mockAgentFail, getProviderName: jest.fn().mockReturnValue('Mistral') };
+        if (model === 'gpt-4o') return { chat: mockAgentOk, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockAgentOk, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'gemini-2.5-flash') return { chat: mockFallbackChat, getProviderName: jest.fn().mockReturnValue('Gemini') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          AgentFail: { model: 'mistral-large-latest', prompt: 'AF' },
+          Agent2: { model: 'gpt-4o', prompt: 'A2' },
+          Agent3: { model: 'claude-sonnet-4-6', prompt: 'A3' },
+        },
+        judge: { model: 'gpt-4o', prompt: 'Judge' },
+        max_rounds: 3,
+        min_rounds: 0,
+      };
+
+      const statusMessages: string[] = [];
+      const eventBus: any = {
+        on: jest.fn(),
+        emitEvent: jest.fn((type: string, payload: any) => {
+          if (type === 'status' && payload?.message) statusMessages.push(payload.message);
+        }),
+      };
+
+      const cm = new ConversationManager(config, null, false, eventBus, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o',
+      };
+
+      await cm.startConversation('Decide architecture', judge);
+
+      const costMsgs = statusMessages.filter((m) => m.startsWith('Cost awareness: panel degraded'));
+      expect(costMsgs).toHaveLength(1);
+      expect(costMsgs[0]).toContain('2/3 agents');
+      // Remaining-cost figure is present and dollar-formatted (value is extrapolated).
+      expect(costMsgs[0]).toMatch(/~\$\d+\.\d{4} more estimated/);
+    });
+
+    it('does NOT surface a cost-awareness message when the full panel stays healthy', async () => {
+      const mockAgentOk = jest.fn().mockResolvedValue({ text: 'Substantive position with real detail.' });
+      const mockJudgeChat = jest.fn().mockResolvedValue({ text: 'No consensus yet. Keep going.' });
+      const mockFallbackChat = jest.fn().mockResolvedValue({ text: buildFinalVoteText({ summary: 'fallback summary' }) });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gemini-2.5-flash') return { chat: mockFallbackChat, getProviderName: jest.fn().mockReturnValue('Gemini') };
+        return { chat: mockAgentOk, getProviderName: jest.fn().mockReturnValue('Provider') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'A1' },
+          Agent2: { model: 'claude-sonnet-4-6', prompt: 'A2' },
+        },
+        judge: { model: 'gpt-4o', prompt: 'Judge' },
+        max_rounds: 3,
+        min_rounds: 0,
+      };
+
+      const statusMessages: string[] = [];
+      const eventBus: any = {
+        on: jest.fn(),
+        emitEvent: jest.fn((type: string, payload: any) => {
+          if (type === 'status' && payload?.message) statusMessages.push(payload.message);
+        }),
+      };
+
+      const cm = new ConversationManager(config, null, false, eventBus, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o',
+      };
+
+      await cm.startConversation('Healthy panel run', judge);
+
+      expect(statusMessages.filter((m) => m.startsWith('Cost awareness:'))).toHaveLength(0);
+    });
+  });
 });
