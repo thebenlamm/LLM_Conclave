@@ -93,6 +93,16 @@ jest.mock('../../providers/ProviderFactory.js', () => ({
 
 jest.mock('../../providers/PreflightChecker.js', () => ({
   PreflightChecker: { check: jest.fn().mockResolvedValue(undefined) },
+  // The handler does `error instanceof PreflightError`, so the mock must export
+  // a real class — omitting it makes the instanceof RHS undefined and throws.
+  PreflightError: class PreflightError extends Error {
+    results: any[];
+    constructor(results: any[] = []) {
+      super('Pre-flight validation failed');
+      this.name = 'PreflightError';
+      this.results = results;
+    }
+  },
 }));
 
 jest.mock('../../utils/ProjectContext.js', () => ({

@@ -402,6 +402,22 @@ function registerHandlers(server: Server) {
         };
       }
 
+      // Pre-flight credential/model validation (Phase: preflight) — the error
+      // message already carries the formatted ✅/❌ table. Return it as a clean
+      // tool_error instead of falling through to the generic stack-trace handler,
+      // matching the structured handling on the REST path.
+      if (error instanceof PreflightError) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: error.message,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       return {
         content: [
           {
