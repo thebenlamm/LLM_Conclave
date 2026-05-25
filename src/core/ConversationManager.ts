@@ -482,7 +482,10 @@ export default class ConversationManager {
 
       const totalAgents = this.agentOrder.length;
       if (roundContributors.size < 2 && totalAgents >= 2) {
-        const degradedReason = `Only ${roundContributors.size} of ${totalAgents} agents responded in round ${this.currentRound}`;
+        // Count agents who have spoken across the entire run — this matches
+        // the participation table (built from turnsOverall via TurnDistributionReporter).
+        const spokenOverall = this.agentOrder.filter(a => (this.turnsOverall[a] || 0) > 0).length;
+        const degradedReason = `Only ${spokenOverall} of ${totalAgents} agents responded (${roundContributors.size} in round ${this.currentRound})`;
         console.log(`\n[Discussion aborted: ${degradedReason}]\n`);
         if (this.eventBus) {
           this.eventBus.emitEvent('status', { message: `Discussion aborted: ${degradedReason}` });

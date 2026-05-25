@@ -604,6 +604,104 @@ describe('ConversationManager Integration Tests', () => {
       expect((result as any).degraded).toBeUndefined();
       expect(result.rounds).toBeGreaterThanOrEqual(1);
     }, 15000);
+
+    it('abort count in degradedReason matches participation table spoken count', async () => {
+      // Scenario: 3 agents succeed in round 1; in round 2, only 1 responds → abort.
+      // The abort count in degradedReason must equal the number of 'spoken' entries
+      // in runIntegrity.participation (the participation table).
+      let round = 0;
+      // Agent1: speaks in round 1 only; Agent2: speaks in round 1 only;
+      // Agent3: speaks in round 1 and round 2 (1 contributor in round 2 → abort)
+      const agentChat = (speaksInRound2: boolean) => {
+        return jest.fn().mockImplementation(() => {
+          if (round === 1 || (round === 2 && speaksInRound2)) {
+            return Promise.resolve({ text: 'response' });
+          }
+          return Promise.reject(new Error('Connection error.'));
+        });
+      };
+
+      const mockAgent1Chat = agentChat(false);
+      const mockAgent2Chat = agentChat(false);
+      const mockAgent3Chat = agentChat(true);
+
+      const mockJudgeChat = jest.fn().mockResolvedValue({
+        text: buildFinalVoteText({ summary: 'Degraded summary', confidence: 'LOW' }),
+      });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockAgent1Chat, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-5') return { chat: mockAgent2Chat, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'gemini-2.5-pro') return { chat: mockAgent3Chat, getProviderName: jest.fn().mockReturnValue('Gemini') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent1: { model: 'gpt-4o', prompt: 'You are Agent1' },
+          Agent2: { model: 'claude-sonnet-4-5', prompt: 'You are Agent2' },
+          Agent3: { model: 'gemini-2.5-pro', prompt: 'You are Agent3' },
+        },
+        judge: { model: 'gpt-4o-mini', prompt: 'You are the judge' },
+        max_rounds: 4,
+      };
+
+      const cm = new ConversationManager(config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'You are the judge',
+        model: 'gpt-4o-mini',
+      };
+
+      // Track round progression for the agent mocks
+      const origRoundrobin = (cm as any).runRoundRobinRound?.bind(cm);
+      // Intercept round increments by proxying startConversation — just use a
+      // spy on recordAgentTurnStats to count how many rounds have started.
+      // Simpler: read (cm as any).currentRound inside each mock via closure.
+      // The agent mocks already capture `round` via closure; we need to update it.
+      // Use beforeEach-level tracking via jest spy on the private field getter.
+      // Actually the cleanest approach: proxy the cm's currentRound getter.
+      Object.defineProperty(cm, '_getRound', {
+        get: () => (cm as any).currentRound,
+      });
+      // Update the `round` variable by overriding the mock to read cm's currentRound.
+      const cmRef = cm as any;
+      mockAgent1Chat.mockImplementation(() => {
+        const r = cmRef.currentRound;
+        if (r === 1) return Promise.resolve({ text: 'Agent1 round 1' });
+        return Promise.reject(new Error('Connection error.'));
+      });
+      mockAgent2Chat.mockImplementation(() => {
+        const r = cmRef.currentRound;
+        if (r === 1) return Promise.resolve({ text: 'Agent2 round 1' });
+        return Promise.reject(new Error('Connection error.'));
+      });
+      mockAgent3Chat.mockImplementation(() => {
+        const r = cmRef.currentRound;
+        if (r <= 2) return Promise.resolve({ text: `Agent3 round ${r}` });
+        return Promise.reject(new Error('Connection error.'));
+      });
+
+      const result = await cm.startConversation('Test task', judge);
+
+      // Abort must have fired
+      expect((result as any).degraded).toBe(true);
+      const degradedReason: string = (result as any).degradedReason;
+      expect(degradedReason).toBeDefined();
+
+      // Count spoken agents from participation table
+      const participation = result.runIntegrity?.participation ?? [];
+      const spokenCount = participation.filter((e: any) => e.status === 'spoken').length;
+
+      // Extract the leading integer from degradedReason: "Only X of Y agents responded..."
+      const match = degradedReason.match(/Only (\d+) of \d+ agents responded/);
+      expect(match).not.toBeNull();
+      const countInMessage = parseInt(match![1], 10);
+
+      // The count in the message must equal the number of spoken agents in the table
+      expect(countInMessage).toBe(spokenCount);
+    }, 15000);
   });
 
   describe('failedAgentDetails in result', () => {
