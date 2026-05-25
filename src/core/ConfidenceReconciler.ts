@@ -75,6 +75,54 @@ export interface ReconciledConfidence {
   runIntegrityStatusReasoning: string;
 }
 
+/**
+ * Derive a terse, scannable "why" clause for the Confidence header from a
+ * reconciled `confidenceReasoning` string, so a reader sees the downgrade cause
+ * inline (e.g. `Confidence: LOW (run aborted)`) without dropping to the full
+ * italic reasoning line below it.
+ *
+ * Returns the BARE clause (no surrounding punctuation) so each formatter can
+ * wrap it in its own style; returns `''` when the run was NOT downgraded by a
+ * recognised machinery rule. Only the deterministic causes this module itself
+ * emits are recognised — judge-clean runs and any unrecognised reasoning produce
+ * no clause, which keeps a clean HIGH/MEDIUM header bare. (Turn-balance is a
+ * Run-Integrity signal, not epistemic, so it never appears here.)
+ *
+ * @param reasoning The reconciled `confidenceReasoning` string (or undefined).
+ * @param participation Optional participation report; supplies a precise
+ *        absent-agent count for participation-driven caps.
+ */
+export function deriveConfidenceCause(
+  reasoning: string | undefined,
+  participation?: Array<{ status?: string }>
+): string {
+  if (!reasoning) return '';
+  const lower = reasoning.toLowerCase();
+
+  // Participation caps (Rules 3 / 3.5a / 3.5b): prefer a precise absent count
+  // from the participation report; fall back to a short phrase when no report is
+  // attached (e.g. consult mode, which omits the participation subsection).
+  if (/participation|absent|did not all speak/.test(lower)) {
+    const absent = (participation ?? []).filter(p => p?.status !== 'spoken');
+    if (absent.length > 0) {
+      return `participation: ${absent.length} agent${absent.length === 1 ? '' : 's'} absent`;
+    }
+    return 'incomplete participation';
+  }
+
+  // Abort cap (Rule 1).
+  if (lower.startsWith('run aborted')) return 'run aborted';
+
+  // Partial-round cap (Rule 4): surface the completeness percentage.
+  if (lower.startsWith('round completeness')) {
+    const pct = reasoning.match(/(\d+)\s*%/);
+    return pct ? `rounds ${pct[1]}% complete` : 'rounds incomplete';
+  }
+
+  // Judge-clean runs and any unrecognised reasoning carry no clause.
+  return '';
+}
+
 const RANK: Record<Confidence, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
 
 function minConfidence(a: Confidence, b: Confidence): Confidence {

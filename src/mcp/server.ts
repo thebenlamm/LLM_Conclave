@@ -58,6 +58,7 @@ import { StatusFileManager } from './StatusFileManager.js';
 import { getConclaveHome } from '../utils/ConfigPaths.js';
 import { detectJudgeCoinage } from '../consult/coinage/detectJudgeCoinage.js';
 import { LEADING_ROLE_PREFIX } from '../core/personaBoundary.js';
+import { deriveConfidenceCause } from '../core/ConfidenceReconciler.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -1104,14 +1105,16 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
   const finalConfidence: string = result.finalConfidence || result.confidence || 'MEDIUM';
   const confidenceReasoning: string | undefined = result.confidenceReasoning;
 
-  // D-19 header reason tag — appended to the Confidence field when participation
-  // drove a confidence downgrade (still epistemic).
-  const reasoningLower: string = (confidenceReasoning ?? '').toLowerCase();
-  let integrityTag = '';
-  if (/participation|absent/.test(reasoningLower)) {
-    const absent = (result.runIntegrity?.participation ?? []).filter((p: any) => p.status !== 'spoken');
-    integrityTag = ` (participation: ${absent.length} agent${absent.length === 1 ? '' : 's'} absent)`;
-  }
+  // D-19 header reason tag — a terse "why" clause appended to the Confidence
+  // field whenever a machinery rule downgraded confidence (participation, abort,
+  // partial rounds), so the cause is visible inline without reading the full
+  // reasoning line below. deriveConfidenceCause returns '' for clean runs and for
+  // any unrecognised reasoning, leaving the header bare.
+  const confidenceCause: string = deriveConfidenceCause(
+    confidenceReasoning,
+    result.runIntegrity?.participation
+  );
+  const integrityTag = confidenceCause ? ` (${confidenceCause})` : '';
 
   // Run integrity status — process-level signal, separate from epistemic confidence.
   const runIntegrityStatus: string = result.runIntegrity?.status ?? 'OK';
@@ -1354,6 +1357,13 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
   // Phase 13 Plan 04 — single confidence source. See formatDiscussionResult.
   const finalConfidence: string = result.finalConfidence || result.confidence || 'MEDIUM';
   const confidenceReasoning: string | undefined = result.confidenceReasoning;
+  // Terse machine-readable "why" — the JSON twin of the markdown header tag.
+  // Empty (→ field omitted) when confidence was not downgraded by a recognised
+  // machinery rule, so a consumer can render `if (confidence_cause)`.
+  const confidenceCause: string = deriveConfidenceCause(
+    confidenceReasoning,
+    result.runIntegrity?.participation
+  );
 
   // Extract participating agents (excluding failed, system, judge)
   const agents: Array<{ name: string; model?: string }> = [];
@@ -1493,6 +1503,7 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     confidence: finalConfidence.toLowerCase(),
     final_confidence: finalConfidence,
     confidence_reasoning: confidenceReasoning,
+    confidence_cause: confidenceCause || undefined,
     run_integrity_status: result.runIntegrity?.status ?? 'OK',
     run_integrity_reasoning: result.runIntegrity?.statusReasoning,
     consensus_reached: consensusReached,

@@ -1281,6 +1281,58 @@ describe('MCP Server Handlers', () => {
     });
   });
 
+  describe('Confidence header "why" tag — extended causes (beta-feedback #8)', () => {
+    const baseResult = (confidenceReasoning: string, finalConfidence = 'LOW') => ({
+      task: 'test task',
+      conversationHistory: [],
+      solution: 'test solution',
+      consensusReached: false,
+      rounds: 2,
+      maxRounds: 4,
+      failedAgents: [],
+      agentSubstitutions: {},
+      keyDecisions: [],
+      actionItems: [],
+      dissent: [],
+      finalConfidence,
+      confidenceReasoning,
+      runIntegrity: { participation: [] },
+      agents_config: [],
+    });
+
+    it('renders (run aborted) tag for an abort-cap reasoning', () => {
+      const output = formatDiscussionResult(
+        baseResult('Run aborted (bad key) — confidence capped at LOW regardless of judge self-report.'),
+        '/tmp/log.jsonl'
+      );
+      const confidenceLine = output.split('\n').find((l) => l.includes('**Confidence:**'));
+      expect(confidenceLine).toContain('(run aborted)');
+    });
+
+    it('renders (rounds N% complete) tag for a partial-round cap', () => {
+      const output = formatDiscussionResult(
+        baseResult('Round completeness 50% (<100%) — capping judge confidence (HIGH) at MEDIUM.', 'MEDIUM'),
+        '/tmp/log.jsonl'
+      );
+      const confidenceLine = output.split('\n').find((l) => l.includes('**Confidence:**'));
+      expect(confidenceLine).toContain('(rounds 50% complete)');
+    });
+
+    it('JSON twin: confidence_cause is present for a downgrade, omitted for a clean run', () => {
+      const downgraded = formatDiscussionResultJson(
+        baseResult('Run aborted — confidence capped at LOW regardless of judge self-report.'),
+        '/tmp/log.jsonl'
+      );
+      expect(downgraded.confidence_cause).toBe('run aborted');
+
+      const clean = formatDiscussionResultJson(
+        baseResult('Machinery clean (all agents spoke, turn balance ok, rounds complete); judge reported HIGH — finalConfidence=HIGH.', 'HIGH'),
+        '/tmp/log.jsonl'
+      );
+      expect(clean.confidence_cause).toBeUndefined();
+    });
+  });
+
   describe('Phase 17 — Final Output Auditability', () => {
     // Shared fixture builder: three agents, each with two rounds of non-error
     // assistant turns, plus a Judge turn. Extra content length triggers the

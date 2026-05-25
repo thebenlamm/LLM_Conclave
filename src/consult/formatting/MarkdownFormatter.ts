@@ -1,4 +1,5 @@
 import { ConsultationResult, IOutputFormatter } from '../../types/consult';
+import { deriveConfidenceCause } from '../../core/ConfidenceReconciler';
 
 /**
  * Formats consultation results as Markdown for human consumption.
@@ -95,7 +96,14 @@ export class MarkdownFormatter implements IOutputFormatter {
     // Phase 13 Plan 04 — prefer reconciled finalConfidence when populated;
     // otherwise fall back to the numeric consult confidence. One source per line.
     if (result.finalConfidence) {
-      lines.push(`**Confidence:** ${result.finalConfidence} (numeric: ${Math.round(result.confidence * 100)}%)`);
+      // Terse "why" clause inline on the header so the downgrade cause is visible
+      // without reading the full reasoning line below (empty for clean runs).
+      const cause = deriveConfidenceCause(
+        result.confidenceReasoning,
+        (result as any).runIntegrity?.participation
+      );
+      const causeSuffix = cause ? ` — ${cause}` : '';
+      lines.push(`**Confidence:** ${result.finalConfidence} (numeric: ${Math.round(result.confidence * 100)}%)${causeSuffix}`);
       if (result.confidenceReasoning) {
         lines.push(`_${result.confidenceReasoning}_`);
       }

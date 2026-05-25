@@ -54,6 +54,31 @@ describe('Formatters', () => {
       expect(output).toContain('**Duration:** 5.0s');
     });
 
+    it('should render a terse "why" clause on the Confidence header for a downgrade', () => {
+      const formatter = new MarkdownFormatter();
+      const downgraded: ConsultationResult = {
+        ...mockResult,
+        finalConfidence: 'LOW',
+        confidenceReasoning: 'Run aborted (bad key) — confidence capped at LOW regardless of judge self-report.',
+      } as any;
+      const output = formatter.format(downgraded);
+      const confidenceLine = output.split('\n').find((l) => l.includes('**Confidence:**'));
+      expect(confidenceLine).toContain('**Confidence:** LOW');
+      expect(confidenceLine).toContain('— run aborted');
+    });
+
+    it('should NOT render a "why" clause on a clean run header', () => {
+      const formatter = new MarkdownFormatter();
+      const clean: ConsultationResult = {
+        ...mockResult,
+        finalConfidence: 'HIGH',
+        confidenceReasoning: 'Machinery clean (all agents spoke, turn balance ok, rounds complete); judge reported HIGH — finalConfidence=HIGH.',
+      } as any;
+      const output = formatter.format(clean);
+      const confidenceLine = output.split('\n').find((l) => l.includes('**Confidence:**'));
+      expect(confidenceLine).not.toContain('—');
+    });
+
     it('should render Realized Panel with "(all models as configured)" when no substitutions', () => {
       const formatter = new MarkdownFormatter();
       const output = formatter.format(mockResult);

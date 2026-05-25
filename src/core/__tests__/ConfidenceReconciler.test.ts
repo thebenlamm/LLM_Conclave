@@ -1,4 +1,4 @@
-import { reconcileConfidence, MachinerySignals, Confidence } from '../ConfidenceReconciler';
+import { reconcileConfidence, deriveConfidenceCause, MachinerySignals, Confidence } from '../ConfidenceReconciler';
 
 function clean(overrides: Partial<MachinerySignals> = {}): MachinerySignals {
   return {
@@ -235,5 +235,75 @@ describe('ConfidenceReconciler (Phase 13.1 — participation caps)', () => {
       'LOW'
     );
     expect(result.finalConfidence).toBe('LOW');
+  });
+});
+
+describe('deriveConfidenceCause — terse header "why" clause', () => {
+  // Coupled to reconciler output: feed the real reasoning string the reconciler
+  // emits, so a wording change in one without the other fails here.
+  it('abort cap → "run aborted"', () => {
+    const r = reconcileConfidence(
+      { aborted: true, abortReason: 'bad key', allAgentsSpoke: true, turnBalanceOk: true, roundCompleteness: 1 },
+      'HIGH'
+    );
+    expect(deriveConfidenceCause(r.confidenceReasoning)).toBe('run aborted');
+  });
+
+  it('not all agents spoke → precise absent count from participation report', () => {
+    const r = reconcileConfidence(clean({ allAgentsSpoke: false }), 'HIGH');
+    const participation = [
+      { status: 'spoken' },
+      { status: 'absent' },
+      { status: 'absent' },
+    ];
+    expect(deriveConfidenceCause(r.confidenceReasoning, participation)).toBe('participation: 2 agents absent');
+  });
+
+  it('all-but-one absent → precise singular absent count', () => {
+    const r = reconcileConfidence(
+      clean({
+        participation: [
+          { agent: 'a', turns: 2, status: 'spoken' },
+          { agent: 'b', turns: 0, status: 'absent-failed' },
+        ],
+      }),
+      'HIGH'
+    );
+    // Only one absent → singular "agent".
+    expect(deriveConfidenceCause(r.confidenceReasoning, [{ status: 'spoken' }, { status: 'absent' }]))
+      .toBe('participation: 1 agent absent');
+  });
+
+  it('partial round completeness → "rounds N% complete"', () => {
+    const r = reconcileConfidence(clean({ roundCompleteness: 0.5 }), 'HIGH');
+    expect(deriveConfidenceCause(r.confidenceReasoning)).toBe('rounds 50% complete');
+  });
+
+  it('participation-incomplete (silent/capped) → precise absent count', () => {
+    const r = reconcileConfidence(
+      clean({
+        participation: [
+          { agent: 'a', turns: 3, status: 'spoken' },
+          { agent: 'b', turns: 0, status: 'absent-silent' },
+        ],
+      }),
+      'HIGH'
+    );
+    expect(deriveConfidenceCause(r.confidenceReasoning, [{ status: 'spoken' }, { status: 'absent-silent' }]))
+      .toBe('participation: 1 agent absent');
+  });
+
+  it('clean run (judge HIGH) → no clause', () => {
+    const r = reconcileConfidence(clean(), 'HIGH');
+    expect(deriveConfidenceCause(r.confidenceReasoning)).toBe('');
+  });
+
+  it('undefined / unrecognised reasoning → no clause (DEBT-02 parity)', () => {
+    expect(deriveConfidenceCause(undefined)).toBe('');
+    expect(deriveConfidenceCause('compression active')).toBe('');
+  });
+
+  it('participation cause with no report attached → generic phrase (consult mode)', () => {
+    expect(deriveConfidenceCause('All-but-one configured agent absent (a, b) — capped LOW.')).toBe('incomplete participation');
   });
 });
