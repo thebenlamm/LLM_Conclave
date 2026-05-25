@@ -14,6 +14,28 @@ export default class ProviderFactory {
    * @param {string} modelIdentifier - Model identifier (e.g., "gpt-4o", "claude-3-5-sonnet-20241022", "grok-beta")
    * @returns {any} - Instance of the appropriate provider
    */
+  /**
+   * Resolve provider-specific model aliases to their canonical names without
+   * instantiating a provider. Used by PreflightChecker.
+   */
+  static resolveModelName(modelIdentifier: string): string {
+    const modelLower = modelIdentifier.toLowerCase();
+
+    if (modelLower.includes('claude') || modelLower.includes('sonnet') ||
+      modelLower.includes('opus') || modelLower.includes('haiku')) {
+      if (modelLower === 'sonnet' || modelLower === 'sonnet-4.5') return 'claude-sonnet-4-5';
+      if (modelLower === 'opus' || modelLower === 'opus-4.5') return 'claude-opus-4-5';
+      if (modelLower === 'haiku' || modelLower === 'haiku-4.5') return 'claude-haiku-4-5';
+    }
+
+    if (modelLower.includes('gemini')) {
+      if (modelLower === 'gemini' || modelLower === 'gemini-pro') return 'gemini-2.5-pro';
+      if (modelLower === 'gemini-flash') return 'gemini-2.0-flash';
+    }
+
+    return modelIdentifier;
+  }
+
   static createProvider(modelIdentifier: string, options?: { contextEditing?: boolean; costTracker?: CostTracker }): any {
     const modelLower = modelIdentifier.toLowerCase();
 

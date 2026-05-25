@@ -59,7 +59,12 @@ jest.mock('../../providers/ProviderFactory.js', () => ({
   __esModule: true,
   default: {
     createProvider: mockCreateProvider,
+    resolveModelName: (m: string) => m,
   },
+}));
+
+jest.mock('../../providers/PreflightChecker.js', () => ({
+  PreflightChecker: { check: jest.fn().mockResolvedValue(undefined) },
 }));
 
 // Mock ProjectContext
@@ -435,8 +440,10 @@ describe('DiscussionRunner', () => {
       });
 
       const runner = new DiscussionRunner();
-      // Start run but also trigger events synchronously before awaiting
+      // Start run; yield once to let the async pre-flight mock resolve so that
+      // EventBus handlers are registered before we fire the synthetic event.
       const runPromise = runner.run(makeOptions({ onProgress }));
+      await Promise.resolve();
 
       // Simulate a round:start event after handlers are registered
       if (handlers['round:start']) {

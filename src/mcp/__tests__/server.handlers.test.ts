@@ -87,7 +87,12 @@ jest.mock('../../providers/ProviderFactory.js', () => ({
   __esModule: true,
   default: {
     createProvider: jest.fn(() => ({})),
+    resolveModelName: (m: string) => m,
   },
+}));
+
+jest.mock('../../providers/PreflightChecker.js', () => ({
+  PreflightChecker: { check: jest.fn().mockResolvedValue(undefined) },
 }));
 
 jest.mock('../../utils/ProjectContext.js', () => ({

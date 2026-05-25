@@ -51,6 +51,7 @@ import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 import { ContextLoader, computeAllowedRoots, isPathWithinRoots } from '../consult/context/ContextLoader.js';
 import { DiscussionRunner } from './DiscussionRunner.js';
+import { PreflightChecker } from '../providers/PreflightChecker.js';
 import { PreFlightTpmError } from '../providers/tpmLimits.js';
 import { StrictModelError } from '../core/AgentTurnExecutor.js';
 import { StatusFileManager } from './StatusFileManager.js';
@@ -465,6 +466,15 @@ async function handleConsult(args: {
         question,
       });
     }
+
+    // Pre-flight: validate credentials + model names before spending any tokens.
+    // Uses the resolved custom panel when provided, otherwise the hardcoded defaults.
+    const CONSULT_DEFAULT_MODELS = ['claude-sonnet-4-5', 'gpt-4o', 'gemini-2.5-pro'];
+    const consultAgentSpecs = agents
+      ? agents.map(a => ({ name: a.name, model: a.model }))
+      : CONSULT_DEFAULT_MODELS.map(m => ({ name: m, model: m }));
+    consultAgentSpecs.push({ name: 'Judge', model: judge_model || 'gpt-4o' });
+    await PreflightChecker.check(consultAgentSpecs);
 
     // Initialize orchestrator
     const orchestrator = new ConsultOrchestrator({

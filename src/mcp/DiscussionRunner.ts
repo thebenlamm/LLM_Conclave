@@ -22,6 +22,7 @@ import { CostTracker } from '../core/CostTracker.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 import { StatusFileManager } from './StatusFileManager.js';
 import { getConclaveHome } from '../utils/ConfigPaths.js';
+import { PreflightChecker } from '../providers/PreflightChecker.js';
 
 /**
  * Options for DiscussionRunner.run()
@@ -63,6 +64,11 @@ export interface DiscussionRunnerOptions {
    * Default: 1. Additive; MCP tool schema unchanged for callers omitting it.
    */
   maxTurnsPerAgentPerRound?: number;
+  /**
+   * Skip pre-flight credential + model-name validation. Default false.
+   * Set true in tests or continuation runs where agents were already validated.
+   */
+  skipPreflight?: boolean;
 }
 
 /**
@@ -244,6 +250,7 @@ export class DiscussionRunner {
       strictModels = false,
       restoredSubstitutions,
       maxTurnsPerAgentPerRound,
+      skipPreflight = false,
     } = options;
 
     // 1. Config resolution (use pre-resolved config for continuation to bypass ConfigCascade)
@@ -267,6 +274,17 @@ export class DiscussionRunner {
         };
       }
     }
+
+    // Pre-flight: validate credentials + model names before spending any tokens
+    const judgeModelForPreflight = options.judgeModel || config.judge.model;
+    const agentSpecs = [
+      ...Object.entries(config.agents).map(([name, agent]: [string, any]) => ({
+        name,
+        model: agent.model,
+      })),
+      { name: 'Judge', model: judgeModelForPreflight },
+    ];
+    await PreflightChecker.check(agentSpecs, skipPreflight);
 
     // 4. Round validation
     config.max_rounds = rounds;
