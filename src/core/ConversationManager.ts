@@ -7,7 +7,7 @@ import { EventBus } from './EventBus';
 import { SpeakerSelector, AgentInfo, AgentTurnStats, FairnessContext } from './SpeakerSelector';
 import TurnDistributionReporter from './TurnDistributionReporter.js';
 import { reconcileConfidence, MachinerySignals, Confidence } from './ConfidenceReconciler.js';
-import { contributorsForRound } from './roundMembership.js';
+import { contributorsForRound, contributorsOverall, isAgentContribution } from './roundMembership.js';
 import { TaskRouter } from './TaskRouter';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
 import { DiscussionHistoryEntry, Config } from '../types/index.js';
@@ -567,7 +567,7 @@ export default class ConversationManager {
         const degradedTurnCounts: Record<string, number> = {};
         const degradedAgentTokens: Record<string, number> = {};
         for (const entry of this.conversationHistory) {
-          if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+          if (isAgentContribution(entry)) {
             const name = entry.speaker;
             degradedTurnCounts[name] = (degradedTurnCounts[name] || 0) + 1;
             degradedAgentTokens[name] = (degradedAgentTokens[name] || 0) + Math.ceil((entry.content?.length || 0) / 4);
@@ -656,12 +656,7 @@ export default class ConversationManager {
 
       // Hard enforcement: Check if all active agents have contributed (don't trust LLM judge alone)
       // Exclude agents disabled by circuit breaker — they can't contribute
-      const contributingAgents = new Set<string>();
-      for (const entry of this.conversationHistory) {
-        if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
-          contributingAgents.add(entry.speaker);
-        }
-      }
+      const contributingAgents = contributorsOverall(this.conversationHistory);
       const activeAgents = this.agentOrder.filter(a => !this.agentExecutor.getPersistentlyFailedAgents().has(a));
       const allAgentsContributed = activeAgents.every(agent => contributingAgents.has(agent));
 
@@ -865,7 +860,7 @@ export default class ConversationManager {
       const abortTurnCounts: Record<string, number> = {};
       const abortAgentTokens: Record<string, number> = {};
       for (const entry of this.conversationHistory) {
-        if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+        if (isAgentContribution(entry)) {
           const name = entry.speaker;
           abortTurnCounts[name] = (abortTurnCounts[name] || 0) + 1;
           abortAgentTokens[name] = (abortAgentTokens[name] || 0) + Math.ceil((entry.content?.length || 0) / 4);
@@ -1004,7 +999,7 @@ export default class ConversationManager {
     const turnCounts: Record<string, number> = {};
     const agentTokens: Record<string, number> = {};
     for (const entry of this.conversationHistory) {
-      if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+      if (isAgentContribution(entry)) {
         const name = entry.speaker;
         turnCounts[name] = (turnCounts[name] || 0) + 1;
         // Use content length as token proxy (actual per-entry tokens not tracked)

@@ -59,6 +59,7 @@ import { getConclaveHome } from '../utils/ConfigPaths.js';
 import { detectJudgeCoinage } from '../consult/coinage/detectJudgeCoinage.js';
 import { LEADING_ROLE_PREFIX } from '../core/personaBoundary.js';
 import { deriveConfidenceCause } from '../core/ConfidenceReconciler.js';
+import { isAgentContribution, contributorsOverall } from '../core/roundMembership.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -1172,13 +1173,7 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
 
   // List participating agents (excluding failed ones)
   if (conversationHistory && conversationHistory.length > 0) {
-    const speakers = new Set<string>();
-    for (const msg of conversationHistory) {
-      const speaker = msg.speaker || 'Unknown';
-      if (speaker !== 'System' && speaker !== 'Judge' && !msg.error) {
-        speakers.add(speaker);
-      }
-    }
+    const speakers = contributorsOverall(conversationHistory);
     output += `**Agents:** ${Array.from(speakers).join(', ')}\n\n`;
   }
 
@@ -1199,9 +1194,7 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
     // Iterate in original order so insertion order reflects first-speak order.
     const firstSpeakOrder: string[] = [];
     for (const entry of conversationHistory) {
-      if (entry.role !== 'assistant') continue;
-      if (entry.speaker === 'Judge' || entry.speaker === 'System') continue;
-      if (entry.error) continue;
+      if (!isAgentContribution(entry)) continue;
       if (!lastByAgent.has(entry.speaker)) {
         firstSpeakOrder.push(entry.speaker);
       }
@@ -1222,7 +1215,7 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
   // When judge failed, surface last-round agent positions so discussion content isn't lost
   if (isJudgeFailed && conversationHistory?.length > 0) {
     const agentEntries = conversationHistory.filter(
-      (e: any) => e.role === 'assistant' && e.speaker !== 'Judge' && !e.error
+      (e: any) => isAgentContribution(e)
     );
     // Get last N entries (one per agent)
     const agentCount = Math.max(3, new Set(agentEntries.map((e: any) => e.speaker)).size);
@@ -1371,7 +1364,7 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     const seen = new Set<string>();
     for (const msg of conversationHistory) {
       const speaker = msg.speaker;
-      if (speaker && speaker !== 'System' && speaker !== 'Judge' && !msg.error && !seen.has(speaker)) {
+      if (isAgentContribution(msg) && !seen.has(speaker)) {
         seen.add(speaker);
         agents.push({ name: speaker, model: msg.model });
       }
@@ -1424,9 +1417,7 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     const lastByAgent = new Map<string, any>();
     const firstSpeakOrder: string[] = [];
     for (const entry of conversationHistory) {
-      if (entry.role !== 'assistant') continue;
-      if (entry.speaker === 'Judge' || entry.speaker === 'System') continue;
-      if (entry.error) continue;
+      if (!isAgentContribution(entry)) continue;
       if (!lastByAgent.has(entry.speaker)) {
         firstSpeakOrder.push(entry.speaker);
       }
@@ -1467,9 +1458,7 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
   // Always emit an array (empty on grounded runs) so callers filtering with
   // `if (judge_coinage.length)` don't need to disambiguate undefined/null.
   const agentTurnsForCoinage = (conversationHistory || [])
-    .filter((m: any) =>
-      m && m.role === 'assistant' && m.speaker && m.speaker !== 'Judge' && m.speaker !== 'System' && !m.error
-    )
+    .filter((m: any) => m && isAgentContribution(m))
     .map((m: any) => ({ speaker: String(m.speaker), content: String(m.content || '') }));
   const judgeCoinage = detectJudgeCoinage(String(solution || ''), agentTurnsForCoinage);
 

@@ -7,6 +7,8 @@
  * Phase 2 Context Tax: Judge Discussion State (2.2)
  */
 
+import { isAgentContribution } from './roundMembership.js';
+
 export interface DiscussionState {
   round: number;
   agentPositions: { agent: string; position: string; changed: boolean }[];
@@ -55,7 +57,7 @@ export class DiscussionStateExtractor {
 
     for (const group of roundGroups) {
       for (const entry of group.entries) {
-        if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+        if (isAgentContribution(entry)) {
           const position = this.extractPosition(entry.content);
           if (!positionsByAgent.has(entry.speaker)) {
             positionsByAgent.set(entry.speaker, []);
@@ -121,7 +123,7 @@ export class DiscussionStateExtractor {
     const questions: string[] = [];
 
     for (const entry of lastRound.entries) {
-      if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+      if (isAgentContribution(entry)) {
         const matches = entry.content.match(/[^.!?\n]*\?/g);
         if (matches) {
           for (const q of matches) {
@@ -152,7 +154,7 @@ export class DiscussionStateExtractor {
 
     const prevQuestions = this.extractQuestionsFromRound(prevRound);
     const currContent = currRound.entries
-      .filter((e: any) => e.role === 'assistant' && !e.error)
+      .filter((e: any) => isAgentContribution(e))
       .map((e: any) => e.content.toLowerCase())
       .join(' ');
 
@@ -175,7 +177,7 @@ export class DiscussionStateExtractor {
   private static extractQuestionsFromRound(round: RoundGroup): string[] {
     const questions: string[] = [];
     for (const entry of round.entries) {
-      if (entry.role === 'assistant' && entry.speaker !== 'Judge' && !entry.error) {
+      if (isAgentContribution(entry)) {
         const matches = entry.content.match(/[^.!?\n]*\?/g);
         if (matches) {
           for (const q of matches) {

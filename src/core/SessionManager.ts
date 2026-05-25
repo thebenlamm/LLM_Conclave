@@ -3,6 +3,7 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import { getConclaveHome } from '../utils/ConfigPaths.js';
 import { detectJudgeCoinage, type AgentTurnLike } from '../consult/coinage/detectJudgeCoinage.js';
+import { isAgentContribution } from './roundMembership.js';
 import {
   SessionManifest,
   SessionSummary,
@@ -354,9 +355,7 @@ export default class SessionManager {
     // — judge-self-grounding is not valid grounding (that is the whole point
     // of the feature).
     const agentTurnCorpus: AgentTurnLike[] = (conversationHistory || [])
-      .filter((m: any) =>
-        m && m.role === 'assistant' && m.speaker && m.speaker !== 'Judge' && m.speaker !== 'System' && !m.error
-      )
+      .filter((m: any) => m && isAgentContribution(m))
       .map((m: any) => ({ speaker: String(m.speaker), content: String(m.content || '') }));
     const judgeCoinage: string[] = detectJudgeCoinage(
       String(result.solution || result.finalOutput || ''),

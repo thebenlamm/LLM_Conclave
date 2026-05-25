@@ -1,7 +1,7 @@
 import ProviderFactory from '../providers/ProviderFactory.js';
 import TokenCounter from '../utils/TokenCounter.js';
 import { DiscussionStateExtractor } from './DiscussionStateExtractor.js';
-import { roundOf } from './roundMembership.js';
+import { roundOf, isAgentContribution, contributorsOverall } from './roundMembership.js';
 import type { DiscussionHistoryEntry, Config } from '../types/index.js';
 import type ConversationHistory from './ConversationHistory.js';
 import type { EventBus } from './EventBus.js';
@@ -261,7 +261,7 @@ export default class JudgeEvaluator {
     const agentPositions: { name: string; position: string }[] = [];
     if (lastRound) {
       for (const entry of lastRound.entries) {
-        if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
+        if (isAgentContribution(entry)) {
           // Extract the last paragraph as position summary (most likely contains conclusion)
           const paragraphs = entry.content.split(/\n\n+/).filter((p: string) => p.trim().length > 0);
           const lastParagraph = paragraphs.length > 0 ? paragraphs[paragraphs.length - 1].trim() : '';
@@ -285,7 +285,7 @@ export default class JudgeEvaluator {
     const disagreements: string[] = [];
     if (lastRound) {
       const agentContents = lastRound.entries
-        .filter((e: any) => e.role === 'assistant' && e.speaker !== 'Judge' && !e.error)
+        .filter((e: any) => isAgentContribution(e))
         .map((e: any) => ({ name: e.speaker, content: e.content.toLowerCase() }));
 
       // Check for explicit disagreement language referencing other agents
@@ -438,7 +438,7 @@ export default class JudgeEvaluator {
 
     if (lastRound) {
       for (const entry of lastRound.entries) {
-        if (entry.role === 'assistant' && entry.speaker !== 'Judge' && !entry.error) {
+        if (isAgentContribution(entry)) {
           // Take first 2 sentences as position summary
           // QUAL-04: Filter out markdown headers before extracting sentences
           const contentLines = entry.content
@@ -512,7 +512,7 @@ export default class JudgeEvaluator {
 
       // Detect if agents are quoting each other extensively in the current round
       const currentRoundText = this.deps.conversationHistory
-        .filter(e => this.getRoundForEntry(e) === currentRound && e.role === 'assistant' && e.speaker !== 'Judge')
+        .filter(e => isAgentContribution(e) && this.getRoundForEntry(e) === currentRound)
         .map(e => e.content)
         .join('\n');
       const quotingPatterns = /as .{2,30} (?:noted|mentioned|pointed out|said|observed|highlighted|emphasized|stated)/gi;
@@ -520,19 +520,14 @@ export default class JudgeEvaluator {
       const isExcessiveQuoting = quotingMatches.length >= 3;
 
       // Check which agents have contributed to the discussion
-      const contributingAgents = new Set<string>();
-      for (const entry of this.deps.conversationHistory) {
-        if (entry.role === 'assistant' && entry.speaker && entry.speaker !== 'Judge' && !entry.error) {
-          contributingAgents.add(entry.speaker);
-        }
-      }
+      const contributingAgents = contributorsOverall(this.deps.conversationHistory);
       const activeAgents = this.deps.agentOrder.filter(agent => !this.deps.getPersistentlyFailedAgents().has(agent));
       const allAgentsContributed = activeAgents.every(agent => contributingAgents.has(agent));
       const missingAgents = activeAgents.filter(agent => !contributingAgents.has(agent));
 
       // Detect rubber-stamping: agents respond to proposals with praise but no challenge
       const currentRoundEntries = this.deps.conversationHistory
-        .filter(e => this.getRoundForEntry(e) === currentRound && e.role === 'assistant' && e.speaker !== 'Judge' && !e.error);
+        .filter(e => isAgentContribution(e) && this.getRoundForEntry(e) === currentRound);
       let isRubberStamped = false;
       if (currentRoundEntries.length >= 2) {
         const challengePatterns = /\?|however|\bbut\b|\brisk\b|concern|downside|problem|what if|what about|trade.?off|cost of|\bchallenge\b|disagree|alternative/i;
