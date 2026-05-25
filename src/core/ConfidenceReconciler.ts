@@ -3,27 +3,34 @@
  *
  * Pure function that combines deterministic machinery signals about a discussion
  * run with the judge's self-reported confidence into a single reconciled
- * `finalConfidence` + human-readable `confidenceReasoning`.
+ * `finalConfidence` + human-readable `confidenceReasoning`, plus a separate
+ * `runIntegrityStatus` / `runIntegrityStatusReasoning` for process-level signals.
  *
  * Trigger incident: the "Trollix" run produced three different confidence
  * values simultaneously (header ABORTED, table LOW, body HIGH) because the
  * formatter, summary table, and judge each computed confidence independently.
  * This module establishes ONE value that every output path must read.
  *
- * Reconciliation rules (applied in order, first match wins):
+ * Epistemic confidence rules (applied in order, first match wins):
  *   1. machinery.aborted           === true  → finalConfidence = LOW
- *   2. machinery.turnBalanceOk     === false → finalConfidence = LOW
- *   3. machinery.allAgentsSpoke    === false → finalConfidence = LOW
+ *   2. machinery.allAgentsSpoke    === false → finalConfidence = LOW  (participation is epistemic)
+ *   3. (was Rule 2) turnBalanceOk  → moved to runIntegrityStatus; no epistemic effect
  *   4. machinery.roundCompleteness <  1.0    → cap at MEDIUM (use min(judge, MEDIUM))
  *   5. otherwise                              → finalConfidence = judgeConfidence ?? MEDIUM
+ *
+ * Run-integrity rules (process-level, not epistemic):
+ *   - aborted === true             → runIntegrityStatus = DEGRADED  (plus Rule 1 above)
+ *   - turnBalanceOk === false      → runIntegrityStatus = WARNING   (no epistemic effect)
+ *   - otherwise                   → runIntegrityStatus = OK
  *
  * All outputs are deterministic and side-effect free so the module is trivially
  * testable.
  */
 
-import type { ParticipationEntry } from '../types/index.js';
+import type { ParticipationEntry, RunIntegrityStatus } from '../types/index.js';
 
 export type Confidence = 'LOW' | 'MEDIUM' | 'HIGH';
+export type { RunIntegrityStatus };
 
 export interface MachinerySignals {
   /** True when the discussion run was aborted (pre-flight fail, timeout, degradation). */
@@ -60,6 +67,12 @@ export interface ReconciledConfidence {
   confidenceReasoning: string;
   machinerySignals: MachinerySignals;
   judgeConfidence?: Confidence;
+  /**
+   * Process-level integrity status. Separate from epistemic `finalConfidence`.
+   * Turn-balance imbalance surfaces here as WARNING, not as a confidence downgrade.
+   */
+  runIntegrityStatus: RunIntegrityStatus;
+  runIntegrityStatusReasoning: string;
 }
 
 const RANK: Record<Confidence, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
@@ -69,18 +82,55 @@ function minConfidence(a: Confidence, b: Confidence): Confidence {
 }
 
 /**
+ * Compute the process-level run-integrity status from machinery signals.
+ * This is SEPARATE from epistemic confidence.
+ *   - aborted        → DEGRADED (run critically impaired)
+ *   - !turnBalanceOk → WARNING  (process anomaly, not epistemic)
+ *   - otherwise      → OK
+ */
+function computeRunIntegrityStatus(
+  machinery: MachinerySignals
+): { runIntegrityStatus: RunIntegrityStatus; runIntegrityStatusReasoning: string } {
+  if (machinery.aborted) {
+    const reasonSuffix = machinery.abortReason ? ` (${machinery.abortReason})` : '';
+    return {
+      runIntegrityStatus: 'DEGRADED',
+      runIntegrityStatusReasoning: `Run aborted${reasonSuffix} — process critically impaired.`,
+    };
+  }
+  if (!machinery.turnBalanceOk) {
+    return {
+      runIntegrityStatus: 'WARNING',
+      runIntegrityStatusReasoning:
+        'Turn-length imbalance detected (one or more agents exceeded the 40% token-share threshold). This is a participation fairness signal, not an epistemic one.',
+    };
+  }
+  return {
+    runIntegrityStatus: 'OK',
+    runIntegrityStatusReasoning: 'No process anomalies detected.',
+  };
+}
+
+/**
  * Reconcile machinery signals with the judge's self-reported confidence.
+ *
+ * Returns two independent signals:
+ *   - `finalConfidence` / `confidenceReasoning` — epistemic quality of the discussion
+ *   - `runIntegrityStatus` / `runIntegrityStatusReasoning` — process-level health
  *
  * @param machinery Deterministic signals captured during the run.
  * @param judgeConfidence Judge's self-assessment; may be undefined (e.g. degraded
  *        path where judge never ran).
- * @returns ReconciledConfidence with the one-true `finalConfidence` + reasoning.
+ * @returns ReconciledConfidence with separate epistemic and process signals.
  */
 export function reconcileConfidence(
   machinery: MachinerySignals,
   judgeConfidence?: Confidence
 ): ReconciledConfidence {
+  const integrity = computeRunIntegrityStatus(machinery);
+
   // Rule 1 — aborted run. Machinery is authoritative; judge cannot escape.
+  // Also sets runIntegrityStatus=DEGRADED (handled in computeRunIntegrityStatus).
   if (machinery.aborted) {
     const reasonSuffix = machinery.abortReason ? ` (${machinery.abortReason})` : '';
     return {
@@ -88,21 +138,14 @@ export function reconcileConfidence(
       confidenceReasoning: `Run aborted${reasonSuffix} — confidence capped at LOW regardless of judge self-report.`,
       machinerySignals: machinery,
       judgeConfidence,
+      ...integrity,
     };
   }
 
-  // Rule 2 — turn balance violation (any agent > 40% token share).
-  if (!machinery.turnBalanceOk) {
-    return {
-      finalConfidence: 'LOW',
-      confidenceReasoning:
-        'Turn balance unacceptable (one or more agents exceeded the fairness threshold) — confidence capped at LOW.',
-      machinerySignals: machinery,
-      judgeConfidence,
-    };
-  }
+  // NOTE: Turn-balance (former Rule 2) is now a process signal only.
+  // It no longer downgrades finalConfidence — see runIntegrityStatus instead.
 
-  // Rule 3 — some agents never spoke.
+  // Rule 3 — some agents never spoke (epistemic: we don't know their view).
   if (!machinery.allAgentsSpoke) {
     return {
       finalConfidence: 'LOW',
@@ -110,6 +153,7 @@ export function reconcileConfidence(
         'Agents did not all speak — at least one configured agent never contributed — confidence capped at LOW.',
       machinerySignals: machinery,
       judgeConfidence,
+      ...integrity,
     };
   }
 
@@ -125,6 +169,7 @@ export function reconcileConfidence(
         confidenceReasoning: `All-but-one configured agent absent (${names}) — confidence capped at LOW.`,
         machinerySignals: machinery,
         judgeConfidence,
+        ...integrity,
       };
     }
   }
@@ -144,6 +189,7 @@ export function reconcileConfidence(
         confidenceReasoning: `Participation incomplete: ${names} — capping judge confidence (${judgeConfidence ?? 'MEDIUM'}) at MEDIUM.`,
         machinerySignals: machinery,
         judgeConfidence,
+        ...integrity,
       };
     }
   }
@@ -157,6 +203,7 @@ export function reconcileConfidence(
       confidenceReasoning: `Round completeness ${pct}% (<100%) — capping judge confidence (${judgeConfidence ?? 'MEDIUM'}) at MEDIUM.`,
       machinerySignals: machinery,
       judgeConfidence,
+      ...integrity,
     };
   }
 
@@ -170,5 +217,6 @@ export function reconcileConfidence(
     confidenceReasoning: reasoning,
     machinerySignals: machinery,
     judgeConfidence,
+    ...integrity,
   };
 }

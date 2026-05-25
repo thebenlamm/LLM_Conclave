@@ -917,9 +917,11 @@ describe('ConversationManager Quality Tests', () => {
       }
     });
 
-    it('Test 7: fairness alarm fires → finalConfidence capped at LOW even with judge HIGH', async () => {
+    it('Test 7: fairness alarm fires → runIntegrity WARNING, finalConfidence trusts judge (not capped)', async () => {
       // One agent (Hog) dominates with long responses, triggering fairness_alarm.
-      // Judge stub returns HIGH consensus. Reconciler must cap at LOW.
+      // Judge stub returns HIGH consensus.
+      // New behavior: turn-balance is a PROCESS signal — runIntegrity.status = WARNING,
+      // but finalConfidence is NOT downgraded (epistemic confidence respects the judge).
       const { EventBus } = require('../../core/EventBus');
       const eventBus = new EventBus();
 
@@ -958,18 +960,21 @@ describe('ConversationManager Quality Tests', () => {
 
       const result: any = await cm.startConversation('Fairness reconciler test', judge);
 
-      // Judge reported HIGH, but Hog's dominance triggered a fairness_alarm during
-      // the run, which should cause the reconciler to cap finalConfidence at LOW.
-      // (This holds if the run completed normally — if the run degraded for some
-      // other reason it will also be LOW via the aborted rule.)
-      expect(['LOW', 'MEDIUM']).toContain(result.finalConfidence);
-      if (result.finalConfidence === 'LOW') {
-        // Should cite either turn balance (fairness) or aborted in the reasoning.
-        const reason = result.confidenceReasoning.toLowerCase();
-        expect(
-          reason.includes('turn balance') || reason.includes('aborted') || reason.includes('did not all speak')
-        ).toBe(true);
+      // Judge reported HIGH and the run completed. Fairness alarm is a process signal,
+      // not epistemic — so finalConfidence should reflect the judge's HIGH assessment.
+      // If the run also happened to degrade (abort/missing agents), epistemic rules may
+      // still cap it, but turn balance alone must NOT downgrade epistemic confidence.
+      if (!result.degraded && result.rounds >= 1) {
+        // Happy path: judge HIGH should be preserved.
+        expect(result.finalConfidence).toBe('HIGH');
+      } else {
+        // Degraded/aborted path: aborted rule still applies.
+        expect(['LOW', 'MEDIUM']).toContain(result.finalConfidence);
       }
+      // Regardless of path: runIntegrity.status must reflect the turn-balance alarm.
+      const riStatus = result.runIntegrity?.status;
+      // Either WARNING (turn-balance only) or DEGRADED (if run also aborted)
+      expect(['WARNING', 'DEGRADED']).toContain(riStatus);
     });
 
     it('Test 8: happy path with judge HIGH → finalConfidence HIGH', async () => {

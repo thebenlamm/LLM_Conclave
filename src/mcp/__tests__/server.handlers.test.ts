@@ -1392,6 +1392,8 @@ describe('MCP Server Handlers', () => {
       // PR 1c keys — regression guard so removal triggers a schema-stability failure.
       expect(json).toHaveProperty('constraints_detected');
       expect(json).toHaveProperty('provenance');
+      // Run integrity split — separate process signal from epistemic confidence.
+      expect(json).toHaveProperty('run_integrity_status');
     });
   });
 

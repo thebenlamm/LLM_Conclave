@@ -1088,14 +1088,18 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
   const finalConfidence: string = result.finalConfidence || result.confidence || 'MEDIUM';
   const confidenceReasoning: string | undefined = result.confidenceReasoning;
 
-  // D-19 header reason tag — appended to the Confidence field below only when
-  // Run Integrity drove a confidence downgrade.
+  // D-19 header reason tag — appended to the Confidence field when participation
+  // drove a confidence downgrade (still epistemic).
   const reasoningLower: string = (confidenceReasoning ?? '').toLowerCase();
   let integrityTag = '';
   if (/participation|absent/.test(reasoningLower)) {
     const absent = (result.runIntegrity?.participation ?? []).filter((p: any) => p.status !== 'spoken');
     integrityTag = ` (participation: ${absent.length} agent${absent.length === 1 ? '' : 's'} absent)`;
   }
+
+  // Run integrity status — process-level signal, separate from epistemic confidence.
+  const runIntegrityStatus: string = result.runIntegrity?.status ?? 'OK';
+  const runIntegrityStatusReasoning: string | undefined = result.runIntegrity?.statusReasoning;
 
   let output = `# Discussion Summary\n\n`;
   // Realized Panel — surfaces actual models per agent, marking any substitutions (Phase 12-03)
@@ -1133,9 +1137,12 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
   const roundsDisplay = consensusReached
     ? `${rounds}/${maxRounds || rounds} (consensus reached early)`
     : `${rounds}/${maxRounds || rounds}`;
-  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'} | **Confidence:** ${finalConfidence}${integrityTag}\n\n`;
+  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'} | **Confidence:** ${finalConfidence}${integrityTag} | **Run Integrity:** ${runIntegrityStatus}\n\n`;
   if (confidenceReasoning) {
     output += `_Confidence reasoning: ${confidenceReasoning}_\n\n`;
+  }
+  if (runIntegrityStatus !== 'OK' && runIntegrityStatusReasoning) {
+    output += `_Run integrity: ${runIntegrityStatusReasoning}_\n\n`;
   }
 
   // List participating agents (excluding failed ones)
@@ -1464,6 +1471,8 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     confidence: finalConfidence.toLowerCase(),
     final_confidence: finalConfidence,
     confidence_reasoning: confidenceReasoning,
+    run_integrity_status: result.runIntegrity?.status ?? 'OK',
+    run_integrity_reasoning: result.runIntegrity?.statusReasoning,
     consensus_reached: consensusReached,
     rounds: { completed: rounds, max: maxRounds || rounds },
     agents,

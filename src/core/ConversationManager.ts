@@ -593,7 +593,11 @@ export default class ConversationManager {
           ),
           degraded: true,
           degradedReason,
-          runIntegrity: degradedRunIntegrity,
+          runIntegrity: {
+            ...degradedRunIntegrity,
+            status: degradedReconciled.runIntegrityStatus,
+            statusReasoning: degradedReconciled.runIntegrityStatusReasoning,
+          },
           turn_analytics: {
             per_agent: degradedSortedAgents.map(([name, turns]) => ({
               name,
@@ -853,7 +857,11 @@ export default class ConversationManager {
           Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
         ),
         timedOut: true,
-        runIntegrity: abortedRunIntegrity,
+        runIntegrity: {
+          ...abortedRunIntegrity,
+          status: abortedReconciled.runIntegrityStatus,
+          statusReasoning: abortedReconciled.runIntegrityStatusReasoning,
+        },
         turn_analytics: {
           per_agent: abortSortedAgents.map(([name, turns]) => ({
             name,
@@ -1028,7 +1036,11 @@ export default class ConversationManager {
       agents_config: Object.fromEntries(
         Object.entries(this.agents).map(([name, cfg]: [string, any]) => [name, { model: cfg.model }])
       ),
-      runIntegrity: happyRunIntegrity,
+      runIntegrity: {
+        ...happyRunIntegrity,
+        status: happyReconciled.runIntegrityStatus,
+        statusReasoning: happyReconciled.runIntegrityStatusReasoning,
+      },
       turn_analytics,
       dissent_quality,
       cost: {

@@ -99,6 +99,14 @@ export class MarkdownFormatter implements IOutputFormatter {
       if (result.confidenceReasoning) {
         lines.push(`_${result.confidenceReasoning}_`);
       }
+      const runIntegrityStatus = (result as any).runIntegrity?.status;
+      const runIntegrityStatusReasoning = (result as any).runIntegrity?.statusReasoning;
+      if (runIntegrityStatus && runIntegrityStatus !== 'OK') {
+        lines.push(`**Run Integrity:** ${runIntegrityStatus}`);
+        if (runIntegrityStatusReasoning) {
+          lines.push(`_${runIntegrityStatusReasoning}_`);
+        }
+      }
     } else {
       lines.push(`**Confidence:** ${Math.round(result.confidence * 100)}%`);
     }

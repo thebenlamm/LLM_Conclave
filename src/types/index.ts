@@ -586,9 +586,22 @@ export interface ParticipationEntry {
   reason?: string;
 }
 
+/**
+ * Process-level integrity status for a run. Distinct from epistemic confidence.
+ * OK      — no process anomalies detected.
+ * WARNING — a process signal fired (e.g. turn-length imbalance) but did not
+ *           invalidate the epistemic value of the discussion.
+ * DEGRADED — run was aborted or critically impaired.
+ */
+export type RunIntegrityStatus = 'OK' | 'WARNING' | 'DEGRADED';
+
 export interface RunIntegrity {
   compression: RunIntegrityCompression;
   participation: ParticipationEntry[];
+  /** Process-level integrity status. Absent on legacy fixtures. */
+  status?: RunIntegrityStatus;
+  /** Human-readable explanation of the integrity status. */
+  statusReasoning?: string;
 }
 
 // Event payloads — see .planning/phases/13.1.../13.1-CONTEXT.md D-11..D-14
