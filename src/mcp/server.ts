@@ -1137,7 +1137,13 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
   const roundsDisplay = consensusReached
     ? `${rounds}/${maxRounds || rounds} (consensus reached early)`
     : `${rounds}/${maxRounds || rounds}`;
-  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'} | **Confidence:** ${finalConfidence}${integrityTag} | **Run Integrity:** ${runIntegrityStatus}\n\n`;
+  // Only append the Run Integrity segment when it is NOT OK. Appending it
+  // unconditionally changed the header on every run and broke programmatic
+  // consumers that anchor on `**Confidence:** X` at end-of-line or split the
+  // header on `|`. The full integrity detail is already rendered above via
+  // renderRunIntegrity; the non-OK segment here is an inline flag.
+  const integritySegment = runIntegrityStatus !== 'OK' ? ` | **Run Integrity:** ${runIntegrityStatus}` : '';
+  output += `**Rounds:** ${roundsDisplay} | **Consensus:** ${consensusReached ? 'Yes' : 'No'} | **Confidence:** ${finalConfidence}${integrityTag}${integritySegment}\n\n`;
   if (confidenceReasoning) {
     output += `_Confidence reasoning: ${confidenceReasoning}_\n\n`;
   }
