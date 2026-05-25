@@ -46,7 +46,7 @@ function normalizeError(e: any, model: string): string {
   if (msg.includes('401') || /invalid.*key|unauthorized|authentication/i.test(msg)) {
     return 'Invalid API key';
   }
-  if (msg.includes('404') || /not.found|model.*not.*found/i.test(msg)) {
+  if (msg.includes('404') || /not\.found|model.*not.*found/i.test(msg)) {
     return `Model not found: ${model}`;
   }
   if (msg.includes('timeout')) return 'Credential check timed out (>8s)';

@@ -51,7 +51,7 @@ import { OutputFormat } from '../types/consult.js';
 import { DEFAULT_SELECTOR_MODEL } from '../constants.js';
 import { ContextLoader, computeAllowedRoots, isPathWithinRoots } from '../consult/context/ContextLoader.js';
 import { DiscussionRunner } from './DiscussionRunner.js';
-import { PreflightChecker } from '../providers/PreflightChecker.js';
+import { PreflightChecker, PreflightError } from '../providers/PreflightChecker.js';
 import { PreFlightTpmError } from '../providers/tpmLimits.js';
 import { StrictModelError } from '../core/AgentTurnExecutor.js';
 import { StatusFileManager } from './StatusFileManager.js';
@@ -694,6 +694,9 @@ async function handleContinue(args: {
     // Phase 12-04: re-apply persisted substitutions on resume so the substitute
     // model continues to play the agent — the original is NOT retried.
     restoredSubstitutions: (session as any).agentSubstitutions || undefined,
+    // Agents were already validated in the original session; skip re-pinging
+    // provider APIs on continuation to avoid false aborts on transient 429s.
+    skipPreflight: true,
   });
 
   // REPLAY-01/02 (Phase 21): opt-in JSON emission branch. When show_turns is
@@ -1667,6 +1670,14 @@ export async function startSSE(port: number) {
       res.json({ success: true, ...jsonResult });
     } catch (error: any) {
       console.error(`[REST] Error in /api/discuss:`, error);
+      if (error instanceof PreflightError) {
+        res.status(400).json({
+          success: false,
+          error: 'Pre-flight validation failed',
+          preflight_results: error.results,
+        });
+        return;
+      }
       res.status(500).json({
         success: false,
         error: error.message || 'Internal server error',
