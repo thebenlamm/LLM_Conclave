@@ -1486,6 +1486,17 @@ describe('ConversationManager Quality Tests', () => {
       const spoken = ((result as any).runIntegrity?.participation ?? []).filter((p: any) => p.status === 'spoken').length;
       expect(spoken).toBe(2); // Healthy + Fail2 (who spoke in round 1)
       expect(runTotal).toBe(spoken);
+
+      // Stamp invariant on the EXACT path the fix targets: this degraded history
+      // contains a circuit-breaker System note and errored agent turns. Every one
+      // must carry a numeric roundNumber so contributorsForRound reads the
+      // authoritative stamp rather than the inference fallback. Assert the System
+      // note specifically is present and stamped.
+      const degradedHistory = (result as any).conversationHistory as Array<{ roundNumber?: unknown; speaker?: string }>;
+      for (const entry of degradedHistory) {
+        expect(typeof entry.roundNumber).toBe('number');
+      }
+      expect(degradedHistory.some((e) => e.speaker === 'System')).toBe(true);
     });
 
     it('stamps a numeric roundNumber on every pushed history entry (task, agent turns, judge)', async () => {
