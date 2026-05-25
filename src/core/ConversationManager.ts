@@ -7,6 +7,7 @@ import { EventBus } from './EventBus';
 import { SpeakerSelector, AgentInfo, AgentTurnStats, FairnessContext } from './SpeakerSelector';
 import TurnDistributionReporter from './TurnDistributionReporter.js';
 import { reconcileConfidence, MachinerySignals, Confidence } from './ConfidenceReconciler.js';
+import { contributorsForRound } from './roundMembership.js';
 import { TaskRouter } from './TaskRouter';
 import { DEFAULT_SELECTOR_MODEL } from '../constants';
 import { DiscussionHistoryEntry, Config } from '../types/index.js';
@@ -471,19 +472,19 @@ export default class ConversationManager {
         }
       }
 
-      // Early abort: count how many agents actually contributed THIS round.
-      // If fewer than 2 agents responded (and we have 2+ agents total), the discussion
-      // has degraded into a monologue or silence — abort immediately instead of continuing.
-      const roundContributors = new Set<string>();
-      // Scan history entries added this round (entries after the round-start boundary)
-      for (let i = this.conversationHistory.length - 1; i >= 0; i--) {
-        const entry = this.conversationHistory[i];
-        // Stop scanning when we hit a Judge entry (previous round boundary) or System entry
-        if (entry.speaker === 'Judge' || entry.speaker === 'System') break;
-        if (entry.role === 'assistant' && entry.speaker && !entry.error) {
-          roundContributors.add(entry.speaker);
-        }
-      }
+      // Early abort: count how many distinct agents actually contributed THIS
+      // round. If fewer than 2 agents responded (and we have 2+ agents total),
+      // the discussion has degraded into a monologue or silence — abort
+      // immediately instead of continuing.
+      //
+      // Keyed off the authoritative round stamp via contributorsForRound
+      // (beta-feedback #7). The previous backward scan broke at the first
+      // System entry, so a mid-round circuit-breaker note dropped every
+      // contributor who spoke BEFORE the failing agent — undercounting the
+      // round (e.g. reporting "0 of 3" when 2 actually spoke) and disagreeing
+      // with the participation table. The stamp-based set is immune to where
+      // the System note lands in the round.
+      const roundContributors = contributorsForRound(this.conversationHistory, this.currentRound);
 
       const totalAgents = this.agentOrder.length;
       if (roundContributors.size < 2 && totalAgents >= 2) {

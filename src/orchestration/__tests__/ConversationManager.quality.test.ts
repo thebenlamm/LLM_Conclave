@@ -1361,4 +1361,65 @@ describe('ConversationManager Quality Tests', () => {
       expect(statusMessages.filter((m) => m.startsWith('Cost awareness:'))).toHaveLength(0);
     });
   });
+
+  // =========================================================================
+  // Abort vs participation table — beta-feedback #7
+  // A circuit-breaker System note pushed mid-round must NOT truncate the
+  // per-round contributor count. The cost-awareness gate (above) must fire
+  // regardless of where the failing agent sits in the round order.
+  // =========================================================================
+  describe('Abort vs participation table (beta-feedback #7)', () => {
+    it('#7: does NOT abort when the failing agent is LAST in the round (System note no longer truncates the count)', async () => {
+      const mockAgentOk = jest.fn().mockResolvedValue({ text: 'Substantive position with real detail and tradeoffs.' });
+      const mockAgentFail = jest.fn().mockRejectedValue(new Error('fatal agent meltdown'));
+      const mockJudgeChat = jest.fn().mockResolvedValue({ text: 'No consensus yet. Keep discussing the tradeoffs.' });
+      const mockFallbackChat = jest.fn().mockResolvedValue({ text: buildFinalVoteText({ summary: 'fallback summary' }) });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'mistral-large-latest') return { chat: mockAgentFail, getProviderName: jest.fn().mockReturnValue('Mistral') };
+        if (model === 'gpt-4o') return { chat: mockAgentOk, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockAgentOk, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'gemini-2.5-flash') return { chat: mockFallbackChat, getProviderName: jest.fn().mockReturnValue('Gemini') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      // AgentFail listed LAST — the position that pre-fix truncated the backward
+      // scan to 0 (its mid-round System note sat after both healthy agents, so
+      // the end-of-history scan hit the note first and counted nobody).
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Agent2: { model: 'gpt-4o', prompt: 'A2' },
+          Agent3: { model: 'claude-sonnet-4-6', prompt: 'A3' },
+          AgentFail: { model: 'mistral-large-latest', prompt: 'AF' },
+        },
+        judge: { model: 'gpt-4o', prompt: 'Judge' },
+        max_rounds: 3,
+        min_rounds: 0,
+      };
+
+      const statusMessages: string[] = [];
+      const eventBus: any = {
+        on: jest.fn(),
+        emitEvent: jest.fn((type: string, payload: any) => {
+          if (type === 'status' && payload?.message) statusMessages.push(payload.message);
+        }),
+      };
+
+      const cm = new ConversationManager(config, null, false, eventBus, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o',
+      };
+
+      const result = await cm.startConversation('Decide architecture', judge);
+
+      // Must NOT abort for a degraded count: no "degraded: only N of M responded this round".
+      expect(statusMessages.some((m) => /degraded: only \d+ of \d+ agents responded this round/.test(m))).toBe(false);
+      expect((result as any).degraded).not.toBe(true);
+      // The cost-awareness gate fires instead — the run proceeded with the reduced panel.
+      expect(statusMessages.filter((m) => m.startsWith('Cost awareness: panel degraded'))).toHaveLength(1);
+    });
+  });
 });
