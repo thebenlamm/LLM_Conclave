@@ -1,6 +1,7 @@
 import ProviderFactory from '../providers/ProviderFactory.js';
 import TokenCounter from '../utils/TokenCounter.js';
 import { DiscussionStateExtractor } from './DiscussionStateExtractor.js';
+import { roundOf } from './roundMembership.js';
 import type { DiscussionHistoryEntry, Config } from '../types/index.js';
 import type ConversationHistory from './ConversationHistory.js';
 import type { EventBus } from './EventBus.js';
@@ -224,20 +225,15 @@ export default class JudgeEvaluator {
   }
 
   /**
-   * Calculate which round an entry belongs to based on its position in history.
-   * Determines round by counting agent responses before the entry.
+   * Which round an entry belongs to. Delegates to the roundMembership
+   * single-source-of-truth: the authoritative `entry.roundNumber` stamp when
+   * present (Phase 18 AUDIT-03), else structural boundary inference. Replaces
+   * the former uniform-size arithmetic (responses / agentOrder.length), a fossil
+   * that silently miscounted the moment any agent failed, skipped, or aborted —
+   * the same class of scenario as beta-feedback #7.
    */
   private getRoundForEntry(entry: DiscussionHistoryEntry): number {
-    const index = this.deps.conversationHistory.indexOf(entry);
-    if (index <= 0) return 1; // Initial task is round 1
-
-    // Count how many complete agent cycles have occurred before this entry
-    // Each round = agentOrder.length agent responses + judge guidance
-    const agentResponsesBefore = this.deps.conversationHistory
-      .slice(1, index) // Skip initial task
-      .filter(e => e.role === 'assistant' && e.speaker !== 'Judge').length;
-
-    return Math.floor(agentResponsesBefore / this.deps.agentOrder.length) + 1;
+    return roundOf(entry, this.deps.conversationHistory);
   }
 
   /**
