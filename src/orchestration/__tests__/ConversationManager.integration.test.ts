@@ -605,25 +605,14 @@ describe('ConversationManager Integration Tests', () => {
       expect(result.rounds).toBeGreaterThanOrEqual(1);
     }, 15000);
 
-    it('abort count in degradedReason matches participation table spoken count', async () => {
+    it('degradedReason leads with the per-round count and names the run-total matching the participation table', async () => {
       // Scenario: 3 agents succeed in round 1; in round 2, only 1 responds → abort.
-      // The abort count in degradedReason must equal the number of 'spoken' entries
-      // in runIntegrity.participation (the participation table).
-      let round = 0;
-      // Agent1: speaks in round 1 only; Agent2: speaks in round 1 only;
-      // Agent3: speaks in round 1 and round 2 (1 contributor in round 2 → abort)
-      const agentChat = (speaksInRound2: boolean) => {
-        return jest.fn().mockImplementation(() => {
-          if (round === 1 || (round === 2 && speaksInRound2)) {
-            return Promise.resolve({ text: 'response' });
-          }
-          return Promise.reject(new Error('Connection error.'));
-        });
-      };
-
-      const mockAgent1Chat = agentChat(false);
-      const mockAgent2Chat = agentChat(false);
-      const mockAgent3Chat = agentChat(true);
+      // The message must (a) lead with the per-round contributor count (the abort
+      // trigger) — NOT claim full participation while aborting — and (b) report a
+      // run-total that equals the 'spoken' count in runIntegrity.participation.
+      const mockAgent1Chat = jest.fn();
+      const mockAgent2Chat = jest.fn();
+      const mockAgent3Chat = jest.fn();
 
       const mockJudgeChat = jest.fn().mockResolvedValue({
         text: buildFinalVoteText({ summary: 'Degraded summary', confidence: 'LOW' }),
@@ -654,18 +643,9 @@ describe('ConversationManager Integration Tests', () => {
         model: 'gpt-4o-mini',
       };
 
-      // Track round progression for the agent mocks
-      const origRoundrobin = (cm as any).runRoundRobinRound?.bind(cm);
-      // Intercept round increments by proxying startConversation — just use a
-      // spy on recordAgentTurnStats to count how many rounds have started.
-      // Simpler: read (cm as any).currentRound inside each mock via closure.
-      // The agent mocks already capture `round` via closure; we need to update it.
-      // Use beforeEach-level tracking via jest spy on the private field getter.
-      // Actually the cleanest approach: proxy the cm's currentRound getter.
-      Object.defineProperty(cm, '_getRound', {
-        get: () => (cm as any).currentRound,
-      });
-      // Update the `round` variable by overriding the mock to read cm's currentRound.
+      // Agent mocks read the live round off the ConversationManager: Agent1 and
+      // Agent2 speak only in round 1; Agent3 speaks through round 2 (so round 2
+      // has a single contributor → abort).
       const cmRef = cm as any;
       mockAgent1Chat.mockImplementation(() => {
         const r = cmRef.currentRound;
@@ -694,13 +674,19 @@ describe('ConversationManager Integration Tests', () => {
       const participation = result.runIntegrity?.participation ?? [];
       const spokenCount = participation.filter((e: any) => e.status === 'spoken').length;
 
-      // Extract the leading integer from degradedReason: "Only X of Y agents responded..."
-      const match = degradedReason.match(/Only (\d+) of \d+ agents responded/);
-      expect(match).not.toBeNull();
-      const countInMessage = parseInt(match![1], 10);
+      // (a) Leading count is per-round and below the total — the message names the
+      // abort cause instead of asserting full participation. "only X of Y ... this round"
+      const perRound = degradedReason.match(/only (\d+) of (\d+) agents responded this round/);
+      expect(perRound).not.toBeNull();
+      const countThisRound = parseInt(perRound![1], 10);
+      const totalAgents = parseInt(perRound![2], 10);
+      expect(countThisRound).toBeLessThan(2); // abort fires when < 2 responded this round
+      expect(countThisRound).toBeLessThan(totalAgents); // not "3 of 3"
 
-      // The count in the message must equal the number of spoken agents in the table
-      expect(countInMessage).toBe(spokenCount);
+      // (b) The run-total in the message equals the participation table's spoken count.
+      const runTotal = degradedReason.match(/\((\d+) spoke across the run\)/);
+      expect(runTotal).not.toBeNull();
+      expect(parseInt(runTotal![1], 10)).toBe(spokenCount);
     }, 15000);
   });
 

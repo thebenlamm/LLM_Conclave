@@ -482,10 +482,15 @@ export default class ConversationManager {
 
       const totalAgents = this.agentOrder.length;
       if (roundContributors.size < 2 && totalAgents >= 2) {
-        // Count agents who have spoken across the entire run — this matches
-        // the participation table (built from turnsOverall via TurnDistributionReporter).
+        // The abort trigger is per-round: fewer than 2 agents contributed THIS
+        // round. Lead with that count so the message names its own cause — an
+        // earlier wording ("Only 3 of 3 agents responded") asserted full
+        // participation while aborting for the lack of it. The run-total
+        // (spokenOverall) is kept as labeled context; it equals the participation
+        // table's 'spoken' count, since that table is fed from turnsOverall via
+        // TurnDistributionReporter.report() after every turn.
         const spokenOverall = this.agentOrder.filter(a => (this.turnsOverall[a] || 0) > 0).length;
-        const degradedReason = `Only ${spokenOverall} of ${totalAgents} agents responded (${roundContributors.size} in round ${this.currentRound})`;
+        const degradedReason = `Round ${this.currentRound} degraded: only ${roundContributors.size} of ${totalAgents} agents responded this round (${spokenOverall} spoke across the run)`;
         console.log(`\n[Discussion aborted: ${degradedReason}]\n`);
         if (this.eventBus) {
           this.eventBus.emitEvent('status', { message: `Discussion aborted: ${degradedReason}` });

@@ -907,7 +907,7 @@ describe('MCP Server Handlers', () => {
           },
           agentSubstitutions: {},
           degraded: true,
-          degradedReason: 'Only 0 of 2 agents responded in round 1',
+          degradedReason: 'Round 1 degraded: only 0 of 2 agents responded this round (0 spoke across the run)',
           keyDecisions: [],
           actionItems: [],
           dissent: [],
@@ -925,7 +925,7 @@ describe('MCP Server Handlers', () => {
       expect(result.isError).toBeUndefined();
       const text = result.content[0].text;
       expect(text).toContain('Discussion aborted');
-      expect(text).toContain('Only 0 of 2 agents responded');
+      expect(text).toContain('only 0 of 2 agents responded this round');
       expect(text).toContain('mcp-server.log');
     });
 
