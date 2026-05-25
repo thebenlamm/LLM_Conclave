@@ -30,6 +30,22 @@ export class PreflightError extends Error {
 
 type ProviderType = 'anthropic' | 'openai' | 'grok' | 'gemini' | 'mistral' | 'unknown';
 
+/**
+ * A ping failure classified by whether it should abort the run.
+ *
+ * - `hard`: the run cannot succeed and preflight uniquely catches it early
+ *   (invalid key, model-not-found, missing key). Aborts before spending tokens.
+ * - `soft`: transient or non-fatal at the models endpoint (rate-limit, billing/
+ *   quota 403, 5xx, network blip, slow-endpoint timeout). We log and PROCEED —
+ *   the real run will surface it via its own retry/fallback path. Aborting here
+ *   would waste the exact run preflight exists to protect.
+ */
+export type FailureSeverity = 'hard' | 'soft';
+export interface PingFailure {
+  severity: FailureSeverity;
+  message: string;
+}
+
 function detectProvider(model: string): ProviderType {
   const lower = model.toLowerCase();
   if (lower.includes('claude') || lower.includes('sonnet') || lower.includes('opus') || lower.includes('haiku')) return 'anthropic';
@@ -40,20 +56,30 @@ function detectProvider(model: string): ProviderType {
   return 'unknown';
 }
 
-function normalizeError(e: any, model: string): string {
+export function normalizeError(e: any, model: string): PingFailure {
   const msg: string = e?.message || String(e);
   const first = msg.split('\n')[0].slice(0, 120);
+  // Invalid API key — hard. The run cannot succeed; preflight catches it before
+  // spending a full round of tokens.
   if (msg.includes('401') || /invalid.*key|unauthorized|authentication/i.test(msg)) {
-    return 'Invalid API key';
+    return { severity: 'hard', message: 'Invalid API key' };
   }
-  if (msg.includes('404') || /not\.found|model.*not.*found/i.test(msg)) {
-    return `Model not found: ${model}`;
+  // Model not found — hard. The model name is wrong (e.g. a stale "grok-beta").
+  // `not[._ ]?found` covers "not found", "not_found", "not.found", "notfound".
+  if (msg.includes('404') || /\bnot[._ ]?found\b|model.*not.*found/i.test(msg)) {
+    return { severity: 'hard', message: `Model not found: ${model}` };
   }
-  if (msg.includes('timeout')) return 'Credential check timed out (>8s)';
-  return first;
+  // Everything else — 403 billing/quota, 429 rate-limit, 5xx, network errors, and
+  // the >8s timeout — is transient or non-fatal at the models endpoint. Fail soft.
+  return { severity: 'soft', message: first };
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  // If the timeout wins the race, the underlying SDK call keeps running and will
+  // usually reject later. Attach a no-op handler so that late rejection does not
+  // surface as an unhandled rejection (which can terminate the process under
+  // --unhandled-rejections=strict).
+  promise.catch(() => {});
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('timeout')), ms);
@@ -70,46 +96,50 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 const PING_TIMEOUT_MS = 8_000;
 
-async function pingModel(type: ProviderType, resolvedModel: string): Promise<string | null> {
+function missingKey(message: string): PingFailure {
+  return { severity: 'hard', message };
+}
+
+async function pingModel(type: ProviderType, resolvedModel: string): Promise<PingFailure | null> {
   try {
     switch (type) {
       case 'anthropic': {
         const key = process.env.ANTHROPIC_API_KEY;
-        if (!key) return 'ANTHROPIC_API_KEY not set';
+        if (!key) return missingKey('ANTHROPIC_API_KEY not set');
         const client = new Anthropic({ apiKey: key, maxRetries: 0, timeout: PING_TIMEOUT_MS });
         await withTimeout((client.models as any).retrieve(resolvedModel), PING_TIMEOUT_MS);
         return null;
       }
       case 'openai': {
         const key = process.env.OPENAI_API_KEY;
-        if (!key) return 'OPENAI_API_KEY not set';
+        if (!key) return missingKey('OPENAI_API_KEY not set');
         const client = new OpenAI({ apiKey: key, maxRetries: 0, timeout: PING_TIMEOUT_MS });
         await withTimeout(client.models.retrieve(resolvedModel), PING_TIMEOUT_MS);
         return null;
       }
       case 'grok': {
         const key = process.env.XAI_API_KEY;
-        if (!key) return 'XAI_API_KEY not set';
+        if (!key) return missingKey('XAI_API_KEY not set');
         const client = new OpenAI({ apiKey: key, baseURL: 'https://api.x.ai/v1', maxRetries: 0, timeout: PING_TIMEOUT_MS });
         await withTimeout(client.models.retrieve(resolvedModel), PING_TIMEOUT_MS);
         return null;
       }
       case 'gemini': {
         const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-        if (!key) return 'GEMINI_API_KEY or GOOGLE_API_KEY not set';
+        if (!key) return missingKey('GEMINI_API_KEY or GOOGLE_API_KEY not set');
         const ai = new GoogleGenAI({ apiKey: key });
         await withTimeout(ai.models.get({ model: resolvedModel }), PING_TIMEOUT_MS);
         return null;
       }
       case 'mistral': {
         const key = process.env.MISTRAL_API_KEY;
-        if (!key) return 'MISTRAL_API_KEY not set';
+        if (!key) return missingKey('MISTRAL_API_KEY not set');
         const client = new OpenAI({ apiKey: key, baseURL: 'https://api.mistral.ai/v1', maxRetries: 0, timeout: PING_TIMEOUT_MS });
         await withTimeout(client.models.retrieve(resolvedModel), PING_TIMEOUT_MS);
         return null;
       }
       default:
-        return `Unknown provider for model: ${resolvedModel}`;
+        return { severity: 'hard', message: `Unknown provider for model: ${resolvedModel}` };
     }
   } catch (e: any) {
     return normalizeError(e, resolvedModel);
@@ -162,21 +192,29 @@ export class PreflightChecker {
       }
     }
 
-    const pingResults = new Map<string, string | null>();
+    const pingResults = new Map<string, PingFailure | null>();
     await Promise.all(
       Array.from(uniqueModels.entries()).map(async ([resolved, { type }]) => {
-        const err = await pingModel(type, resolved);
-        pingResults.set(resolved, err);
+        const failure = await pingModel(type, resolved);
+        pingResults.set(resolved, failure);
       })
     );
 
-    // Propagate Phase B errors back to per-agent results
+    // Propagate Phase B failures back to per-agent results. Hard failures mark the
+    // agent as errored (and will abort the run); soft failures are logged to stderr
+    // and the run proceeds — its own retry/fallback path will surface them if they
+    // persist, rather than letting a transient blip kill a runnable discussion.
     for (let i = 0; i < agents.length; i++) {
       if (phaseAFailed.has(i)) continue;
       const resolved = ProviderFactory.resolveModelName(agents[i].model);
-      const err = pingResults.get(resolved);
-      if (err) {
-        results[i] = { ...results[i], status: 'error', error: err };
+      const failure = pingResults.get(resolved);
+      if (!failure) continue;
+      if (failure.severity === 'hard') {
+        results[i] = { ...results[i], status: 'error', error: failure.message };
+      } else {
+        console.error(
+          `[preflight] ${agents[i].name} (${resolved}): ${failure.message} — non-fatal at the models endpoint, proceeding with the run.`
+        );
       }
     }
 
