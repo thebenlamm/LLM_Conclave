@@ -300,5 +300,19 @@ describe('ConfigCascade', () => {
       expect(config.agents.TestAgent).toBeDefined();
       expect(config.agents.TestAgent.model).toBe('gpt-4o');
     });
+
+    it('should include a context snippet around the failure position in inline JSON parse errors', () => {
+      fs.existsSync.mockReturnValue(false);
+
+      // Build a string where the error is at a known interior position
+      // Valid prefix + deliberate syntax error (bare word instead of string value)
+      const badJson = '{"agents":{"A":{"model": INVALID_TOKEN, "prompt":"p"}}}';
+
+      expect(() => ConfigCascade.resolve({ config: badJson }, {})).toThrow(
+        expect.objectContaining({
+          message: expect.stringMatching(/Failed to parse inline JSON config:.*\n\s*Context:.*INVALID_TOKEN/s)
+        })
+      );
+    });
   });
 });

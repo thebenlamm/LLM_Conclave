@@ -217,7 +217,22 @@ export class ConfigCascade {
         const parsed = JSON.parse(customPath);
         return ConfigLoader.validate(parsed);
       } catch (error: any) {
-        throw new Error(`Failed to parse inline JSON config: ${error.message}`);
+        // Enrich the error with a context snippet so users can locate the problem
+        // in a large inline JSON string (V8 error messages include "at position N")
+        const posMatch = error.message?.match(/at position (\d+)/);
+        let snippet: string;
+        if (posMatch) {
+          const pos = parseInt(posMatch[1], 10);
+          const start = Math.max(0, pos - 40);
+          const end = Math.min(customPath.length, pos + 40);
+          const before = customPath.slice(start, pos);
+          const after = customPath.slice(pos, end);
+          snippet = `...${before}[HERE]${after}...`;
+        } else {
+          // Fallback: errors often cluster at the end of the string
+          snippet = `...${customPath.slice(-80)}`;
+        }
+        throw new Error(`Failed to parse inline JSON config: ${error.message}\n   Context: ${snippet}`);
       }
     }
 
