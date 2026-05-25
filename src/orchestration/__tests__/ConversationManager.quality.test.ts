@@ -1421,5 +1421,104 @@ describe('ConversationManager Quality Tests', () => {
       // The cost-awareness gate fires instead — the run proceeded with the reduced panel.
       expect(statusMessages.filter((m) => m.startsWith('Cost awareness: panel degraded'))).toHaveLength(1);
     });
+
+    it('#7: when a round genuinely degrades WITH a breaker System note present, the abort per-round count is the true contributor count (not 0) and the run-total matches the participation table', async () => {
+      // 3-agent panel. Round 1: all three speak (Fail1 fails once). Round 2:
+      // Healthy speaks, Fail1 fails its 2nd consecutive turn → circuit breaker
+      // trips and pushes a System note mid-round, Fail2 fails its 1st turn. Only
+      // Healthy contributes in round 2 → the run genuinely aborts. The System
+      // note sits AFTER Healthy's turn, so the pre-fix backward scan reported
+      // "0 of 3"; the stamp-based count must report the true "1 of 3".
+      const mockHealthy = jest.fn().mockResolvedValue({ text: 'Healthy position with real detail and tradeoffs.' });
+      const mockFail1 = jest.fn().mockRejectedValue(new Error('Fail1 down'));
+      const mockFail2 = jest
+        .fn()
+        .mockResolvedValueOnce({ text: 'Fail2 round-1 position with detail.' })
+        .mockRejectedValue(new Error('Fail2 down in round 2'));
+      const mockJudgeChat = jest.fn().mockResolvedValue({ text: 'No consensus yet. Keep discussing the tradeoffs.' });
+      const mockFallbackChat = jest.fn().mockResolvedValue({ text: buildFinalVoteText({ summary: 'fallback summary' }) });
+
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation((model: string) => {
+        if (model === 'gpt-4o') return { chat: mockHealthy, getProviderName: jest.fn().mockReturnValue('OpenAI') };
+        if (model === 'mistral-large-latest') return { chat: mockFail1, getProviderName: jest.fn().mockReturnValue('Mistral') };
+        if (model === 'claude-sonnet-4-6') return { chat: mockFail2, getProviderName: jest.fn().mockReturnValue('Claude') };
+        if (model === 'gemini-2.5-flash') return { chat: mockFallbackChat, getProviderName: jest.fn().mockReturnValue('Gemini') };
+        return { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') };
+      });
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: {
+          Healthy: { model: 'gpt-4o', prompt: 'H' },
+          Fail1: { model: 'mistral-large-latest', prompt: 'F1' },
+          Fail2: { model: 'claude-sonnet-4-6', prompt: 'F2' },
+        },
+        judge: { model: 'gpt-4o', prompt: 'Judge' },
+        max_rounds: 4,
+        min_rounds: 0,
+      };
+
+      const statusMessages: string[] = [];
+      const eventBus: any = {
+        on: jest.fn(),
+        emitEvent: jest.fn((type: string, payload: any) => {
+          if (type === 'status' && payload?.message) statusMessages.push(payload.message);
+        }),
+      };
+
+      const cm = new ConversationManager(config, null, false, eventBus, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o',
+      };
+
+      const result = await cm.startConversation('Decide architecture', judge);
+
+      const abortMsg = statusMessages.find((m) => /degraded: only \d+ of \d+ agents responded this round/.test(m));
+      expect(abortMsg).toBeDefined();
+      // Per-round count is the TRUE distinct contributor count — 1, never the
+      // System-note-truncated 0 of the #7 bug.
+      const perRound = Number(abortMsg!.match(/only (\d+) of \d+ agents/)![1]);
+      expect(perRound).toBe(1);
+      // Run-total in the abort message equals the participation table's 'spoken' count.
+      const runTotal = Number(abortMsg!.match(/\((\d+) spoke across the run\)/)![1]);
+      const spoken = ((result as any).runIntegrity?.participation ?? []).filter((p: any) => p.status === 'spoken').length;
+      expect(spoken).toBe(2); // Healthy + Fail2 (who spoke in round 1)
+      expect(runTotal).toBe(spoken);
+    });
+
+    it('stamps a numeric roundNumber on every pushed history entry (task, agent turns, judge)', async () => {
+      // Invariant guard: if any push path leaves roundNumber undefined mid-run,
+      // roundOf would silently fall back to inference. Run a clean discussion and
+      // assert every entry carries a numeric stamp.
+      const mockAgentOk = jest.fn().mockResolvedValue({ text: 'Substantive position with detail.' });
+      const mockJudgeChat = jest.fn().mockResolvedValue({ text: buildFinalVoteText({ summary: 'agreed' }) });
+      (ProviderFactory.createProvider as jest.Mock).mockImplementation(() => ({
+        chat: mockAgentOk,
+        getProviderName: jest.fn().mockReturnValue('P'),
+      }));
+
+      const config = {
+        turn_management: 'roundrobin',
+        agents: { A1: { model: 'gpt-4o', prompt: 'a' }, A2: { model: 'claude-sonnet-4-6', prompt: 'b' } },
+        judge: { model: 'gpt-4o', prompt: 'Judge' },
+        max_rounds: 2,
+        min_rounds: 0,
+      };
+      const cm = new ConversationManager(config, null, false, undefined, false, 'gpt-4o-mini', { disableRouting: true });
+      const judge = {
+        provider: { chat: mockJudgeChat, getProviderName: jest.fn().mockReturnValue('Judge') },
+        systemPrompt: 'Judge',
+        model: 'gpt-4o',
+      };
+      const result = await cm.startConversation('Decide', judge);
+
+      const history = (result as any).conversationHistory as Array<{ roundNumber?: unknown; speaker?: string }>;
+      expect(history.length).toBeGreaterThan(0);
+      for (const entry of history) {
+        expect(typeof entry.roundNumber).toBe('number');
+      }
+    });
   });
 });
