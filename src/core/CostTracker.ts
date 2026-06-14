@@ -103,14 +103,29 @@ export class CostTracker {
     mistral: 0,
   };
 
+  // Normalizes a CallLog.provider (the provider DISPLAY name from
+  // getProviderName(), e.g. "Claude", "Grok") to the lowercase key used by the
+  // cache tables above. Previously logCall looked up CACHE_READ_DISCOUNT["Claude"]
+  // directly — undefined → `|| 0` → every provider's cache discount was silently
+  // dead and cached reads were billed at full price. Only aliases where the
+  // lowercased display name differs from the table key need an entry; everything
+  // else (OpenAI/Grok/Gemini/Mistral, plus lowercase keys callers pass directly)
+  // is handled by the lowercase fallback in logCall.
+  private static PROVIDER_CACHE_KEY: Record<string, string> = {
+    claude: 'anthropic',
+    google: 'gemini',
+  };
+
   public logCall(log: Omit<CallLog, 'cost'>): void {
     const price = this.pricing[log.model] || { input: 0, output: 0 };
     const cachedRead = log.cachedReadTokens || 0;
     const cachedWrite = log.cachedWriteTokens || 0;
     const uncachedInput = log.inputTokens - cachedRead - cachedWrite;
 
-    const readDiscount = CostTracker.CACHE_READ_DISCOUNT[log.provider] || 0;
-    const writeSurcharge = CostTracker.CACHE_WRITE_SURCHARGE[log.provider] || 0;
+    const providerKey =
+      CostTracker.PROVIDER_CACHE_KEY[log.provider.toLowerCase()] ?? log.provider.toLowerCase();
+    const readDiscount = CostTracker.CACHE_READ_DISCOUNT[providerKey] || 0;
+    const writeSurcharge = CostTracker.CACHE_WRITE_SURCHARGE[providerKey] || 0;
 
     const cost =
       (uncachedInput / 1000) * price.input +
