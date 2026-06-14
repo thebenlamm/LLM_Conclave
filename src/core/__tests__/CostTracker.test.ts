@@ -275,4 +275,70 @@ describe('CostTracker', () => {
       expect(logs[0].success).toBe(false);
     });
   });
+
+  // Regression: in production CallLog.provider is the DISPLAY name from
+  // getProviderName() ("Claude", "Grok", ...), but the cache discount tables are
+  // keyed lowercase ("anthropic", "grok"). The lookup used to miss → `|| 0` →
+  // every provider's cache discount was silently dead and cached reads were
+  // billed at full price. These lock the display-name → table-key normalization.
+  describe('cache discount provider-name normalization', () => {
+    it('applies the anthropic cached-read discount for the "Claude" display name', () => {
+      // claude-sonnet-4-5 input $0.003/1K; all 1000 input tokens are cached reads.
+      tracker.logCall({
+        provider: 'Claude', // production display name (was undefined in the table)
+        model: 'claude-sonnet-4-5',
+        inputTokens: 1000,
+        cachedReadTokens: 1000,
+        outputTokens: 0,
+        latency: 100,
+        success: true,
+      });
+      // With the 90% read discount: 0.003 * (1 - 0.9) = 0.0003.
+      // Pre-fix (discount dead) this was the full 0.003.
+      const cost = tracker.getLogs()[0].cost;
+      expect(cost).toBeCloseTo(0.0003, 6);
+      expect(cost).toBeLessThan(0.003);
+    });
+
+    it('applies the cache-write surcharge for the "Claude" display name', () => {
+      tracker.logCall({
+        provider: 'Claude',
+        model: 'claude-sonnet-4-5',
+        inputTokens: 1000,
+        cachedWriteTokens: 1000,
+        outputTokens: 0,
+        latency: 100,
+        success: true,
+      });
+      // 25% write surcharge: 0.003 * (1 + 0.25) = 0.00375.
+      expect(tracker.getLogs()[0].cost).toBeCloseTo(0.00375, 6);
+    });
+
+    it('is case-insensitive for providers whose lowercased name is the table key (Grok)', () => {
+      // grok-4.3 input $0.00125/1K; 50% cached-read discount.
+      tracker.logCall({
+        provider: 'Grok',
+        model: 'grok-4.3',
+        inputTokens: 1000,
+        cachedReadTokens: 1000,
+        outputTokens: 0,
+        latency: 100,
+        success: true,
+      });
+      expect(tracker.getLogs()[0].cost).toBeCloseTo(0.000625, 6);
+    });
+
+    it('still honors lowercase provider keys passed directly', () => {
+      tracker.logCall({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        inputTokens: 1000,
+        cachedReadTokens: 1000,
+        outputTokens: 0,
+        latency: 100,
+        success: true,
+      });
+      expect(tracker.getLogs()[0].cost).toBeCloseTo(0.0003, 6);
+    });
+  });
 });

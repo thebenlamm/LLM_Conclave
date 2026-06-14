@@ -111,8 +111,12 @@ export default class MistralProvider extends LLMProvider {
 
       if (stream && !params.tools) {
         params.stream = true;
+        // include_usage makes the final chunk carry token usage; without it
+        // streamed calls report no usage and the base class logs them as $0 cost.
+        params.stream_options = { include_usage: true };
         const streamResp = await this.client.chat.completions.create(params, { signal });
         let fullText = '';
+        let streamUsage: { input_tokens: number; output_tokens: number } | undefined;
 
         for await (const chunk of streamResp as any) {
           const delta = chunk.choices?.[0]?.delta;
@@ -122,9 +126,16 @@ export default class MistralProvider extends LLMProvider {
             fullText += token;
             if (onToken) onToken(token);
           }
+          // Final chunk carries usage when stream_options.include_usage is true.
+          if (chunk.usage) {
+            streamUsage = {
+              input_tokens: chunk.usage.prompt_tokens || 0,
+              output_tokens: chunk.usage.completion_tokens || 0,
+            };
+          }
         }
 
-        return { text: fullText };
+        return { text: fullText, usage: streamUsage };
       }
 
       const response = await this.client.chat.completions.create(params, { signal });
