@@ -218,20 +218,21 @@ describe('MCP Server Handlers', () => {
   });
 
   describe('ListTools handler', () => {
-    it('returns all 5 tools including llm_conclave_status', async () => {
+    it('returns all 6 tools including llm_conclave_export_record', async () => {
       mockSetRequestHandler.mockClear();
       createServer();
       const listToolsHandler = mockSetRequestHandler.mock.calls.find(
         (call: any) => call[0] === 'ListToolsRequestSchema'
       )?.[1];
       const result = await listToolsHandler();
-      expect(result.tools).toHaveLength(5);
+      expect(result.tools).toHaveLength(6);
       expect(result.tools.map((t: any) => t.name)).toEqual([
         'llm_conclave_consult',
         'llm_conclave_discuss',
         'llm_conclave_continue',
         'llm_conclave_sessions',
         'llm_conclave_status',
+        'llm_conclave_export_record',
       ]);
     });
 
