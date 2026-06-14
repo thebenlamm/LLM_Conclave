@@ -7,6 +7,32 @@ import { ConsultationResult } from '../../types/consult';
 // Note: better-sqlite3 needs to be installed: npm install better-sqlite3
 import Database from 'better-sqlite3';
 
+/**
+ * Minimal analytics payload for a discuss/consensus-mode run. Unlike
+ * ConsultationResult this carries only what the consultations + agents tables
+ * need — discuss has no consult-style round artifacts or debate-value analysis.
+ */
+export interface DiscussionAnalyticsInput {
+  id: string;
+  question: string;
+  /** Distinct mode value for cross-mode queries; defaults to 'discuss'. */
+  mode?: string;
+  recommendation?: string | null;
+  /**
+   * Numeric 0–1 confidence (discuss LOW/MEDIUM/HIGH is mapped by the caller);
+   * null when the band is unknown, so AVG(confidence) ignores it.
+   */
+  confidence?: number | null;
+  totalCost?: number;
+  totalTokens?: number;
+  durationMs?: number;
+  /** ISO timestamp. */
+  timestamp: string;
+  state?: string;
+  hasDissent?: boolean;
+  agents?: { name: string; model: string; provider: string }[];
+}
+
 export class AnalyticsIndexer {
   private readonly dbPath: string;
   private db: Database.Database | null = null;
@@ -288,7 +314,82 @@ export class AnalyticsIndexer {
   }
 
   /**
-   * Rebuild the index from JSONL files
+   * Index a discuss/consensus-mode run into the shared analytics DB.
+   *
+   * Discuss/consensus runs were never written to analytics — only the
+   * consult/converge path called indexConsultation, so cross-mode analytics were
+   * blind (field feedback, Ben Sofer: ~18 discuss sessions went unrecorded).
+   * This writes the core `consultations` row + agent panel with a distinct
+   * `mode` (default 'discuss'). Discuss has no consult-style round artifacts or
+   * debate-value analysis, so those columns are null and `consultation_rounds`
+   * is intentionally left empty. The column list mirrors indexConsultation's
+   * INSERT above — keep them in sync if the schema changes.
+   */
+  public indexDiscussion(run: DiscussionAnalyticsInput): void {
+    if (!this.db) return;
+
+    this.checkDiskSpace();
+
+    const insertConsultation = this.db.prepare(`
+      INSERT OR REPLACE INTO consultations (
+        id, question, mode, final_recommendation, confidence,
+        total_cost, total_tokens, duration_ms, created_at, schema_version, state, has_dissent,
+        project_type, framework_detected, tech_stack,
+        agents_changed_position, total_agents, change_rate, avg_confidence_increase,
+        convergence_score, semantic_comparison_cost
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const insertAgent = this.db.prepare(`
+      INSERT INTO consultation_agents (consultation_id, agent_id, model, provider)
+      VALUES (?, ?, ?, ?)
+    `);
+    const deleteAgents = this.db.prepare('DELETE FROM consultation_agents WHERE consultation_id = ?');
+
+    const transaction = this.db.transaction((r: DiscussionAnalyticsInput) => {
+      insertConsultation.run(
+        r.id,
+        r.question || '',
+        r.mode || 'discuss',
+        r.recommendation ?? null,
+        r.confidence ?? null,
+        r.totalCost ?? 0,
+        r.totalTokens ?? 0,
+        r.durationMs ?? 0,
+        r.timestamp,
+        '1.0',
+        r.state || 'complete',
+        r.hasDissent ? 1 : 0,
+        null, null, null,                 // project_type, framework_detected, tech_stack (consult-only)
+        null,                             // agents_changed_position (consult-only)
+        r.agents?.length ?? null,         // total_agents
+        null, null, null, null            // change_rate, avg_confidence_increase, convergence_score, semantic_comparison_cost
+      );
+
+      deleteAgents.run(r.id);
+      if (r.agents && Array.isArray(r.agents)) {
+        for (const agent of r.agents) {
+          insertAgent.run(r.id, agent.name, agent.model, agent.provider);
+        }
+      }
+    });
+
+    try {
+      transaction(run);
+    } catch (error: any) {
+      console.error(`Failed to index discussion ${run.id}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Rebuild the index from JSONL files.
+   *
+   * ⚠️ LIMITATION: this wipes ALL rows and re-indexes ONLY from consult JSONL
+   * logs (indexConsultation). Discuss/continue rows written live by
+   * indexDiscussion have NO JSONL source, so a rebuild PERMANENTLY drops them.
+   * No production path calls rebuildIndex today (CLI/manual recovery only). If
+   * that changes, scope the wipe to consult modes (mode NOT IN ('discuss',
+   * 'continue')) or give discuss runs a replayable log source first.
    */
   public rebuildIndex(logDir: string): void {
     if (!this.db) return;

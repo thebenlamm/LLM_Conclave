@@ -45,6 +45,8 @@ import ConsultOrchestrator from '../orchestration/ConsultOrchestrator.js';
 import SessionManager, { computeSessionStatus, computeSubstitutionRate } from '../core/SessionManager.js';
 import ContinuationHandler from '../core/ContinuationHandler.js';
 import ConsultLogger from '../utils/ConsultLogger.js';
+import { AnalyticsIndexer } from '../consult/analytics/AnalyticsIndexer.js';
+import { inferProviderFromModel } from '../providers/tpmLimits.js';
 import { PersonaSystem } from '../config/PersonaSystem.js';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory.js';
 import { OutputFormat } from '../types/consult.js';
@@ -526,6 +528,76 @@ async function handleConsult(args: {
   };
 }
 
+/**
+ * Map a discuss/continue DiscussionResult into the analytics DB. Discuss runs
+ * were never recorded — only the consult path indexed (field feedback). Best
+ * effort: analytics is a side-channel, so a failure here must never break the
+ * discuss response.
+ */
+/**
+ * Map the discuss-side provider id to the SAME vocabulary the consult path
+ * writes to analytics: `getProviderName().toLowerCase()` → claude/openai/gemini/
+ * grok/mistral. inferProviderFromModel() returns anthropic/google/xai for three
+ * of those, which would split cross-mode `GROUP BY provider` rollups into
+ * separate buckets for the same provider. Align discuss to the consult vocabulary
+ * (the existing analytics data) so the buckets agree.
+ */
+const INFER_TO_CONSULT_PROVIDER: Record<string, string> = {
+  anthropic: 'claude',
+  google: 'gemini',
+  xai: 'grok',
+};
+export function normalizeAnalyticsProvider(model: string): string {
+  const inferred = inferProviderFromModel(model);
+  return INFER_TO_CONSULT_PROVIDER[inferred] ?? inferred;
+}
+
+export function indexDiscussionAnalytics(
+  result: any,
+  sessionId: string,
+  durationMs: number,
+  mode: 'discuss' | 'continue',
+  indexer?: AnalyticsIndexer
+): void {
+  try {
+    if (!sessionId) return;
+    const CONFIDENCE_NUMERIC: Record<string, number> = { LOW: 0.33, MEDIUM: 0.66, HIGH: 1.0 };
+    const agents = result?.agents_config
+      ? Object.entries(result.agents_config).map(([name, cfg]: [string, any]) => ({
+          name,
+          model: cfg?.model ?? 'unknown',
+          provider: normalizeAnalyticsProvider(cfg?.model ?? ''),
+        }))
+      : [];
+    const state = result?.degraded ? 'degraded' : result?.timedOut ? 'timeout' : 'complete';
+    const totalTokens =
+      (result?.cost?.totalTokens?.input ?? 0) + (result?.cost?.totalTokens?.output ?? 0);
+    // Mirror the UI confidence fallback (finalConfidence then the legacy
+    // confidence band); record null — not a misleading 0 — when truly unknown so
+    // AVG(confidence) queries ignore it rather than being dragged to the floor.
+    const confidence = CONFIDENCE_NUMERIC[result?.finalConfidence || result?.confidence] ?? null;
+
+    // Default to a real indexer (writes ~/.llm-conclave/consult-analytics.db);
+    // tests inject a fake to assert the mapping without touching disk.
+    (indexer ?? new AnalyticsIndexer()).indexDiscussion({
+      id: sessionId,
+      question: result?.task ?? '',
+      mode,
+      recommendation: result?.solution ?? null,
+      confidence,
+      totalCost: result?.cost?.totalCost ?? 0,
+      totalTokens,
+      durationMs,
+      timestamp: new Date().toISOString(),
+      state,
+      hasDissent: Array.isArray(result?.dissent) && result.dissent.length > 0,
+      agents,
+    });
+  } catch (err: any) {
+    console.error('[analytics] discuss indexing failed (non-fatal):', err?.message);
+  }
+}
+
 async function handleDiscuss(args: {
   task: string;
   project?: string;
@@ -556,6 +628,7 @@ async function handleDiscuss(args: {
   };
 
   const runner = new DiscussionRunner();
+  const startedAt = Date.now();
   const { result, sessionId, logFilePath, timedOut, effectiveTimeout } = await runner.run({
     task: args.task,
     config: args.config,
@@ -573,6 +646,9 @@ async function handleDiscuss(args: {
     onProgress,
     validateProjectPath: (p) => validatePath(p, process.cwd()),
   });
+
+  // Record discuss-mode analytics (previously only consult runs were indexed).
+  indexDiscussionAnalytics(result, sessionId, Date.now() - startedAt, 'discuss');
 
   // Format output based on requested format (handler-specific formatting, not orchestration)
   let outputText: string;
@@ -695,6 +771,7 @@ async function handleContinue(args: {
 
   // Delegate execution to DiscussionRunner with pre-resolved config and prior history
   const runner = new DiscussionRunner();
+  const startedAt = Date.now();
   const { result, sessionId: newSessionId, logFilePath } = await runner.run({
     task: prepared.newTask,
     resolvedConfig,
@@ -716,6 +793,10 @@ async function handleContinue(args: {
     // provider APIs on continuation to avoid false aborts on transient 429s.
     skipPreflight: true,
   });
+
+  // Record continuation analytics under a distinct mode (continuations are
+  // discuss-family runs that were also never indexed).
+  indexDiscussionAnalytics(result, newSessionId, Date.now() - startedAt, 'continue');
 
   // REPLAY-01/02 (Phase 21): opt-in JSON emission branch. When show_turns is
   // true the caller wants a sandbox-safe structured payload including the full
