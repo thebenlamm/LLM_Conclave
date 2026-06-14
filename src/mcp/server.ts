@@ -60,6 +60,7 @@ import { detectJudgeCoinage } from '../consult/coinage/detectJudgeCoinage.js';
 import { LEADING_ROLE_PREFIX } from '../core/personaBoundary.js';
 import { deriveConfidenceCause } from '../core/ConfidenceReconciler.js';
 import { isAgentContribution, contributorsOverall } from '../core/roundMembership.js';
+import { classifyNonConsensus } from '../core/consensusClassifier.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -1171,6 +1172,33 @@ export function formatDiscussionResult(result: any, logFilePath: string, session
     output += `_Run integrity: ${runIntegrityStatusReasoning}_\n\n`;
   }
 
+  // Non-convergence verdict framing (field feedback). When the panel did not
+  // reach consensus, classify WHY (genuine disagreement / unresolved / incomplete)
+  // and frame it as a verdict instead of a bare "Consensus: No". The header line
+  // above is deliberately left byte-stable for programmatic consumers; this is an
+  // added, human-facing block.
+  if (!consensusReached) {
+    const agentCount = conversationHistory && conversationHistory.length > 0
+      ? Array.from(contributorsOverall(conversationHistory)).length
+      : (result.agents_config ? Object.keys(result.agents_config).length : 0);
+    const classification = classifyNonConsensus({
+      consensusReached,
+      rounds,
+      maxRounds,
+      agentCount,
+      dissent,
+      dissent_quality: result.dissent_quality,
+      degraded: result.degraded,
+      degradedReason: result.degradedReason,
+      timedOut: result.timedOut,
+      runIntegrity: result.runIntegrity,
+    });
+    if (classification) {
+      output += `**Verdict — ${classification.label}**\n\n`;
+      output += `_${classification.reasoning}_\n\n`;
+    }
+  }
+
   // List participating agents (excluding failed ones)
   if (conversationHistory && conversationHistory.length > 0) {
     const speakers = contributorsOverall(conversationHistory);
@@ -1480,6 +1508,25 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
       }))
     : undefined;
 
+  // Non-convergence classification — the JSON twin of the markdown Verdict block.
+  // undefined (key omitted) when consensus was reached, so consumers can branch
+  // on `if (result.non_consensus)`.
+  const nonConsensus = classifyNonConsensus({
+    consensusReached,
+    rounds,
+    maxRounds,
+    // Match the markdown formatter's agentCount fallback so the reasoning text is
+    // identical across markdown and JSON for the same run (e.g. history empty on
+    // an early abort, but agents_config present).
+    agentCount: agents.length || (result.agents_config ? Object.keys(result.agents_config).length : 0),
+    dissent,
+    dissent_quality: result.dissent_quality,
+    degraded,
+    degradedReason,
+    timedOut,
+    runIntegrity: result.runIntegrity,
+  });
+
   return {
     task,
     summary: solution || null,
@@ -1496,6 +1543,15 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
     run_integrity_status: result.runIntegrity?.status ?? 'OK',
     run_integrity_reasoning: result.runIntegrity?.statusReasoning,
     consensus_reached: consensusReached,
+    non_consensus: nonConsensus
+      ? {
+          category: nonConsensus.category,
+          label: nonConsensus.label,
+          reasoning: nonConsensus.reasoning,
+          fault_lines: nonConsensus.faultLines,
+          signals: nonConsensus.signals,
+        }
+      : undefined,
     rounds: { completed: rounds, max: maxRounds || rounds },
     agents,
     per_agent_positions: perAgentPositions,
