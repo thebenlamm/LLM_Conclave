@@ -46,7 +46,7 @@ import SessionManager, { computeSessionStatus, computeSubstitutionRate } from '.
 import ContinuationHandler from '../core/ContinuationHandler.js';
 import ConsultLogger from '../utils/ConsultLogger.js';
 import { AnalyticsIndexer } from '../consult/analytics/AnalyticsIndexer.js';
-import { inferProviderFromModel } from '../providers/tpmLimits.js';
+import { normalizeAnalyticsProvider } from '../consult/analytics/providerVocab.js';
 import { PersonaSystem } from '../config/PersonaSystem.js';
 import { FormatterFactory } from '../consult/formatting/FormatterFactory.js';
 import { OutputFormat } from '../types/consult.js';
@@ -542,23 +542,6 @@ async function handleConsult(args: {
  * effort: analytics is a side-channel, so a failure here must never break the
  * discuss response.
  */
-/**
- * Map the discuss-side provider id to the SAME vocabulary the consult path
- * writes to analytics: `getProviderName().toLowerCase()` → claude/openai/gemini/
- * grok/mistral. inferProviderFromModel() returns anthropic/google/xai for three
- * of those, which would split cross-mode `GROUP BY provider` rollups into
- * separate buckets for the same provider. Align discuss to the consult vocabulary
- * (the existing analytics data) so the buckets agree.
- */
-const INFER_TO_CONSULT_PROVIDER: Record<string, string> = {
-  anthropic: 'claude',
-  google: 'gemini',
-  xai: 'grok',
-};
-export function normalizeAnalyticsProvider(model: string): string {
-  const inferred = inferProviderFromModel(model);
-  return INFER_TO_CONSULT_PROVIDER[inferred] ?? inferred;
-}
 
 export function indexDiscussionAnalytics(
   result: any,

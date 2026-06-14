@@ -382,6 +382,16 @@ export class AnalyticsIndexer {
   }
 
   /**
+   * Whether a consultation/discussion row already exists for this id. Used by the
+   * backfill importer to fill only gaps and never overwrite a live-recorded row
+   * (which carries more accurate data, e.g. wall-clock duration).
+   */
+  public hasConsultation(id: string): boolean {
+    if (!this.db) return false;
+    return !!this.db.prepare('SELECT 1 FROM consultations WHERE id = ? LIMIT 1').get(id);
+  }
+
+  /**
    * Rebuild the index from JSONL files.
    *
    * ⚠️ LIMITATION: this wipes ALL rows and re-indexes ONLY from consult JSONL
