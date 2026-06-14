@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenAI } from '@google/genai';
 import ProviderFactory from './ProviderFactory.js';
+import { SONAR_MODELS } from './PerplexityProvider.js';
 
 export interface AgentSpec {
   name: string;
@@ -148,8 +149,13 @@ async function pingModel(type: ProviderType, resolvedModel: string): Promise<Pin
         if (!key) return missingKey('PERPLEXITY_API_KEY not set');
         // Perplexity's OpenAI-compatible API does not reliably implement the
         // /models retrieve endpoint, so a network ping there can false-abort a
-        // valid run. Validate key presence only and proceed — the real run
-        // surfaces any auth/model error via its own retry path (soft-proceed).
+        // valid run. Instead validate the model name against the known Sonar set
+        // locally — this catches a typo'd model ('sonar-pr') before it burns a
+        // full run, while still soft-proceeding on everything else (auth and
+        // transient errors surface live via the run's own retry path).
+        if (!(SONAR_MODELS as readonly string[]).includes(resolvedModel.toLowerCase())) {
+          return { severity: 'hard', message: `Model not found: ${resolvedModel}` };
+        }
         return null;
       }
       default:

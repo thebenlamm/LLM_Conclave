@@ -1,4 +1,4 @@
-import { normalizeError } from '../PreflightChecker.js';
+import { normalizeError, PreflightChecker } from '../PreflightChecker.js';
 
 /**
  * Locks in the hard/soft classification contract.
@@ -57,5 +57,45 @@ describe('normalizeError — hard/soft classification', () => {
     it('classifies the preflight timeout as soft', () => {
       expect(normalizeError(new Error('timeout'), model).severity).toBe('soft');
     });
+  });
+});
+
+/**
+ * M2 (PR #13 review): Perplexity has no reliable /models endpoint to ping, so a
+ * typo'd Sonar model would otherwise pass preflight and burn a full run. The
+ * perplexity case validates the model name against the known Sonar set locally —
+ * no network call — so these run fast and deterministically.
+ */
+describe('PreflightChecker — Perplexity local model validation', () => {
+  const originalEnv = process.env;
+  beforeEach(() => { process.env = { ...originalEnv }; });
+  afterEach(() => { process.env = originalEnv; });
+
+  it('hard-fails an unknown Sonar model before spending tokens', async () => {
+    process.env.PERPLEXITY_API_KEY = 'test-key';
+    await expect(
+      PreflightChecker.check([{ name: 'A', model: 'sonar-bogus' }])
+    ).rejects.toThrow(/Model not found: sonar-bogus/);
+  });
+
+  it('passes a valid Sonar model', async () => {
+    process.env.PERPLEXITY_API_KEY = 'test-key';
+    await expect(
+      PreflightChecker.check([{ name: 'A', model: 'sonar-pro' }])
+    ).resolves.toBeUndefined();
+  });
+
+  it('passes the bare "perplexity" alias (resolves to sonar-pro)', async () => {
+    process.env.PERPLEXITY_API_KEY = 'test-key';
+    await expect(
+      PreflightChecker.check([{ name: 'A', model: 'perplexity' }])
+    ).resolves.toBeUndefined();
+  });
+
+  it('hard-fails when PERPLEXITY_API_KEY is missing', async () => {
+    delete process.env.PERPLEXITY_API_KEY;
+    await expect(
+      PreflightChecker.check([{ name: 'A', model: 'sonar-pro' }])
+    ).rejects.toThrow(/PERPLEXITY_API_KEY not set/);
   });
 });
