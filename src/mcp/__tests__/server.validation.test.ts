@@ -36,8 +36,10 @@ jest.mock('../../types/consult.js', () => ({}));
 // Prevent process.exit from killing the test runner (main() runs on import)
 const mockExit = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
-import { validatePath } from '../server';
+import { validatePath, resolveProjectPath } from '../server';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 
 describe('validatePath', () => {
   const originalHome = process.env.HOME;
@@ -162,5 +164,56 @@ describe('validatePath', () => {
         validatePath('/etc/passwd', '/home/user/project');
       }).not.toThrow(/allowed: /);
     });
+  });
+});
+
+describe('resolveProjectPath (bug 2: brownfield detection trigger)', () => {
+  // Real fixtures under cwd so they pass the validatePath sandbox (which pins to
+  // process.cwd()). resolveProjectPath is the gate that decides whether
+  // handleConsult passes projectPath to the orchestrator — directories qualify,
+  // file lists and single files do not.
+  const fixtureRoot = path.join(process.cwd(), '.tmp-resolveprojectpath-test');
+  const fixtureDir = path.join(fixtureRoot, 'proj');
+  const fixtureFile = path.join(fixtureRoot, 'spec.md');
+  const relDir = path.relative(process.cwd(), fixtureDir);
+  const relFile = path.relative(process.cwd(), fixtureFile);
+
+  beforeAll(() => {
+    fs.mkdirSync(fixtureDir, { recursive: true });
+    fs.writeFileSync(fixtureFile, '# spec');
+  });
+
+  afterAll(() => {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  it('returns the resolved absolute path for a single directory', async () => {
+    const result = await resolveProjectPath(relDir);
+    expect(result).toBe(fixtureDir);
+  });
+
+  it('returns undefined for a single file (not a project root)', async () => {
+    const result = await resolveProjectPath(relFile);
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined for a comma-separated file list', async () => {
+    const result = await resolveProjectPath(`${relFile},${relFile}`);
+    expect(result).toBeUndefined();
+  });
+
+  it('rejects paths escaping the cwd sandbox', async () => {
+    await expect(resolveProjectPath('../../../etc')).rejects.toThrow();
+  });
+
+  it('returns undefined for a symlink to a directory (defensive)', async () => {
+    const linkPath = path.join(fixtureRoot, 'link');
+    fs.symlinkSync(fixtureDir, linkPath);
+    try {
+      const result = await resolveProjectPath(path.relative(process.cwd(), linkPath));
+      expect(result).toBeUndefined();
+    } finally {
+      await fsp.rm(linkPath, { force: true });
+    }
   });
 });

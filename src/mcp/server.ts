@@ -471,8 +471,14 @@ async function handleConsult(args: {
   try {
     // Load context if provided
     let context = '';
+    let projectPath: string | undefined;
     if (contextPath) {
       context = await loadContextFromPath(contextPath);
+      // When the context is a single project directory, also pass it as
+      // projectPath so the orchestrator runs brownfield detection (project_type
+      // / framework_detected / tech_stack). Without this the detector never
+      // fires and those analytics columns are written NULL on every row.
+      projectPath = await resolveProjectPath(contextPath);
     }
     phase = 'consulting';
 
@@ -500,6 +506,7 @@ async function handleConsult(args: {
       verbose: false,
       agents,
       ...(judge_model && { judgeModel: judge_model }),
+      ...(projectPath && { projectPath }),
       strictModels: strict_models === true,
     });
 
@@ -931,6 +938,29 @@ export async function loadContextFromPath(contextPath: string): Promise<string> 
 
   const loaded = await loader.loadFileContext([contextPath]);
   return loaded.formattedContent;
+}
+
+/**
+ * Resolve a context path to a validated project directory, or undefined.
+ *
+ * Returns the sandboxed absolute path ONLY when `contextPath` is a single
+ * directory — the shape brownfield detection (TechStackAnalyzer / FrameworkDetector)
+ * can read a package.json from. Comma-separated file lists and individual files
+ * return undefined. Reuses the same `validatePath` sandbox as loadContextFromPath
+ * so projectPath can never escape the server's working directory; symlinks (which
+ * loadContextFromPath rejects outright) also return undefined here defensively.
+ */
+export async function resolveProjectPath(contextPath: string): Promise<string | undefined> {
+  if (contextPath.includes(',')) {
+    return undefined;
+  }
+  const baseDir = process.cwd();
+  const absolutePath = validatePath(contextPath, baseDir);
+  const stats = await fsPromises.lstat(absolutePath);
+  if (stats.isSymbolicLink()) {
+    return undefined;
+  }
+  return stats.isDirectory() ? absolutePath : undefined;
 }
 
 /**
