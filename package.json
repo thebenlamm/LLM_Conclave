@@ -8,6 +8,7 @@
     "setup": "node scripts/setup.js",
     "mcp-server": "node dist/src/mcp/server.js",
     "mcp-dev": "ts-node src/mcp/server.ts",
+    "backfill:analytics": "node scripts/backfill-discuss-analytics.js",
     "test": "jest",
     "test:unit": "jest --testPathIgnorePatterns='integration|live'",
     "test:integration": "jest --testPathPatterns='integration'",
