@@ -229,6 +229,66 @@ describe('ContinuationHandler', () => {
     });
   });
 
+  describe('generateContinuationPrompt: original-task embed gating (token balloon fix)', () => {
+    it('embeds ORIGINAL TASK by default (byte-stable for existing callers)', () => {
+      const prompt = handler.generateContinuationPrompt(
+        'The original task',
+        'The previous conclusion',
+        'The follow-up'
+      );
+      expect(prompt).toContain('ORIGINAL TASK:\nThe original task');
+      expect(prompt).toContain('PREVIOUS CONCLUSION:\nThe previous conclusion');
+      expect(prompt).toContain('NEW FOLLOW-UP QUESTION/TASK:\nThe follow-up');
+    });
+
+    it('omits ORIGINAL TASK when includeOriginalTask=false but keeps conclusion + follow-up', () => {
+      const prompt = handler.generateContinuationPrompt(
+        'The original task',
+        'The previous conclusion',
+        'The follow-up',
+        false
+      );
+      expect(prompt).not.toContain('ORIGINAL TASK:');
+      expect(prompt).not.toContain('The original task');
+      // Conclusion is NOT guaranteed to be a turn in the replayed transcript, so it stays.
+      expect(prompt).toContain('PREVIOUS CONCLUSION:\nThe previous conclusion');
+      expect(prompt).toContain('NEW FOLLOW-UP QUESTION/TASK:\nThe follow-up');
+    });
+  });
+
+  describe('prepareForContinuation: newTask does not double-bill the original task', () => {
+    it('full-history path produces a lean newTask (original task comes from priorHistory)', () => {
+      const session = makeSession();
+      const result = handler.prepareForContinuation(session, 'Follow up', {
+        includeFullHistory: true,
+      });
+      // The original task lives in mergedHistory[0] (replayed as priorHistory),
+      // so newTask must NOT re-embed it.
+      expect(result.newTask).not.toContain('ORIGINAL TASK:');
+      expect(result.newTask).not.toContain(session.task);
+      expect(result.newTask).toContain('NEW FOLLOW-UP QUESTION/TASK:\nFollow up');
+    });
+
+    it('compress path also produces a lean newTask (original task is first compressed entry)', () => {
+      const session = makeSession();
+      const result = handler.prepareForContinuation(session, 'Follow up', {
+        includeFullHistory: false,
+      });
+      expect(result.newTask).not.toContain('ORIGINAL TASK:');
+    });
+
+    it('reset path KEEPS the original task in newTask (priorHistory is empty — load-bearing)', () => {
+      const session = makeSession();
+      const result = handler.prepareForContinuation(session, 'New direction', {
+        resetDiscussion: true,
+      });
+      // Reset drops all replayed history, so newTask is the only carrier of the
+      // original task — it must still be embedded.
+      expect(result.newTask).toContain('ORIGINAL TASK:');
+      expect(result.newTask).toContain(session.task);
+    });
+  });
+
   describe('compressHistory speaker on summaryMarker', () => {
     it('sets speaker="System" on summary marker in compressed history', () => {
       const session = makeSession();
