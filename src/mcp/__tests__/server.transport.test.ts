@@ -19,7 +19,10 @@ jest.mock('express', () => mockExpress);
 
 // Mock http.createServer to prevent actually listening
 const mockHttpServer = {
-  listen: jest.fn((_port: number, cb: Function) => { cb(); }),
+  listen: jest.fn((...args: unknown[]) => {
+    const cb = args[args.length - 1];
+    if (typeof cb === 'function') (cb as Function)();
+  }),
   close: jest.fn(),
 };
 jest.mock('http', () => ({

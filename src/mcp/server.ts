@@ -1728,7 +1728,7 @@ export async function startSSE(port: number) {
   });
 
   const httpServer = http.createServer(app);
-  httpServer.listen(port, () => {
+  httpServer.listen(port, '127.0.0.1', () => {
     console.error(`LLM Conclave MCP Server running on http://localhost:${port}/sse`);
     console.error(`  SSE endpoint:     GET  http://localhost:${port}/sse`);
     console.error(`  Message endpoint: POST http://localhost:${port}/messages`);
