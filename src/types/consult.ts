@@ -582,7 +582,8 @@ export interface CostGateTriggeredPayload {
 export enum OutputFormat {
   Markdown = 'markdown',
   JSON = 'json',
-  Both = 'both'
+  Both = 'both',
+  DeliberationRecord = 'deliberation_record'
 }
 
 export interface IOutputFormatter {

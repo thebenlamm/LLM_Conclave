@@ -63,6 +63,7 @@ import { LEADING_ROLE_PREFIX } from '../core/personaBoundary.js';
 import { deriveConfidenceCause } from '../core/ConfidenceReconciler.js';
 import { isAgentContribution, contributorsOverall } from '../core/roundMembership.js';
 import { classifyNonConsensus } from '../core/consensusClassifier.js';
+import { renderDeliberationRecordFromSession } from '../consult/formatting/exportDeliberationRecord.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -313,6 +314,28 @@ Example inline JSON:
       properties: {},
     },
   },
+  {
+    name: 'llm_conclave_export_record',
+    description: 'Export an existing completed Conclave session as a compliance-grade Deliberation Record — human-owned-diligence audit artifact. Read-only; no panel re-run.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: {
+          type: 'string',
+          description: 'Session ID to export. Omit to export the most recent session.',
+        },
+        operator_name: {
+          type: 'string',
+          description: 'Name of the operator/decision-owner stamped in the Provenance field.',
+        },
+        panel_rationale: {
+          type: 'string',
+          description: 'Optional free-text rationale for the panel composition (Field 2).',
+        },
+      },
+      required: ['operator_name'],
+    },
+  },
 ];
 
 // ============================================================================
@@ -345,6 +368,9 @@ function registerHandlers(server: Server) {
 
         case 'llm_conclave_status':
           return await handleStatus();
+
+        case 'llm_conclave_export_record':
+          return await handleExportRecord(args as any);
 
         default:
           throw new Error(`Unknown tool: ${name}`);
@@ -950,6 +976,46 @@ async function handleStatus() {
       type: 'text',
       text: `# No Active Discussion\n\nNo discussions running and no completed sessions found. Start one with \`llm_conclave_discuss\`.\n\n**Conclave home:** \`${conclaveHome}\`\n`,
     }],
+  };
+}
+
+/**
+ * Handle llm_conclave_export_record — renders a stored session as a Deliberation Record.
+ * Read-only: no LLM calls, no panel re-run. Returns a clear message when session not found.
+ */
+async function handleExportRecord(args: {
+  session_id?: string;
+  operator_name: string;
+  panel_rationale?: string;
+}) {
+  const { session_id, operator_name, panel_rationale } = args;
+  const sessionManager = new SessionManager();
+
+  // Resolve session ID: use explicit ID or fall back to the most recent session
+  let resolvedId = session_id;
+  if (!resolvedId) {
+    const recent = await sessionManager.getMostRecentSession();
+    if (!recent) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'No sessions found. Run a discussion first using llm_conclave_discuss.',
+        }],
+      };
+    }
+    resolvedId = recent.id;
+  }
+
+  const operator = {
+    operatorName: operator_name,
+    panelRationale: panel_rationale,
+    mitigations: {},
+  };
+
+  const text = await renderDeliberationRecordFromSession(resolvedId, operator, sessionManager);
+
+  return {
+    content: [{ type: 'text', text }],
   };
 }
 
