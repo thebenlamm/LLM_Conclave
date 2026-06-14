@@ -175,7 +175,7 @@ jest.mock('../StatusFileManager.js', () => ({
 }));
 
 import { createServer } from '../server';
-import { formatDiscussionResult, formatDiscussionResultJson, truncateAtSentence, stripOwnNamePrefix } from '../server';
+import { formatDiscussionResult, formatDiscussionResultJson, truncateAtSentence, stripOwnNamePrefix, indexDiscussionAnalytics } from '../server';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -1520,6 +1520,111 @@ describe('MCP Server Handlers', () => {
     it('JSON: omits non_consensus when consensus was reached', () => {
       const json = formatDiscussionResultJson(nonConsensusResult({ consensusReached: true }), '/tmp/log.jsonl');
       expect(json.non_consensus).toBeUndefined();
+    });
+  });
+
+  describe('indexDiscussionAnalytics (discuss-mode analytics mapping)', () => {
+    const fakeIndexer = () => {
+      const calls: any[] = [];
+      return { indexer: { indexDiscussion: (x: any) => calls.push(x) } as any, calls };
+    };
+
+    const discussResult = (overrides: Record<string, any> = {}) => ({
+      task: 'which video vendor',
+      solution: 'Migrate to Whereby',
+      finalConfidence: 'MEDIUM',
+      dissent: ['Agent B flags a HIPAA risk in the build-time path that needs least-privilege creds.'],
+      cost: { totalCost: 0.21, totalTokens: { input: 3000, output: 1200 } },
+      agents_config: {
+        AgentA: { model: 'claude-sonnet-4-5' },
+        AgentB: { model: 'gpt-5.5' },
+      },
+      ...overrides,
+    });
+
+    it('maps confidence band, tokens, dissent, mode and agent panel', () => {
+      const { indexer, calls } = fakeIndexer();
+      indexDiscussionAnalytics(discussResult(), 'sess-1', 18000, 'discuss', indexer);
+      expect(calls).toHaveLength(1);
+      const c = calls[0];
+      expect(c).toMatchObject({
+        id: 'sess-1',
+        question: 'which video vendor',
+        mode: 'discuss',
+        recommendation: 'Migrate to Whereby',
+        confidence: 0.66, // MEDIUM
+        totalCost: 0.21,
+        totalTokens: 4200, // input + output
+        durationMs: 18000,
+        hasDissent: true,
+      });
+      expect(c.agents).toHaveLength(2);
+      expect(c.agents.map((a: any) => a.name)).toEqual(['AgentA', 'AgentB']);
+      // provider normalized to the consult analytics vocabulary (claude, not anthropic)
+      expect(c.agents.map((a: any) => a.provider)).toEqual(['claude', 'openai']);
+    });
+
+    it('normalizes provider ids to match the consult vocabulary for cross-mode rollups', () => {
+      const { indexer, calls } = fakeIndexer();
+      indexDiscussionAnalytics(
+        discussResult({
+          agents_config: {
+            C: { model: 'claude-sonnet-4-5' },
+            G: { model: 'gemini-2.5-flash' },
+            X: { model: 'grok-4.3' },
+            O: { model: 'gpt-5.5' },
+            M: { model: 'mistral-large-latest' },
+          },
+        }),
+        's', 1, 'discuss', indexer
+      );
+      // anthropic→claude, google→gemini, xai→grok (the three that would otherwise split buckets)
+      expect(calls[0].agents.map((a: any) => a.provider)).toEqual(['claude', 'gemini', 'grok', 'openai', 'mistral']);
+    });
+
+    it('maps HIGH→1.0 and records null (not a misleading 0) when the band is unknown', () => {
+      const hi = fakeIndexer();
+      indexDiscussionAnalytics(discussResult({ finalConfidence: 'HIGH' }), 's', 1, 'discuss', hi.indexer);
+      expect(hi.calls[0].confidence).toBe(1.0);
+      const none = fakeIndexer();
+      indexDiscussionAnalytics(discussResult({ finalConfidence: undefined, confidence: undefined }), 's', 1, 'discuss', none.indexer);
+      expect(none.calls[0].confidence).toBeNull();
+    });
+
+    it('derives state from degraded/timedOut flags', () => {
+      const d = fakeIndexer();
+      indexDiscussionAnalytics(discussResult({ degraded: true }), 's', 1, 'discuss', d.indexer);
+      expect(d.calls[0].state).toBe('degraded');
+      const t = fakeIndexer();
+      indexDiscussionAnalytics(discussResult({ timedOut: true }), 's', 1, 'discuss', t.indexer);
+      expect(t.calls[0].state).toBe('timeout');
+      const ok = fakeIndexer();
+      indexDiscussionAnalytics(discussResult(), 's', 1, 'discuss', ok.indexer);
+      expect(ok.calls[0].state).toBe('complete');
+    });
+
+    it('passes the continue mode through', () => {
+      const { indexer, calls } = fakeIndexer();
+      indexDiscussionAnalytics(discussResult(), 'sess-2', 1, 'continue', indexer);
+      expect(calls[0].mode).toBe('continue');
+    });
+
+    it('no-ops on a missing session id', () => {
+      const { indexer, calls } = fakeIndexer();
+      indexDiscussionAnalytics(discussResult(), '', 1, 'discuss', indexer);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('swallows indexer errors (analytics must never break the discuss response)', () => {
+      const throwing = { indexDiscussion: () => { throw new Error('db down'); } } as any;
+      expect(() => indexDiscussionAnalytics(discussResult(), 's', 1, 'discuss', throwing)).not.toThrow();
+    });
+
+    it('tolerates a sparse result (no agents_config, no cost, no dissent)', () => {
+      const { indexer, calls } = fakeIndexer();
+      indexDiscussionAnalytics({ task: 't' }, 's', 1, 'discuss', indexer);
+      expect(calls[0]).toMatchObject({ totalCost: 0, totalTokens: 0, hasDissent: false });
+      expect(calls[0].agents).toEqual([]);
     });
   });
 

@@ -1,4 +1,5 @@
 import { AnalyticsIndexer } from '../AnalyticsIndexer';
+import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -354,6 +355,108 @@ describe('AnalyticsIndexer', () => {
 
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('1] consultations indexed'));
       consoleSpy.mockRestore();
+    });
+  });
+
+  describe('indexDiscussion (cross-mode analytics)', () => {
+    // Read committed rows back through a second connection.
+    const read = (sql: string, ...params: any[]) => {
+      const db = new Database(TEST_DB_PATH, { readonly: true });
+      try {
+        return db.prepare(sql).all(...params);
+      } finally {
+        db.close();
+      }
+    };
+
+    it('writes a consultations row with mode=discuss and the core fields', () => {
+      indexer = new AnalyticsIndexer(TEST_DB_PATH);
+      indexer.indexDiscussion({
+        id: 'disc-1',
+        question: 'Which video vendor?',
+        mode: 'discuss',
+        recommendation: 'Migrate to Whereby',
+        confidence: 0.66,
+        totalCost: 0.2134,
+        totalTokens: 4200,
+        durationMs: 18000,
+        timestamp: '2026-06-04T00:00:00Z',
+        state: 'complete',
+        hasDissent: true,
+        agents: [
+          { name: 'AgentA', model: 'claude-sonnet-4-5', provider: 'anthropic' },
+          { name: 'AgentB', model: 'gpt-5.5', provider: 'openai' },
+        ],
+      });
+
+      const rows = read('SELECT * FROM consultations WHERE id = ?', 'disc-1') as any[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        id: 'disc-1',
+        question: 'Which video vendor?',
+        mode: 'discuss',
+        final_recommendation: 'Migrate to Whereby',
+        confidence: 0.66,
+        total_cost: 0.2134,
+        total_tokens: 4200,
+        duration_ms: 18000,
+        created_at: '2026-06-04T00:00:00Z',
+        state: 'complete',
+        has_dissent: 1,
+        total_agents: 2,
+      });
+      // Consult-only columns are null for discuss runs.
+      expect(rows[0].project_type).toBeNull();
+      expect(rows[0].convergence_score).toBeNull();
+    });
+
+    it('writes the agent panel to consultation_agents', () => {
+      indexer = new AnalyticsIndexer(TEST_DB_PATH);
+      indexer.indexDiscussion({
+        id: 'disc-2',
+        question: 'q',
+        timestamp: '2026-06-04T00:00:00Z',
+        agents: [
+          { name: 'AgentA', model: 'claude-sonnet-4-5', provider: 'anthropic' },
+          { name: 'AgentB', model: 'gpt-5.5', provider: 'openai' },
+          { name: 'AgentC', model: 'gemini-2.5-flash', provider: 'gemini' },
+        ],
+      });
+      const agents = read('SELECT * FROM consultation_agents WHERE consultation_id = ?', 'disc-2') as any[];
+      expect(agents).toHaveLength(3);
+      expect(agents.map(a => a.provider).sort()).toEqual(['anthropic', 'gemini', 'openai']);
+    });
+
+    it('defaults mode to discuss and tolerates missing optional fields', () => {
+      indexer = new AnalyticsIndexer(TEST_DB_PATH);
+      expect(() =>
+        indexer.indexDiscussion({ id: 'disc-3', question: 'q', timestamp: '2026-06-04T00:00:00Z' })
+      ).not.toThrow();
+      const rows = read('SELECT mode, confidence, total_cost, has_dissent, total_agents FROM consultations WHERE id = ?', 'disc-3') as any[];
+      expect(rows[0]).toMatchObject({ mode: 'discuss', total_cost: 0, has_dissent: 0 });
+      expect(rows[0].confidence).toBeNull(); // unknown band → null, not 0
+      expect(rows[0].total_agents).toBeNull();
+    });
+
+    it('is idempotent — re-indexing the same id replaces the row and agents', () => {
+      indexer = new AnalyticsIndexer(TEST_DB_PATH);
+      const base = { id: 'disc-4', question: 'q', timestamp: '2026-06-04T00:00:00Z' };
+      indexer.indexDiscussion({ ...base, recommendation: 'v1', agents: [{ name: 'A', model: 'm', provider: 'p' }] });
+      indexer.indexDiscussion({ ...base, recommendation: 'v2', agents: [{ name: 'B', model: 'm2', provider: 'p2' }] });
+
+      const rows = read('SELECT final_recommendation FROM consultations WHERE id = ?', 'disc-4') as any[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].final_recommendation).toBe('v2');
+      const agents = read('SELECT agent_id FROM consultation_agents WHERE consultation_id = ?', 'disc-4') as any[];
+      expect(agents).toHaveLength(1);
+      expect(agents[0].agent_id).toBe('B');
+    });
+
+    it('records a distinct continue mode for continuations', () => {
+      indexer = new AnalyticsIndexer(TEST_DB_PATH);
+      indexer.indexDiscussion({ id: 'cont-1', question: 'follow-up', mode: 'continue', timestamp: '2026-06-04T00:00:00Z' });
+      const rows = read('SELECT mode FROM consultations WHERE id = ?', 'cont-1') as any[];
+      expect(rows[0].mode).toBe('continue');
     });
   });
 });
