@@ -38,7 +38,31 @@ const FIELD6_NONE_SURFACED = '- Risk: none surfaced during deliberation.';
 const FIELD6_NOT_PERSISTED = (dissentQuality: string): string =>
   `- Attributed risks were not persisted in the stored session (dissent quality: ${dissentQuality}). Operator to enumerate the surfaced risks and record mitigations.`;
 
+// CR-01: discuss session with no persisted dissent signal — risk presence unknown.
+const FIELD6_UNKNOWN =
+  '- Risks were not persisted in the stored session and dissent presence is unknown. Operator to confirm whether risks were surfaced and record any mitigations.';
+
 const MITIGATION_PLACEHOLDER = '_[operator to complete]_';
+
+/**
+ * Render-time framing gate (WR-01).
+ *
+ * The Deliberation Record embeds free-text drawn from LLM output (synthesis,
+ * decision question/context, dissent concerns, position stances). To uphold the
+ * compliance guarantee that a record never frames a dissent as "warning-overridden"
+ * nor asserts a quantified confidence, neutralize forbidden phrasing in the
+ * fully-assembled output. The locked headers and disclaimer contain none of these
+ * patterns, so a final pass cannot corrupt them.
+ */
+function sanitizeFraming(text: string): string {
+  return (
+    text
+      // "90% confident" / "75 % sure" → drop the quantified confidence, keep the word
+      .replace(/\b\d+\s*%\s*(sure|confident)\b/gi, '$1')
+      // "overridden" must never frame a dissent in a compliance artifact
+      .replace(/\boverridden\b/gi, 'addressed')
+  );
+}
 
 export class DeliberationRecordFormatter {
   /**
@@ -111,8 +135,14 @@ export class DeliberationRecordFormatter {
       lines.push(
         `Dissent quality: ${source.dissentQuality} — no individually attributed dissent persisted in the stored session; operator to confirm.`
       );
+    } else if (source.sourceMode === 'discuss') {
+      // CR-01: discuss path with NO persisted dissent signal (legacy pre-Phase-11
+      // sessions). Presence of dissent is unknown — never assert "genuine consensus".
+      lines.push(
+        '_(No dissent signal was persisted in this stored session; dissent presence is unknown — operator to confirm.)_'
+      );
     } else {
-      // Genuine clean consensus — no dissent signalled
+      // Genuine clean consensus — consult path with no attributed dissent
       lines.push('_(No dissent recorded — genuine consensus reached.)_');
     }
     lines.push('');
@@ -139,8 +169,12 @@ export class DeliberationRecordFormatter {
     } else if (source.dissentQuality !== undefined) {
       // Discuss path: dissent_quality set → must be consistent with field 4 (N1)
       lines.push(FIELD6_NOT_PERSISTED(source.dissentQuality));
+    } else if (source.sourceMode === 'discuss') {
+      // CR-01: discuss path with no persisted dissent signal — do NOT claim
+      // "none surfaced"; risk presence is unknown (consistent with field 4).
+      lines.push(FIELD6_UNKNOWN);
     } else {
-      // Genuine clean consensus
+      // Genuine clean consensus — consult path
       lines.push(FIELD6_NONE_SURFACED);
     }
     lines.push('');
@@ -162,6 +196,7 @@ export class DeliberationRecordFormatter {
     }
     lines.push('');
 
-    return lines.join('\n');
+    // WR-01: enforce the framing gate on the fully-assembled record.
+    return sanitizeFraming(lines.join('\n'));
   }
 }

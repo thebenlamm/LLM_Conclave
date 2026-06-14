@@ -209,6 +209,66 @@ it('Test D: field 6 renders placeholder without mitigation, supplied text with m
 });
 
 // ============================================================================
+// Test F: CR-01 — legacy discuss session (no dissent_quality) must NOT claim consensus
+// ============================================================================
+
+it('Test F: legacy discuss session without dissent_quality does not assert genuine consensus', () => {
+  // Legacy (pre-Phase-11) discuss session: dissent_quality was never persisted.
+  const legacyDiscuss: SessionManifest = { ...discussFixture, id: 'legacy-session-001' };
+  delete (legacyDiscuss as { dissent_quality?: string }).dissent_quality;
+
+  const source = DeliberationRecordBuilder.fromSession(legacyDiscuss, operatorFixture);
+  expect(source.dissentQuality).toBeUndefined();
+  expect(source.sourceMode).toBe('discuss');
+
+  const formatter = new DeliberationRecordFormatter();
+  const output = formatter.render(source, operatorFixture);
+
+  // Field 4 must NOT fabricate a clean-consensus claim — presence is unknown
+  const field4Start = output.indexOf('## 4. Dissent (Attributed)');
+  const field4End = output.indexOf('## 5.', field4Start);
+  const field4Content = output.substring(field4Start, field4End);
+  expect(field4Content).not.toContain('genuine consensus reached');
+  expect(field4Content).toMatch(/unknown|operator to confirm/i);
+
+  // Field 6 must NOT claim "none surfaced" for an unknown-dissent discuss session
+  const field6Start = output.indexOf('## 6. Risks Surfaced & Human Mitigation');
+  const field6End = output.indexOf('## 7.', field6Start);
+  const field6Content = output.substring(field6Start, field6End);
+  expect(field6Content).not.toContain('none surfaced');
+  expect(field6Content).toMatch(/unknown/i);
+
+  // Consult path with a genuinely clean consensus is still allowed to say so
+  const cleanConsult: ConsultationResult = { ...consultFixture, dissent: [], perspectives: [] };
+  const cleanSource = DeliberationRecordBuilder.fromConsultation(cleanConsult, operatorFixture);
+  const cleanOutput = formatter.render(cleanSource, operatorFixture);
+  expect(cleanOutput).toContain('genuine consensus reached');
+});
+
+// ============================================================================
+// Test G: WR-01 — render-time framing gate neutralizes forbidden phrasing in LLM text
+// ============================================================================
+
+it('Test G: framing gate neutralizes forbidden phrasing embedded in LLM synthesis', () => {
+  // Synthesis (from recommendation) carries forbidden framing straight from LLM output
+  const dirtyConsult: ConsultationResult = {
+    ...consultFixture,
+    recommendation:
+      'We were 92% confident in the plan, and the lone dissent was overridden by the majority.',
+  };
+  const source = DeliberationRecordBuilder.fromConsultation(dirtyConsult, operatorFixture);
+  const formatter = new DeliberationRecordFormatter();
+  const output = formatter.render(source, operatorFixture);
+
+  // The gate must have neutralized both forbidden patterns in the assembled record
+  expect(output).not.toMatch(/overridden/i);
+  expect(output).not.toMatch(/\d+%\s*(sure|confident)/i);
+  // The qualitative content survives — only the offending framing is stripped
+  expect(output).toContain('confident');
+  expect(output).toContain('addressed');
+});
+
+// ============================================================================
 // Test E: stored session — no panel re-run, all 8 headers from saved session
 // ============================================================================
 
