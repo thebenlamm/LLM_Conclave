@@ -1459,6 +1459,70 @@ describe('MCP Server Handlers', () => {
     });
   });
 
+  describe('non-convergence verdict (consensus classification)', () => {
+    const nonConsensusResult = (overrides: Record<string, any> = {}) => ({
+      task: 'which credential model for build-time migrations',
+      conversationHistory: [
+        { role: 'assistant', speaker: 'AgentA', model: 'claude-x', content: 'A position' },
+        { role: 'assistant', speaker: 'AgentB', model: 'gpt-x', content: 'B position' },
+        { role: 'assistant', speaker: 'AgentC', model: 'gemini-x', content: 'C position' },
+      ],
+      solution: 'no-consensus synthesis',
+      consensusReached: false,
+      rounds: 4,
+      maxRounds: 4,
+      failedAgents: [],
+      agentSubstitutions: {},
+      keyDecisions: [],
+      actionItems: [],
+      dissent: [],
+      finalConfidence: 'MEDIUM',
+      confidenceReasoning: 'no consensus',
+      runIntegrity: { participation: [] },
+      ...overrides,
+    });
+
+    const DISSENT = 'Agent B argues superuser-in-build is a HIPAA risk and wants least-privilege creds.';
+
+    it('markdown: renders a Verdict block framing genuine disagreement as live fault lines', () => {
+      const out = formatDiscussionResult(
+        nonConsensusResult({ dissent: [DISSENT], dissent_quality: 'captured' }),
+        '/tmp/log.jsonl'
+      );
+      expect(out).toContain('**Verdict — Panel did not converge — 1 live fault line**');
+    });
+
+    it('markdown: frames the unresolved (no-dissent) case as a hypothesis, not an assertion', () => {
+      const out = formatDiscussionResult(nonConsensusResult(), '/tmp/log.jsonl');
+      expect(out).toContain('**Verdict — Panel did not converge — no substantive dissent recorded**');
+      expect(out).toMatch(/detector strictness/i);
+      expect(out).toMatch(/not asserted/i);
+      expect(out).toMatch(/3 agents/);
+    });
+
+    it('markdown: no Verdict block when consensus was reached', () => {
+      const out = formatDiscussionResult(nonConsensusResult({ consensusReached: true }), '/tmp/log.jsonl');
+      expect(out).not.toContain('**Verdict —');
+    });
+
+    it('JSON: emits a non_consensus object with category, label, reasoning, fault_lines, signals', () => {
+      const json = formatDiscussionResultJson(
+        nonConsensusResult({ dissent: [DISSENT], dissent_quality: 'captured' }),
+        '/tmp/log.jsonl'
+      );
+      expect(json.non_consensus).toBeDefined();
+      expect(json.non_consensus.category).toBe('genuine_disagreement');
+      expect(json.non_consensus.fault_lines).toHaveLength(1);
+      expect(json.non_consensus.signals.agentCount).toBe(3);
+      expect(json.non_consensus.signals.roundsExhausted).toBe(true);
+    });
+
+    it('JSON: omits non_consensus when consensus was reached', () => {
+      const json = formatDiscussionResultJson(nonConsensusResult({ consensusReached: true }), '/tmp/log.jsonl');
+      expect(json.non_consensus).toBeUndefined();
+    });
+  });
+
   describe('PR 1c — CONSTRAINTS_DETECTED + PROVENANCE fields', () => {
     const baseResult = (overrides: Record<string, any> = {}) => ({
       task: 'pick a vendor; Yosef bandwidth is a hard constraint: 2-4 hr/wk',
