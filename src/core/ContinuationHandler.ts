@@ -41,15 +41,29 @@ export default class ContinuationHandler {
   }
 
   /**
-   * Generate continuation prompt that includes previous context
+   * Generate continuation prompt that includes previous context.
+   *
+   * `includeOriginalTask` controls whether the full ORIGINAL TASK block is
+   * re-embedded. When the prior transcript is replayed as `priorHistory` (the
+   * default continuation path), the original task is already present as the
+   * first history entry — re-embedding it here makes every continuation pay for
+   * the same task tokens twice, which compounds on long multi-session threads.
+   * Pass `false` whenever priorHistory carries the task; pass `true` only when
+   * there is no replayed history to lean on (the reset path, where priorHistory
+   * is empty). Defaults to `true` so existing callers are byte-for-byte
+   * unchanged. The PREVIOUS CONCLUSION is always kept — the judge's synthesis is
+   * not guaranteed to appear as a turn in the replayed transcript.
    */
   generateContinuationPrompt(
     originalTask: string,
     previousSolution: string | undefined,
-    followUpTask: string
+    followUpTask: string,
+    includeOriginalTask: boolean = true
   ): string {
     let prompt = `This is a continuation of a previous discussion.\n\n`;
-    prompt += `ORIGINAL TASK:\n${originalTask}\n\n`;
+    if (includeOriginalTask) {
+      prompt += `ORIGINAL TASK:\n${originalTask}\n\n`;
+    }
 
     if (previousSolution) {
       prompt += `PREVIOUS CONCLUSION:\n${previousSolution}\n\n`;
@@ -166,11 +180,16 @@ export default class ContinuationHandler {
       );
     }
 
-    // Generate new task that includes follow-up
+    // Generate new task that includes follow-up. Only the reset path embeds the
+    // ORIGINAL TASK: its priorHistory is empty, so newTask is the sole carrier of
+    // prior context. The full-history and compress paths replay the original task
+    // as the first priorHistory entry, so re-embedding it here would double-bill
+    // the same tokens on every continuation (the reported balloon).
     const newTask = this.generateContinuationPrompt(
       session.task,
       session.finalSolution,
-      followUpTask
+      followUpTask,
+      shouldResetDiscussion
     );
 
     return {
