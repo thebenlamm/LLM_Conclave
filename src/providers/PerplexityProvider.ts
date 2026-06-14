@@ -1,0 +1,160 @@
+import OpenAI from 'openai';
+import LLMProvider from './LLMProvider';
+import { Message, ProviderResponse, ChatOptions } from '../types';
+import { CostTracker } from '../core/CostTracker';
+
+/**
+ * Perplexity provider implementation
+ * Uses OpenAI-compatible API at https://api.perplexity.ai
+ * Supports the Sonar family: sonar, sonar-pro, sonar-reasoning,
+ * sonar-reasoning-pro, sonar-deep-research.
+ *
+ * Perplexity models are web-grounded — they return live-search answers,
+ * which makes this provider the conclave's source of current/factual takes
+ * (the other providers reason from training data only).
+ */
+export default class PerplexityProvider extends LLMProvider {
+  client: OpenAI;
+
+  constructor(modelName: string, apiKey?: string, costTracker?: CostTracker) {
+    super(modelName, costTracker);
+    this.client = new OpenAI({
+      apiKey: apiKey || process.env.PERPLEXITY_API_KEY,
+      baseURL: 'https://api.perplexity.ai'
+    });
+  }
+
+  /**
+   * Convert messages to OpenAI format, handling tool_result messages
+   */
+  private convertMessagesToOpenAIFormat(messages: Message[]): any[] {
+    return messages.map(msg => {
+      // Convert tool_result to OpenAI's tool format
+      if (msg.role === 'tool_result') {
+        const toolResult = msg as any;
+        return {
+          role: 'tool',
+          tool_call_id: toolResult.tool_use_id,
+          content: typeof toolResult.content === 'string'
+            ? toolResult.content
+            : JSON.stringify(toolResult.content)
+        };
+      }
+
+      // Convert assistant messages with tool_calls
+      if (msg.role === 'assistant' && (msg as any).tool_calls) {
+        const assistantMsg = msg as any;
+        return {
+          role: 'assistant',
+          content: msg.content || null,
+          tool_calls: assistantMsg.tool_calls.map((tc: any) => ({
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input)
+            }
+          }))
+        };
+      }
+
+      // Pass through other messages
+      return {
+        role: msg.role,
+        content: msg.content
+      };
+    });
+  }
+
+  /**
+   * Safely parse JSON with fallback
+   */
+  private safeJsonParse(jsonString: string, fallback: any = {}): any {
+    try {
+      return JSON.parse(jsonString);
+    } catch {
+      console.error(`[PerplexityProvider] Failed to parse tool arguments: ${jsonString.substring(0, 100)}`);
+      return fallback;
+    }
+  }
+
+  protected async performChat(messages: Message[], systemPrompt: string | null = null, options: ChatOptions = {}): Promise<ProviderResponse> {
+    try {
+      const { tools = null, stream = false, onToken, signal } = options;
+
+      const messageArray = this.convertMessagesToOpenAIFormat(messages);
+
+      // System prompt prepended first to maintain stable prefix
+      if (systemPrompt) {
+        messageArray.unshift({
+          role: 'system',
+          content: systemPrompt
+        });
+      }
+
+      const params: any = {
+        model: this.modelName,
+        messages: messageArray,
+        temperature: 0.7,
+      };
+
+      // Perplexity supports OpenAI-style tool calling on the Sonar models.
+      if (tools && tools.length > 0) {
+        params.tools = tools;
+        params.tool_choice = 'auto';
+      }
+
+      if (stream && !params.tools) {
+        params.stream = true;
+        const streamResp = await this.client.chat.completions.create(params, { signal });
+        let fullText = '';
+
+        for await (const chunk of streamResp as any) {
+          const delta = chunk.choices?.[0]?.delta;
+          const contentPiece = delta?.content;
+          if (contentPiece) {
+            const token = Array.isArray(contentPiece) ? contentPiece.join('') : contentPiece;
+            fullText += token;
+            if (onToken) onToken(token);
+          }
+        }
+
+        return { text: fullText };
+      }
+
+      const response = await this.client.chat.completions.create(params, { signal });
+
+      // Guard against empty choices array
+      if (!response.choices || response.choices.length === 0) {
+        throw new Error('Perplexity returned empty choices array');
+      }
+
+      const message = response.choices[0].message;
+      const usage = {
+        input_tokens: response.usage?.prompt_tokens || 0,
+        output_tokens: response.usage?.completion_tokens || 0,
+      };
+
+      // Check if response contains tool calls
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        return {
+          tool_calls: message.tool_calls.map((tc: any) => ({
+            id: tc.id,
+            name: tc.function.name,
+            input: this.safeJsonParse(tc.function.arguments)
+          })),
+          text: message.content || null,
+          usage,
+        };
+      }
+
+      return { text: message.content, usage };
+    } catch (error: any) {
+      throw new Error(`Perplexity API error: ${error.message}`);
+    }
+  }
+
+  getProviderName(): string {
+    return 'Perplexity';
+  }
+}

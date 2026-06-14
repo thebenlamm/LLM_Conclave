@@ -28,7 +28,7 @@ export class PreflightError extends Error {
   }
 }
 
-type ProviderType = 'anthropic' | 'openai' | 'grok' | 'gemini' | 'mistral' | 'unknown';
+type ProviderType = 'anthropic' | 'openai' | 'grok' | 'gemini' | 'mistral' | 'perplexity' | 'unknown';
 
 /**
  * A ping failure classified by whether it should abort the run.
@@ -53,6 +53,7 @@ function detectProvider(model: string): ProviderType {
   if (lower.includes('grok')) return 'grok';
   if (lower.includes('gemini')) return 'gemini';
   if (lower.includes('mistral') || lower.includes('codestral')) return 'mistral';
+  if (lower.includes('sonar') || lower.includes('perplexity')) return 'perplexity';
   return 'unknown';
 }
 
@@ -140,6 +141,15 @@ async function pingModel(type: ProviderType, resolvedModel: string): Promise<Pin
         if (!key) return missingKey('MISTRAL_API_KEY not set');
         const client = new OpenAI({ apiKey: key, baseURL: 'https://api.mistral.ai/v1', maxRetries: 0, timeout: PING_TIMEOUT_MS });
         await withTimeout(client.models.retrieve(resolvedModel), PING_TIMEOUT_MS);
+        return null;
+      }
+      case 'perplexity': {
+        const key = process.env.PERPLEXITY_API_KEY;
+        if (!key) return missingKey('PERPLEXITY_API_KEY not set');
+        // Perplexity's OpenAI-compatible API does not reliably implement the
+        // /models retrieve endpoint, so a network ping there can false-abort a
+        // valid run. Validate key presence only and proceed — the real run
+        // surfaces any auth/model error via its own retry path (soft-proceed).
         return null;
       }
       default:
