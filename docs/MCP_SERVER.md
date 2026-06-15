@@ -4,12 +4,14 @@ This document covers the current MCP server surface: how to run it, how to confi
 
 ## Overview
 
-LLM Conclave exposes four MCP tools:
+LLM Conclave exposes these MCP tools:
 
 - `llm_conclave_consult`
 - `llm_conclave_discuss`
 - `llm_conclave_continue`
 - `llm_conclave_sessions`
+- `llm_conclave_status`
+- `llm_conclave_export_record`
 
 The server supports two transport modes:
 
@@ -153,6 +155,20 @@ List recent sessions.
 |-----------|------|----------|-------|
 | `limit` | number | No | Default `10` |
 | `mode` | string | No | `consensus`, `orchestrated`, or `iterative` |
+
+### `llm_conclave_status`
+
+Check the status of any active discussion, or the most recent completed session. Instant filesystem read — no LLM calls. Takes no parameters.
+
+### `llm_conclave_export_record`
+
+Export a completed session (consult or discuss) as a compliance-grade Deliberation Record — a human-owned-diligence audit artifact with eight ordered fields plus a fixed decision-support disclaimer. Read-only; no panel re-run. Honest framing is enforced at render time: a discuss session with no persisted dissent signal reports dissent as unknown rather than claiming consensus, and confidence-percentage / "overridden" phrasing is neutralized.
+
+| Parameter | Type | Required | Notes |
+|-----------|------|----------|-------|
+| `operator_name` | string | Yes | Operator/decision-owner name, stamped in Provenance |
+| `session_id` | string | No | Session to export. Omit for the most recent session |
+| `panel_rationale` | string | No | Free-text rationale for the panel composition (Field 2) |
 
 ## Personas
 

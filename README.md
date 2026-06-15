@@ -7,6 +7,7 @@ LLM Conclave is an MCP-first multi-agent LLM collaboration server. It lets an MC
 - Runs structured consultations with a fixed 1-4 round consult flow
 - Runs free-form multi-agent discussions with optional dynamic speaker selection
 - Persists sessions so discussions can be continued later
+- Exports any completed session as a compliance-grade Deliberation Record audit artifact
 - Supports OpenAI, Anthropic, Google Gemini, xAI Grok, and Mistral models
 - Exposes everything as MCP tools, with optional SSE + REST transport
 
@@ -197,6 +198,20 @@ List recent sessions that can be continued.
 | `limit` | No | Default `10` |
 | `mode` | No | `consensus`, `orchestrated`, or `iterative` |
 
+### `llm_conclave_status`
+
+Check the status of any active discussion, or see the most recent completed session. Instant filesystem read — no LLM calls, never times out. Takes no parameters.
+
+### `llm_conclave_export_record`
+
+Export an existing completed session (consult or discuss) as a compliance-grade **Deliberation Record** — a human-owned-diligence audit artifact. Read-only; does not re-run the panel. See [Deliberation Record](#deliberation-record).
+
+| Parameter | Required | Notes |
+|-----------|----------|-------|
+| `operator_name` | Yes | Name of the operator/decision-owner, stamped in the Provenance field |
+| `session_id` | No | Session to export. Omit to export the most recent session |
+| `panel_rationale` | No | Free-text rationale for the panel composition (Field 2) |
+
 ## Personas
 
 Built-in personas:
@@ -291,6 +306,28 @@ JSON responses (`format: "json"` or `"both"`) include two additive fields alongs
 - `section_order` — fixed literal `["summary", "agent_positions", "dissent", "key_decisions", "action_items"]` so JSON consumers can reproduce the markdown layout without parsing text.
 
 Both fields are additive — no existing JSON field was renamed or removed.
+
+## Deliberation Record
+
+`llm_conclave_export_record` renders a completed session into a Deliberation Record — a markdown audit artifact framed as **human-owned diligence**, with the deliberation as one input rather than the decision-maker. It is produced from stored session output, so no panel re-run (and no LLM call) is involved.
+
+Every record contains eight ordered fields plus a fixed disclaimer:
+
+1. **Decision Framed** — the question, context, and constraints
+2. **Panel Composition & Rationale** — members (provider/model) and why they were chosen
+3. **Positions Summarized** — each agent's stance
+4. **Dissent (Attributed)** — named dissent surfaced during deliberation
+5. **Synthesis & Recommendation**
+6. **Risks Surfaced & Human Mitigation** — each risk paired with the operator's mitigation
+7. **Decision-Support Disclaimer** — present in every record
+8. **Provenance** — date, per-agent provider/model, and the named operator
+
+Two honesty guarantees are enforced at render time:
+
+- **No fabricated consensus.** A discuss session with no persisted dissent signal reports dissent presence as *unknown — operator to confirm*, rather than asserting "genuine consensus reached". A genuinely clean consult consensus is still reported as such.
+- **Framing gate.** Phrasing that would undercut the human-owned framing (e.g. a quantified `N% confident`, or a dissent described as "overridden") is neutralized in the assembled output even when it appears verbatim in LLM-generated text.
+
+Provenance is populated from real session data — operator identity comes from the required `operator_name` parameter, never a placeholder.
 
 ## Round Counter (AUDIT-03)
 
