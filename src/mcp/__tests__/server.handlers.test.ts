@@ -1148,6 +1148,67 @@ describe('MCP Server Handlers', () => {
         expect(result.content[0].text).toContain('No Active Discussion');
       });
     });
+
+    // ================================================================
+    // Phase 12 — handleExportRecord behavioral branches (DELIB-05)
+    // ================================================================
+
+    it('handleExportRecord with no session_id and no recent session returns graceful no-sessions message', async () => {
+      const SessionManager = require('../../core/SessionManager').default;
+      SessionManager.mockImplementation(() => ({
+        getMostRecentSession: jest.fn().mockResolvedValue(null),
+        loadSession: jest.fn(),
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_export_record',
+          arguments: { operator_name: 'Jane Operator' },
+        },
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('No sessions found');
+    });
+
+    it('handleExportRecord with no session_id and a recent session calls loadSession with recent id and renders Deliberation Record', async () => {
+      const SessionManager = require('../../core/SessionManager').default;
+
+      const recentManifest = {
+        id: 'recent-1',
+        timestamp: '2026-06-14T00:00:00Z',
+        mode: 'consensus',
+        task: 'Should we proceed with the project?',
+        agents: [
+          { name: 'Agent1', model: 'gpt-4o', provider: 'openai', systemPrompt: 'You are Agent1.' },
+        ],
+        finalSolution: 'Yes, proceed with the project.',
+        dissent_quality: 'captured',
+        status: 'completed',
+        currentRound: 2,
+        conversationHistory: [],
+        agentSubstitutions: {},
+        cost: { totalInputTokens: 100, totalOutputTokens: 50, totalCost: 0.01 },
+        outputFiles: {},
+      };
+
+      const mockLoadSession = jest.fn().mockResolvedValue(recentManifest);
+      SessionManager.mockImplementation(() => ({
+        getMostRecentSession: jest.fn().mockResolvedValue(recentManifest),
+        loadSession: mockLoadSession,
+      }));
+
+      const result = await callToolHandler({
+        params: {
+          name: 'llm_conclave_export_record',
+          arguments: { operator_name: 'Jane Operator' },
+        },
+      });
+
+      expect(mockLoadSession).toHaveBeenCalledWith('recent-1');
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('# Deliberation Record');
+    });
   });
 
   describe('DEBT regression locks (Phase 16)', () => {
