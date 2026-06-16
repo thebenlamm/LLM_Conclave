@@ -95,9 +95,9 @@ export const MITIGATION_PLACEHOLDER = '_[operator to complete]_';
 export function sanitizeFraming(text: string): string {
   return (
     text
-      // "90% confident" / "75 % sure" / "80% certain" / "95% confidence" →
-      // drop the quantified percent, keep the word
-      .replace(/\b\d+\s*%\s*(sure|certain|confident|confidence)\b/gi, '$1')
+      // "90% confident" / "75 % sure" / "80% certain" / "90.5% confidence" →
+      // drop the quantified percent (integer or decimal), keep the word
+      .replace(/\b\d+(?:\.\d+)?\s*%\s*(sure|certain|confident|confidence)\b/gi, '$1')
       // "confidence of 0.9" → "confidence"
       .replace(/\bconfidence\s+of\s+\d*\.\d+\b/gi, 'confidence')
       // "0.9 confidence" / "0.85 certainty" → keep the word

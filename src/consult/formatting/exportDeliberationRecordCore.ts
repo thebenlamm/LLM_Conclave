@@ -147,27 +147,49 @@ export async function exportDeliberationRecordCore(
       `operatorName exceeds ${CAPS.operatorName} bytes (got ${Buffer.byteLength(input.operatorName)})`
     );
   }
-  if (input.panelRationale !== undefined && Buffer.byteLength(input.panelRationale) > CAPS.panelRationale) {
-    throw new ExportValidationError(
-      `panelRationale exceeds ${CAPS.panelRationale} bytes (got ${Buffer.byteLength(input.panelRationale)})`
-    );
+  // WR-02: typeof guard before Buffer.byteLength so a non-string value throws
+  // ExportValidationError (clean 400) instead of a TypeError → 500.
+  if (input.panelRationale !== undefined) {
+    if (typeof input.panelRationale !== 'string') {
+      throw new ExportValidationError('panelRationale must be a string');
+    }
+    if (Buffer.byteLength(input.panelRationale) > CAPS.panelRationale) {
+      throw new ExportValidationError(
+        `panelRationale exceeds ${CAPS.panelRationale} bytes (got ${Buffer.byteLength(input.panelRationale)})`
+      );
+    }
   }
   if (input.branding !== undefined) {
     const { companyName, accentColor, footerText } = input.branding;
-    if (companyName !== undefined && Buffer.byteLength(companyName) > CAPS.companyName) {
-      throw new ExportValidationError(
-        `branding.companyName exceeds ${CAPS.companyName} bytes`
-      );
+    if (companyName !== undefined) {
+      if (typeof companyName !== 'string') {
+        throw new ExportValidationError('branding.companyName must be a string');
+      }
+      if (Buffer.byteLength(companyName) > CAPS.companyName) {
+        throw new ExportValidationError(
+          `branding.companyName exceeds ${CAPS.companyName} bytes`
+        );
+      }
     }
-    if (accentColor !== undefined && Buffer.byteLength(accentColor) > CAPS.accentColor) {
-      throw new ExportValidationError(
-        `branding.accentColor exceeds ${CAPS.accentColor} bytes`
-      );
+    if (accentColor !== undefined) {
+      if (typeof accentColor !== 'string') {
+        throw new ExportValidationError('branding.accentColor must be a string');
+      }
+      if (Buffer.byteLength(accentColor) > CAPS.accentColor) {
+        throw new ExportValidationError(
+          `branding.accentColor exceeds ${CAPS.accentColor} bytes`
+        );
+      }
     }
-    if (footerText !== undefined && Buffer.byteLength(footerText) > CAPS.footerText) {
-      throw new ExportValidationError(
-        `branding.footerText exceeds ${CAPS.footerText} bytes`
-      );
+    if (footerText !== undefined) {
+      if (typeof footerText !== 'string') {
+        throw new ExportValidationError('branding.footerText must be a string');
+      }
+      if (Buffer.byteLength(footerText) > CAPS.footerText) {
+        throw new ExportValidationError(
+          `branding.footerText exceeds ${CAPS.footerText} bytes`
+        );
+      }
     }
   }
   if (input.mitigations !== undefined) {
@@ -184,6 +206,11 @@ export async function exportDeliberationRecordCore(
         );
       }
       const v = input.mitigations[k];
+      if (typeof v !== 'string') {
+        throw new ExportValidationError(
+          `mitigation value for key '${k.slice(0, 40)}' must be a string`
+        );
+      }
       if (Buffer.byteLength(v) > CAPS.mitigationValue) {
         throw new ExportValidationError(
           `mitigation value for key '${k.slice(0, 40)}...' exceeds ${CAPS.mitigationValue} bytes`

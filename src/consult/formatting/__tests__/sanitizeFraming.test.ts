@@ -44,6 +44,21 @@ describe('sanitizeFraming: percent-quantified confidence (broadened word class)'
     expect(result).not.toMatch(/\d+\s*%\s*confidence/i);
     expect(result).toContain('confidence');
   });
+
+  // WR-01: decimal percents must drop the whole quantifier, not leave a "90." stub
+  it('"90.5% confident" → drops the full decimal quantifier, no garbled residue', () => {
+    const result = sanitizeFraming('We are 90.5% confident this will work.');
+    expect(result).not.toMatch(/\d/); // no dangling digits left
+    expect(result).not.toContain('90.');
+    expect(result).toContain('confident');
+    expect(result).toBe('We are confident this will work.');
+  });
+
+  it('"99.99 % certain" → drops the full decimal quantifier with spacing', () => {
+    const result = sanitizeFraming('I am 99.99 % certain.');
+    expect(result).not.toMatch(/\d/);
+    expect(result).toContain('certain');
+  });
 });
 
 describe('sanitizeFraming: decimal-quantified confidence', () => {

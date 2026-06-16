@@ -238,6 +238,41 @@ it('throws ExportValidationError when a mitigation value exceeds 5000 characters
   ).rejects.toThrow(ExportValidationError);
 });
 
+// WR-02: non-string branding/mitigation/panel_rationale values must throw
+// ExportValidationError (clean 400), not a Buffer.byteLength TypeError (500).
+it('throws ExportValidationError (not TypeError) when panelRationale is a number', async () => {
+  await expect(
+    exportDeliberationRecordCore({
+      operatorName: 'Test',
+      panelRationale: 123 as any,
+      sessionId: discussFixture.id,
+      sessionManager: {} as unknown as SessionManager,
+    })
+  ).rejects.toThrow(ExportValidationError);
+});
+
+it('throws ExportValidationError (not TypeError) when a branding field is a number', async () => {
+  await expect(
+    exportDeliberationRecordCore({
+      operatorName: 'Test',
+      branding: { companyName: 123 as any },
+      sessionId: discussFixture.id,
+      sessionManager: {} as unknown as SessionManager,
+    })
+  ).rejects.toThrow(ExportValidationError);
+});
+
+it('throws ExportValidationError (not TypeError) when a mitigation value is a number', async () => {
+  await expect(
+    exportDeliberationRecordCore({
+      operatorName: 'Test',
+      mitigations: { 'risk key': 123 as any },
+      sessionId: discussFixture.id,
+      sessionManager: {} as unknown as SessionManager,
+    })
+  ).rejects.toThrow(ExportValidationError);
+});
+
 it('throws ExportValidationError for an unsupported format string', async () => {
   await expect(
     exportDeliberationRecordCore({
