@@ -4,65 +4,23 @@
  * Renders a DeliberationRecordSource into a compliance-grade markdown audit artifact
  * containing the 8 locked fields in their required order.
  *
- * Locked strings are defined in-class to ensure test and implementation agree verbatim.
- * Phase 12 — Plan 01: no LLM calls, no side effects.
+ * Locked strings are defined in deliberationRecordConstants.ts and imported here
+ * so that both the markdown and PDF renderers share a single source of truth.
+ * Phase 21-01 — Plan 01: no LLM calls, no side effects.
  */
 
 import type { DeliberationRecordSource, OperatorInputs } from '../../types/deliberationRecord.js';
-
-// ============================================================================
-// Locked constants — MUST match plan <locked_strings> verbatim
-// ============================================================================
-
-const TITLE = '# Deliberation Record';
-
-const HEADERS = {
-  field1: '## 1. Decision Framed',
-  field2: '## 2. Panel Composition & Rationale',
-  field3: '## 3. Positions Summarized',
-  field4: '## 4. Dissent (Attributed)',
-  field5: '## 5. Synthesis & Recommendation',
-  field6: '## 6. Risks Surfaced & Human Mitigation',
-  field7: '## 7. Decision-Support Disclaimer',
-  field8: '## 8. Provenance',
-} as const;
-
-const DISCLAIMER =
-  'This Deliberation Record is decision-support documentation, not a substitute for professional judgment. The deliberation was one input into a human-owned decision process.';
-
-const FIELD6_INTRO =
-  'Each item below records a risk surfaced during deliberation and the human decider\'s mitigation.';
-
-const FIELD6_NONE_SURFACED = '- Risk: none surfaced during deliberation.';
-
-const FIELD6_NOT_PERSISTED = (dissentQuality: string): string =>
-  `- Attributed risks were not persisted in the stored session (dissent quality: ${dissentQuality}). Operator to enumerate the surfaced risks and record mitigations.`;
-
-// CR-01: discuss session with no persisted dissent signal — risk presence unknown.
-const FIELD6_UNKNOWN =
-  '- Risks were not persisted in the stored session and dissent presence is unknown. Operator to confirm whether risks were surfaced and record any mitigations.';
-
-const MITIGATION_PLACEHOLDER = '_[operator to complete]_';
-
-/**
- * Render-time framing gate (WR-01).
- *
- * The Deliberation Record embeds free-text drawn from LLM output (synthesis,
- * decision question/context, dissent concerns, position stances). To uphold the
- * compliance guarantee that a record never frames a dissent as "warning-overridden"
- * nor asserts a quantified confidence, neutralize forbidden phrasing in the
- * fully-assembled output. The locked headers and disclaimer contain none of these
- * patterns, so a final pass cannot corrupt them.
- */
-function sanitizeFraming(text: string): string {
-  return (
-    text
-      // "90% confident" / "75 % sure" → drop the quantified confidence, keep the word
-      .replace(/\b\d+\s*%\s*(sure|confident)\b/gi, '$1')
-      // "overridden" must never frame a dissent in a compliance artifact
-      .replace(/\boverridden\b/gi, 'addressed')
-  );
-}
+import {
+  TITLE,
+  HEADERS,
+  DISCLAIMER,
+  FIELD6_INTRO,
+  FIELD6_NONE_SURFACED,
+  FIELD6_NOT_PERSISTED,
+  FIELD6_UNKNOWN,
+  MITIGATION_PLACEHOLDER,
+  sanitizeFraming,
+} from './deliberationRecordConstants.js';
 
 export class DeliberationRecordFormatter {
   /**
