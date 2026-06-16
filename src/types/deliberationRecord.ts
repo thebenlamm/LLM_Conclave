@@ -22,6 +22,36 @@ export interface OperatorInputs {
   mitigations?: Record<string, string>;
 }
 
+/** Output format selector for record export. */
+export type ExportFormat = 'markdown' | 'pdf';
+
+/**
+ * Per-request operator branding rendered into the PDF header/footer (SPEC Req 3).
+ * All optional — absent branding falls back to a neutral default, never an error.
+ */
+export interface BrandingInputs {
+  /** Company/organization display name shown in the PDF header. */
+  companyName?: string;
+  /** Optional accent color as a hex string (e.g. '#1a73e8') for headings/rules. */
+  accentColor?: string;
+  /** Optional footer line (e.g. confidentiality notice). */
+  footerText?: string;
+}
+
+/**
+ * Structured result returned by the shared export core (D-07).
+ * `content` is a markdown string when format='markdown', a PDF Buffer when 'pdf'.
+ * Both transports build their envelope from this (MCP renders text; HTTP base64-encodes PDF).
+ */
+export interface DeliberationExportResult {
+  format: ExportFormat;
+  content: string | Buffer;
+  /** Exact verbatim dissent concern strings for this record; [] on the discuss path. */
+  concernKeys: string[];
+  /** Submitted mitigation keys that matched no concern (fail-safe surface). */
+  unmatchedMitigations: string[];
+}
+
 /**
  * Normalized intermediate representation of a Deliberation Record.
  * Produced by DeliberationRecordBuilder from either a ConsultationResult (consult)
