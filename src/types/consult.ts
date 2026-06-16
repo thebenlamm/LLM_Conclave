@@ -583,7 +583,11 @@ export enum OutputFormat {
   Markdown = 'markdown',
   JSON = 'json',
   Both = 'both',
-  DeliberationRecord = 'deliberation_record'
+  DeliberationRecord = 'deliberation_record',
+  // PDF is async (returns Buffer) — use FormatterFactory.renderDeliberationRecord().
+  // The sync getFormatter() switch THROWS on this value to prevent silent
+  // markdown fallthrough (D-08).
+  PDF = 'pdf'
 }
 
 export interface IOutputFormatter {
