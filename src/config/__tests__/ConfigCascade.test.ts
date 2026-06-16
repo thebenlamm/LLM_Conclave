@@ -209,6 +209,18 @@ describe('ConfigCascade', () => {
       expect(config.judge.model).toBe('gpt-4-turbo');
     });
 
+    it('should honor a multi-word top-level key (CONCLAVE_AUTO_APPROVE), not drop it or nest it', () => {
+      jest.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+      const config = ConfigCascade.resolve({}, {
+        CONCLAVE_AUTO_APPROVE: 'true'
+      });
+
+      // Assigned as the full top-level key, not mis-nested into config.auto.approve
+      expect(config.auto_approve).toBe(true);
+      expect(config.auto).toBeUndefined();
+    });
+
     it('should ignore non-CONCLAVE_ prefixed variables', () => {
       jest.spyOn(fs, 'existsSync').mockReturnValue(false);
 

@@ -299,9 +299,15 @@ export class ConfigCascade {
 
       const configKey = key.replace('CONCLAVE_', '').toLowerCase();
 
-      // Validate the key before processing
+      // Validate the key before processing.
+      // Check the FULL key first so multi-word top-level keys (e.g. auto_approve)
+      // are honored — splitting on '_' alone would test only 'auto' and drop them.
       const topLevelKey = configKey.split('_')[0];
-      if (!this.VALID_ENV_KEYS.has(topLevelKey) && !this.VALID_NESTED_KEYS.has(configKey)) {
+      if (
+        !this.VALID_ENV_KEYS.has(configKey) &&
+        !this.VALID_ENV_KEYS.has(topLevelKey) &&
+        !this.VALID_NESTED_KEYS.has(configKey)
+      ) {
         // Skip invalid keys with a warning (only in non-production)
         if (process.env.NODE_ENV !== 'production') {
           console.warn(`Warning: Unknown environment variable ${key} ignored`);
@@ -309,8 +315,10 @@ export class ConfigCascade {
         continue;
       }
 
-      // Handle nested keys (e.g., CONCLAVE_JUDGE_MODEL -> judge.model)
-      if (configKey.includes('_')) {
+      // Handle nested keys (e.g., CONCLAVE_JUDGE_MODEL -> judge.model).
+      // A full-match top-level key (e.g. auto_approve) is assigned directly even
+      // though it contains '_', so it is not mis-nested into config.auto.approve.
+      if (configKey.includes('_') && !this.VALID_ENV_KEYS.has(configKey)) {
         const parts = configKey.split('_');
         let current = config;
 
