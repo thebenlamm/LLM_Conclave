@@ -82,9 +82,22 @@ export const MITIGATION_PLACEHOLDER = '_[operator to complete]_';
  * Render-time framing gate (WR-01).
  *
  * Best-effort neutralization of the known forbidden phrasings: quantified
- * confidence (percent and decimal forms) and override/overrule framing of
- * dissent. Not an exhaustive guarantee against all possible
- * confidence/override phrasings.
+ * confidence (percent and decimal forms) and override/overrule framing *of a
+ * dissent*. Not an exhaustive guarantee against all possible confidence/override
+ * phrasings.
+ *
+ * WR-03: the override/overrule rule is NARROWED to dissent-framing contexts. A
+ * prior pass replaced every override/overrule stem unconditionally, which
+ * silently corrupted ubiquitous software vocabulary ("config override pattern",
+ * "method override", "the flag overrides the default") in an artifact whose
+ * entire value is a *faithful* audit record. The gate now only neutralizes the
+ * stem when its grammatical object is a dissent-like noun (dissent, concern,
+ * objection, warning, minority view, reservation, disagreement, caveat), in
+ * either active ("overruled the dissent") or passive ("the concern was
+ * overridden") voice. This is a deliberate trade: we accept some false-negatives
+ * (a generic "override" of a non-dissent noun passes through verbatim) to
+ * eliminate false-positive corruption of legitimate technical text. The intent
+ * — never frame *dissent* as overruled — is preserved.
  *
  * The Deliberation Record embeds free-text drawn from LLM output (synthesis,
  * decision question/context, dissent concerns, position stances). The locked
@@ -92,6 +105,28 @@ export const MITIGATION_PLACEHOLDER = '_[operator to complete]_';
  * corrupt them. Function is idempotent: sanitizeFraming(sanitizeFraming(x)) ===
  * sanitizeFraming(x).
  */
+// Override/overrule verb stems: override, overrides, overriding, overridden,
+// overrode, overrule, overrules, overruled, overruling.
+const OVERRIDE_STEM = '(?:overrid(?:e|es|ing|den)|overr(?:ode|ule[ds]?|uling))';
+// Dissent-like noun (with optional plural/suffix) the gate protects from being
+// framed as overruled. "minorit\\w*" covers "minority"/"minorities".
+const DISSENT_NOUN = '(?:dissent|concern|objection|warning|minorit\\w*|reservation|disagreement|caveat)\\w*';
+// Optional determiner that may sit between the verb and its dissent object.
+const DETERMINER = '(?:the|a|an|their|its|his|her|our|your|my|this|these|those|any|each|all|every)';
+
+// Active voice: "overruled the dissent" / "overrode their concerns" /
+// "overriding the minority view". Captures the object so it is preserved.
+const ACTIVE_OVERRIDE = new RegExp(
+  `\\b${OVERRIDE_STEM}\\b(\\s+(?:${DETERMINER}\\s+)?${DISSENT_NOUN})`,
+  'gi'
+);
+// Passive voice: "the dissent was overridden" / "their concerns were overruled".
+// Captures the noun + linking-verb run so only the stem is rewritten.
+const PASSIVE_OVERRIDE = new RegExp(
+  `\\b(${DISSENT_NOUN}(?:\\s+\\w+){0,3}?\\s+(?:was|were|been|is|are|got|being|gets|get)\\s+)${OVERRIDE_STEM}\\b`,
+  'gi'
+);
+
 export function sanitizeFraming(text: string): string {
   return (
     text
@@ -102,10 +137,10 @@ export function sanitizeFraming(text: string): string {
       .replace(/\bconfidence\s+of\s+\d*\.\d+\b/gi, 'confidence')
       // "0.9 confidence" / "0.85 certainty" → keep the word
       .replace(/\b\d*\.\d+\s+(confidence|certainty)\b/gi, '$1')
-      // override/overrule stems must never frame a dissent in a compliance artifact
-      // covers: override, overrides, overriding, overridden
-      .replace(/\boverrid(?:e|es|ing|den)\b/gi, 'addressed')
-      // covers: overrode, overrule, overrules, overruled, overruling
-      .replace(/\boverr(?:ode|ule[ds]?|uling)\b/gi, 'addressed')
+      // override/overrule stems must never frame a *dissent* in a compliance
+      // artifact — but only when the object IS a dissent (WR-03), not for
+      // generic technical "override" vocabulary.
+      .replace(ACTIVE_OVERRIDE, 'addressed$1')
+      .replace(PASSIVE_OVERRIDE, '$1addressed')
   );
 }

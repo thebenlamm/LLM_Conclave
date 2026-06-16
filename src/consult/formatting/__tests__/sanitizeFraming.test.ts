@@ -86,53 +86,74 @@ describe('sanitizeFraming: decimal-quantified confidence', () => {
   });
 });
 
-describe('sanitizeFraming: override/overrule stems', () => {
-  it('"overridden" → "addressed"', () => {
+// WR-03: the override/overrule gate is narrowed to dissent-framing contexts.
+// It neutralizes the stem ONLY when its object is a dissent-like noun, in
+// active or passive voice, and leaves generic technical "override" vocabulary
+// untouched.
+describe('sanitizeFraming: override/overrule framing of dissent (WR-03 — dissent-context only)', () => {
+  it('passive "the dissent was overridden" → neutralized', () => {
     const result = sanitizeFraming('The dissent was overridden by the operator.');
     expect(result).toContain('addressed');
     expect(result).not.toMatch(/\boverridden\b/i);
   });
 
-  it('"overrode" → "addressed"', () => {
+  it('active "overrode the warning" → "addressed the warning"', () => {
     const result = sanitizeFraming('The operator overrode the warning.');
-    expect(result).toContain('addressed');
+    expect(result).toContain('addressed the warning');
     expect(result).not.toMatch(/\boverrode\b/i);
   });
 
-  it('"overruled" → "addressed"', () => {
+  it('active "overruled the dissent" → "addressed the dissent"', () => {
     const result = sanitizeFraming('The operator overruled the dissent.');
+    expect(result).toContain('addressed the dissent');
+    expect(result).not.toMatch(/\boverruled\b/i);
+  });
+
+  it('active "overrule the concern" → "addressed the concern"', () => {
+    const result = sanitizeFraming('The operator chose to overrule the concern.');
+    expect(result).toContain('addressed the concern');
+    expect(result).not.toMatch(/\boverrule\b/i);
+  });
+
+  it('passive "their concerns were overruled" → neutralized', () => {
+    const result = sanitizeFraming('Their concerns were overruled during review.');
     expect(result).toContain('addressed');
     expect(result).not.toMatch(/\boverruled\b/i);
   });
 
-  it('"override" → "addressed"', () => {
-    const result = sanitizeFraming('The decision to override was documented.');
-    expect(result).toContain('addressed');
-    expect(result).not.toMatch(/\boverride\b/i);
-  });
-
-  it('"overrides" → "addressed"', () => {
-    const result = sanitizeFraming('Operator overrides are documented here.');
-    expect(result).toContain('addressed');
-    expect(result).not.toMatch(/\boverrides\b/i);
-  });
-
-  it('"overruling" → "addressed"', () => {
-    const result = sanitizeFraming('The act of overruling was noted.');
-    expect(result).toContain('addressed');
-    expect(result).not.toMatch(/\boverruling\b/i);
-  });
-
-  it('"overrule" → "addressed"', () => {
-    const result = sanitizeFraming('The operator chose to overrule the concern.');
-    expect(result).toContain('addressed');
-    expect(result).not.toMatch(/\boverrule\b/i);
-  });
-
-  it('"overriding" → "addressed"', () => {
-    const result = sanitizeFraming('The operator was overriding the safety check.');
-    expect(result).toContain('addressed');
+  it('active "overriding the minority view" → neutralized', () => {
+    const result = sanitizeFraming('The operator was overriding the minority view.');
+    expect(result).toContain('addressed the minority');
     expect(result).not.toMatch(/\boverriding\b/i);
+  });
+});
+
+// WR-03: generic technical "override" vocabulary must pass through verbatim —
+// the gate must not corrupt legitimate software terminology in the audit record.
+describe('sanitizeFraming: generic technical "override" vocabulary passes through (WR-03)', () => {
+  it('"config override pattern" is preserved verbatim', () => {
+    const text = 'Use the config override pattern for environment values.';
+    expect(sanitizeFraming(text)).toBe(text);
+  });
+
+  it('"method override" is preserved verbatim', () => {
+    const text = 'The subclass uses a method override to customize behavior.';
+    expect(sanitizeFraming(text)).toBe(text);
+  });
+
+  it('"the flag overrides the default" is preserved verbatim', () => {
+    const text = 'When set, the flag overrides the default timeout.';
+    expect(sanitizeFraming(text)).toBe(text);
+  });
+
+  it('standalone "override was documented" is preserved verbatim', () => {
+    const text = 'The decision to override was documented.';
+    expect(sanitizeFraming(text)).toBe(text);
+  });
+
+  it('"overriding the safety check" (non-dissent object) is preserved verbatim', () => {
+    const text = 'The operator was overriding the safety check.';
+    expect(sanitizeFraming(text)).toBe(text);
   });
 });
 
