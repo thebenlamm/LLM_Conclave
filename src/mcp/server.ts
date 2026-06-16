@@ -1827,8 +1827,112 @@ async function startStdio() {
   console.error('LLM Conclave MCP Server running on stdio');
 }
 
+// ============================================================================
+// POST /api/export_record — thin HTTP surface for Deliberation Record export
+// (Phase 21-04)
+//
+// Exported as a factory so tests can mount it on a minimal Express app without
+// booting the full SSE server. Call this BEFORE app.use(express.json()) so the
+// route-scoped 64kb body-size cap is live (body-parser skips if req._body is
+// already true — see plan interface note).
+// ============================================================================
+
+export function registerExportRoute(app: express.Application): void {
+  // MUST be registered ABOVE the global app.use(express.json()) in startSSE.
+  // The route-scoped parser enforces the 64kb limit; the route-level 4-arg
+  // error middleware maps entity.too.large → 400 (no global error handler exists).
+  app.post(
+    '/api/export_record',
+    express.json({ limit: '64kb' }),
+    // Route-level 4-arg error middleware: body-parser oversize → 400
+    (
+      err: any,
+      _req: express.Request,
+      res: express.Response,
+      next: express.NextFunction
+    ) => {
+      if (err) {
+        if (err.type === 'entity.too.large') {
+          res
+            .status(400)
+            .json({ success: false, error: 'Request body too large (limit 64kb)' });
+          return;
+        }
+        res.status(400).json({ success: false, error: 'Invalid request body' });
+        return;
+      }
+      next();
+    },
+    async (req: express.Request, res: express.Response) => {
+      // ── 1. Fail-closed auth (INVERT /api/discuss optional auth — SPEC-R7) ───
+      const apiKey = process.env.CONCLAVE_API_KEY;
+      if (!apiKey) {
+        res.status(503).json({
+          success: false,
+          error: 'Export disabled: CONCLAVE_API_KEY is not configured (fail-closed).',
+        });
+        return;
+      }
+      const provided = req.headers.authorization?.match(/^Bearer\s+(.+)$/)?.[1];
+      if (provided !== apiKey) {
+        res.status(401).json({ success: false, error: 'Invalid or missing API key' });
+        return;
+      }
+
+      // ── 2. Required field: operator_name ─────────────────────────────────────
+      const b = req.body as Record<string, unknown>;
+      if (!b || typeof b.operator_name !== 'string' || b.operator_name.length === 0) {
+        res
+          .status(400)
+          .json({ success: false, error: 'Missing required field: operator_name' });
+        return;
+      }
+
+      // ── 3. Delegate to shared core; map ExportValidationError → 400 ──────────
+      // Per-field length caps and session_id path-traversal guards are enforced
+      // inline in the core (D-09/D-10); the route does not duplicate them.
+      try {
+        const result = await exportDeliberationRecordCore({
+          sessionId: b.session_id as string | undefined,
+          operatorName: b.operator_name as string,
+          panelRationale: b.panel_rationale as string | undefined,
+          format: b.format as 'markdown' | 'pdf' | undefined,
+          branding: b.branding as any,
+          mitigations: b.mitigations as Record<string, string> | undefined,
+        });
+        // PDF content is a Buffer — base64-encode for JSON transport.
+        const content = Buffer.isBuffer(result.content)
+          ? result.content.toString('base64')
+          : result.content;
+        res.json({
+          success: true,
+          format: result.format,
+          content,
+          concern_keys: result.concernKeys,
+          unmatched_mitigations: result.unmatchedMitigations,
+        });
+      } catch (err: any) {
+        if (err?.name === 'ExportValidationError') {
+          res.status(400).json({ success: false, error: err.message });
+          return;
+        }
+        console.error('[REST] Error in /api/export_record:', err);
+        res
+          .status(500)
+          .json({ success: false, error: err?.message || 'Internal server error' });
+      }
+    }
+  );
+}
+
 export async function startSSE(port: number) {
   const app = express();
+
+  // Register export route BEFORE the global json parser so the 64kb body-size
+  // cap is live. The global parser sets req._body = true; any later
+  // express.json() sees that flag and skips — making the route-scoped limit dead.
+  registerExportRoute(app);
+
   app.use(express.json());
 
   // Track active transports for cleanup
@@ -1996,6 +2100,7 @@ export async function startSSE(port: number) {
     console.error(`  SSE endpoint:     GET  http://localhost:${port}/sse`);
     console.error(`  Message endpoint: POST http://localhost:${port}/messages`);
     console.error(`  REST API:         POST http://localhost:${port}/api/discuss`);
+    console.error(`  REST API:         POST http://localhost:${port}/api/export_record`);
     console.error(`  Health check:     GET  http://localhost:${port}/health`);
   });
 
