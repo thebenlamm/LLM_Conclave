@@ -350,4 +350,63 @@ describe('POST /api/export_record', () => {
     expect(body.concern_keys).toEqual(['Premature optimization risk']);
     expect(body.unmatched_mitigations).toEqual(['bogus-key-not-a-concern']);
   });
+
+  // ── 10. Non-string session_id → 400 (WR-03 boundary guard) ──────────────────
+  //
+  // Before fix: the cast `b.session_id as string | undefined` passes 123 to the
+  // core where SESSION_ID_RE.test(123) coerces to "123" and passes, then
+  // `(123).includes('..')` throws TypeError → 500.
+  // After fix: the route boundary checks typeof and returns clean 400.
+
+  it('returns 400 with "session_id must be a string" when session_id is a number', async () => {
+    process.env.CONCLAVE_API_KEY = TEST_KEY;
+
+    const { status, body } = await post(server, {
+      body: { session_id: 123, operator_name: 'Test Operator' },
+      authHeader: `Bearer ${TEST_KEY}`,
+    });
+
+    expect(status).toBe(400);
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/session_id must be a string/i);
+  });
+
+  // ── 11. Non-object branding → 400 (WR-03 boundary guard, branding shape) ────
+
+  it('returns 400 when branding is a string (wrong type)', async () => {
+    process.env.CONCLAVE_API_KEY = TEST_KEY;
+
+    const { status, body } = await post(server, {
+      body: { ...VALID_BODY, branding: 'acme-corp' },
+      authHeader: `Bearer ${TEST_KEY}`,
+    });
+
+    expect(status).toBe(400);
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/branding must be an object/i);
+  });
+
+  // ── 12. Generic 500 — raw err.message NOT echoed (WR-04) ─────────────────────
+  //
+  // Before fix: `err?.message || 'Internal server error'` returns the raw message
+  // which may contain FS paths.
+  // After fix: always returns 'Internal server error' and logs detail server-side.
+
+  it('returns 500 with generic "Internal server error" and does not echo raw error message', async () => {
+    process.env.CONCLAVE_API_KEY = TEST_KEY;
+    const fsPathError = new Error('/home/user/.llm-conclave/sessions/foo: permission denied');
+    mockCore.mockRejectedValueOnce(fsPathError);
+
+    const { status, body } = await post(server, {
+      body: VALID_BODY,
+      authHeader: `Bearer ${TEST_KEY}`,
+    });
+
+    expect(status).toBe(500);
+    expect(body.success).toBe(false);
+    expect(body.error).toBe('Internal server error');
+    // Must NOT echo FS paths or raw error messages
+    expect(body.error).not.toMatch(/\.llm-conclave/);
+    expect(body.error).not.toMatch(/permission denied/);
+  });
 });

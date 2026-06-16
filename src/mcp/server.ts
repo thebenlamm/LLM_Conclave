@@ -37,6 +37,7 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
+import { timingSafeEqual } from 'crypto';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import * as http from 'http';
@@ -1873,8 +1874,11 @@ export function registerExportRoute(app: express.Application): void {
         });
         return;
       }
+      // WR-02: constant-time, length-safe bearer compare via crypto.timingSafeEqual
       const provided = req.headers.authorization?.match(/^Bearer\s+(.+)$/)?.[1];
-      if (provided !== apiKey) {
+      const providedBuf = Buffer.from(provided ?? '');
+      const keyBuf = Buffer.from(apiKey);
+      if (providedBuf.length !== keyBuf.length || !timingSafeEqual(providedBuf, keyBuf)) {
         res.status(401).json({ success: false, error: 'Invalid or missing API key' });
         return;
       }
@@ -1885,6 +1889,28 @@ export function registerExportRoute(app: express.Application): void {
         res
           .status(400)
           .json({ success: false, error: 'Missing required field: operator_name' });
+        return;
+      }
+
+      // ── 2b. Type guards at the route boundary (WR-03) ────────────────────────
+      // Non-string session_id: unchecked cast would cause TypeError in core → 500.
+      // Non-object branding/mitigations: degrade silently in core — guard here.
+      if (b.session_id !== undefined && typeof b.session_id !== 'string') {
+        res.status(400).json({ success: false, error: 'session_id must be a string' });
+        return;
+      }
+      if (
+        b.branding !== undefined &&
+        (typeof b.branding !== 'object' || b.branding === null || Array.isArray(b.branding))
+      ) {
+        res.status(400).json({ success: false, error: 'branding must be an object' });
+        return;
+      }
+      if (
+        b.mitigations !== undefined &&
+        (typeof b.mitigations !== 'object' || b.mitigations === null || Array.isArray(b.mitigations))
+      ) {
+        res.status(400).json({ success: false, error: 'mitigations must be an object' });
         return;
       }
 
@@ -1916,10 +1942,10 @@ export function registerExportRoute(app: express.Application): void {
           res.status(400).json({ success: false, error: err.message });
           return;
         }
+        // WR-04: log detail server-side; never echo raw err.message to client
+        // (may contain FS paths — honors validatePath suppression precedent).
         console.error('[REST] Error in /api/export_record:', err);
-        res
-          .status(500)
-          .json({ success: false, error: err?.message || 'Internal server error' });
+        res.status(500).json({ success: false, error: 'Internal server error' });
       }
     }
   );

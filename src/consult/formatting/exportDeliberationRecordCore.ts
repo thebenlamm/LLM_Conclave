@@ -97,10 +97,16 @@ const CAPS = {
  * Real session IDs: session_<ISO-with-dashes>_<4-alnum>
  * e.g.  session_2026-01-20T00-13-38_p3n1
  *
+ * Permits only letters, digits, underscores, and hyphens.
+ * ':' deliberately excluded: SessionManager.generateSessionId() strips colons
+ * via `.replace(/[:.]/g, '-')` — real IDs never contain ':'. Excluding it
+ * reduces NTFS alternate-data-stream / Windows drive-qualifier surface on the
+ * value that is later path.join-ed in SessionManager.
+ *
  * Excludes '/', '\', '.', null bytes, and all other path-traversal chars
  * before any FS operation is performed.
  */
-const SESSION_ID_RE = /^[A-Za-z0-9_:\-]{1,200}$/;
+const SESSION_ID_RE = /^[A-Za-z0-9_\-]{1,200}$/;
 
 // ============================================================================
 // Core function
@@ -136,31 +142,31 @@ export async function exportDeliberationRecordCore(
   if (!input.operatorName || !input.operatorName.trim()) {
     throw new ExportValidationError('operatorName is required and must not be empty');
   }
-  if (input.operatorName.length > CAPS.operatorName) {
+  if (Buffer.byteLength(input.operatorName) > CAPS.operatorName) {
     throw new ExportValidationError(
-      `operatorName exceeds ${CAPS.operatorName} characters (got ${input.operatorName.length})`
+      `operatorName exceeds ${CAPS.operatorName} bytes (got ${Buffer.byteLength(input.operatorName)})`
     );
   }
-  if (input.panelRationale !== undefined && input.panelRationale.length > CAPS.panelRationale) {
+  if (input.panelRationale !== undefined && Buffer.byteLength(input.panelRationale) > CAPS.panelRationale) {
     throw new ExportValidationError(
-      `panelRationale exceeds ${CAPS.panelRationale} characters (got ${input.panelRationale.length})`
+      `panelRationale exceeds ${CAPS.panelRationale} bytes (got ${Buffer.byteLength(input.panelRationale)})`
     );
   }
   if (input.branding !== undefined) {
     const { companyName, accentColor, footerText } = input.branding;
-    if (companyName !== undefined && companyName.length > CAPS.companyName) {
+    if (companyName !== undefined && Buffer.byteLength(companyName) > CAPS.companyName) {
       throw new ExportValidationError(
-        `branding.companyName exceeds ${CAPS.companyName} characters`
+        `branding.companyName exceeds ${CAPS.companyName} bytes`
       );
     }
-    if (accentColor !== undefined && accentColor.length > CAPS.accentColor) {
+    if (accentColor !== undefined && Buffer.byteLength(accentColor) > CAPS.accentColor) {
       throw new ExportValidationError(
-        `branding.accentColor exceeds ${CAPS.accentColor} characters`
+        `branding.accentColor exceeds ${CAPS.accentColor} bytes`
       );
     }
-    if (footerText !== undefined && footerText.length > CAPS.footerText) {
+    if (footerText !== undefined && Buffer.byteLength(footerText) > CAPS.footerText) {
       throw new ExportValidationError(
-        `branding.footerText exceeds ${CAPS.footerText} characters`
+        `branding.footerText exceeds ${CAPS.footerText} bytes`
       );
     }
   }
@@ -172,22 +178,28 @@ export async function exportDeliberationRecordCore(
       );
     }
     for (const k of mitKeys) {
-      if (k.length > CAPS.mitigationKey) {
+      if (Buffer.byteLength(k) > CAPS.mitigationKey) {
         throw new ExportValidationError(
-          `mitigation key exceeds ${CAPS.mitigationKey} characters`
+          `mitigation key exceeds ${CAPS.mitigationKey} bytes`
         );
       }
       const v = input.mitigations[k];
-      if (v.length > CAPS.mitigationValue) {
+      if (Buffer.byteLength(v) > CAPS.mitigationValue) {
         throw new ExportValidationError(
-          `mitigation value for key '${k.slice(0, 40)}...' exceeds ${CAPS.mitigationValue} characters`
+          `mitigation value for key '${k.slice(0, 40)}...' exceeds ${CAPS.mitigationValue} bytes`
         );
       }
     }
   }
 
   // ── Step 3: session_id guard — BEFORE any FS touch (D-09) ─────────────────
+  // WR-03 (core leg): typeof guard fires before the regex to ensure non-string
+  // values throw ExportValidationError instead of coercing and later causing
+  // a TypeError in .includes(), which would fall through to the 500 branch.
   if (input.sessionId !== undefined) {
+    if (typeof input.sessionId !== 'string') {
+      throw new ExportValidationError('session_id must be a string');
+    }
     const ok =
       SESSION_ID_RE.test(input.sessionId) &&
       !input.sessionId.includes('..') &&
@@ -195,7 +207,7 @@ export async function exportDeliberationRecordCore(
     if (!ok) {
       throw new ExportValidationError(
         `Invalid session_id format: '${input.sessionId}'. ` +
-          "Session IDs may only contain letters, digits, underscores, hyphens, and colons."
+          "Session IDs may only contain letters, digits, underscores, and hyphens."
       );
     }
   }

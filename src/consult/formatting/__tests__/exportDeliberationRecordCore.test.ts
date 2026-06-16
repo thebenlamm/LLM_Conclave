@@ -292,3 +292,101 @@ it('concernKeys is [] for a stored discuss session (no attributed dissents)', as
   expect(result.concernKeys).toEqual([]);
   expect(result.unmatchedMitigations).toEqual(['some key']);
 });
+
+// ============================================================================
+// Task 8 (WR-03 core leg): non-string sessionId throws ExportValidationError
+// ============================================================================
+
+it('throws ExportValidationError (not TypeError) when sessionId is a number', async () => {
+  // Before fix: SESSION_ID_RE.test(123) coerces → passes, then
+  // (123).includes('..')  throws TypeError (not ExportValidationError → wrong 500 path).
+  // After fix: typeof guard fires first → ExportValidationError.
+  const mockSm = {
+    loadSession: jest.fn(),
+    getMostRecentSession: jest.fn(),
+    initialize: jest.fn(),
+  } as unknown as SessionManager;
+
+  const err = await exportDeliberationRecordCore({
+    sessionId: 123 as unknown as string,
+    operatorName: 'Test Operator',
+    sessionManager: mockSm,
+  }).catch((e: Error) => e);
+
+  expect(err).toBeInstanceOf(ExportValidationError);
+  expect((err as ExportValidationError).name).toBe('ExportValidationError');
+  // loadSession must NOT be called — type guard fires before FS touch
+  expect((mockSm as any).loadSession).not.toHaveBeenCalled();
+});
+
+// ============================================================================
+// Task 9 (IN-01): ':' removed from SESSION_ID_RE allowlist
+// ============================================================================
+
+it('throws ExportValidationError for a session_id containing a colon', async () => {
+  // Before fix: SESSION_ID_RE = /^[A-Za-z0-9_:\-]{1,200}$/ — colon passes.
+  // After fix: colon is removed from the character class.
+  const mockSm = {
+    loadSession: jest.fn(),
+    getMostRecentSession: jest.fn(),
+    initialize: jest.fn(),
+  } as unknown as SessionManager;
+
+  await expect(
+    exportDeliberationRecordCore({
+      sessionId: 'session_a:b',
+      operatorName: 'Test Operator',
+      sessionManager: mockSm,
+    })
+  ).rejects.toThrow(ExportValidationError);
+
+  expect((mockSm as any).loadSession).not.toHaveBeenCalled();
+});
+
+it('accepts a real-shaped session_id (no colons, only letters/digits/underscores/hyphens)', async () => {
+  // "session_2026-01-20T00-13-38_p3n1" must still pass the regex after ':' removal.
+  const { sm } = await makeStoredSession();
+
+  // The fixture ID is session_2026-01-15T10-00-00_abcd — dashes only, valid.
+  await expect(
+    exportDeliberationRecordCore({
+      sessionId: discussFixture.id,
+      operatorName: 'Test Operator',
+      format: 'markdown',
+      sessionManager: sm,
+    })
+  ).resolves.toBeDefined();
+});
+
+// ============================================================================
+// Task 10 (IN-02): per-field caps enforced via Buffer.byteLength (not .length)
+// ============================================================================
+
+it('rejects multibyte operatorName that exceeds byte cap even if character count is under cap', async () => {
+  // Each '€' is 3 bytes in UTF-8. 68 × '€' = 204 bytes > CAPS.operatorName (200).
+  // String.length = 68 (under 200) → would pass with .length. Buffer.byteLength
+  // = 204 → must be rejected after the fix.
+  const multibyteStr = '€'.repeat(68); // 68 euro signs = 204 bytes
+
+  await expect(
+    exportDeliberationRecordCore({
+      operatorName: multibyteStr,
+      sessionManager: {} as unknown as SessionManager,
+    })
+  ).rejects.toThrow(ExportValidationError);
+});
+
+it('accepts an ASCII operatorName at exactly the byte cap (200 bytes = 200 ASCII chars)', async () => {
+  // 200 ASCII 'A' = 200 bytes = exactly at CAPS.operatorName; must pass.
+  // (uses an empty SessionManager that will fail at "session not found" — which
+  // is an ExportValidationError for a different reason, not the cap check)
+  const { sm } = await makeStoredSession();
+
+  const result = await exportDeliberationRecordCore({
+    operatorName: 'A'.repeat(200),
+    format: 'markdown',
+    sessionManager: sm,
+  });
+  // We reach the render step (no byte-cap rejection), so result is defined.
+  expect(result).toBeDefined();
+});
