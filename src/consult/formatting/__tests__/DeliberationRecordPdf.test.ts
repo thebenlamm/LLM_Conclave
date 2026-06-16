@@ -82,10 +82,16 @@ describe('DeliberationRecordPdfFormatter', () => {
     const buf = await formatter.render(source, operatorFixture);
     const parsed = await pdf(buf);
 
+    // Headings are short — check raw text
     for (const text of Object.values(HEADING_TEXT)) {
       expect(parsed.text).toContain(text);
     }
-    expect(parsed.text).toContain(DISCLAIMER);
+
+    // pdfkit word-wraps long text; pdf-parse extracts it with "space + newline"
+    // at line breaks. Collapse all whitespace sequences to a single space so the
+    // full DISCLAIMER (which may be split across lines) can be found as a substring.
+    const normalizedText = parsed.text.replace(/\s+/g, ' ');
+    expect(normalizedText).toContain(DISCLAIMER);
     expect(parsed.text).toContain(operatorFixture.operatorName);
   });
 
