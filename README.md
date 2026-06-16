@@ -436,6 +436,59 @@ curl -X POST http://localhost:3100/api/discuss \
 
 If `CONCLAVE_API_KEY` is set, `POST /api/discuss` requires `Authorization: Bearer <key>`.
 
+`POST /api/export_record` is also exposed when running in SSE mode. Unlike `/api/discuss`, it is **fail-closed**: if `CONCLAVE_API_KEY` is not configured the route refuses all requests with HTTP 503.
+
+```bash
+curl -X POST http://localhost:3100/api/export_record \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <CONCLAVE_API_KEY>' \
+  -d '{"session_id":"session_2026-01-15T10-00-00_abcd","operator_name":"Jane Operator","format":"pdf"}'
+```
+
+On success, returns `{ "success": true, "format": "pdf", "content": "<base64>", "concern_keys": [...], "unmatched_mitigations": [] }`. For `format: "pdf"`, decode `content` from base64 to get the PDF bytes. Export is read-only (no LLM calls).
+
+### Single-tenant hosting (HTTP export)
+
+The SSE/REST server binds `127.0.0.1` only. **The raw HTTP port MUST NOT be exposed to the public internet directly.** Production single-tenant deployments should terminate TLS at a reverse proxy that forwards to the local bind address.
+
+**nginx** (minimal example):
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name conclave.example.com;
+    # ... TLS cert/key ...
+
+    location /api/export_record {
+        proxy_pass http://127.0.0.1:3100;
+        proxy_set_header Host $host;
+    }
+    location /api/discuss {
+        proxy_pass http://127.0.0.1:3100;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+**Caddy** (automatic TLS):
+
+```
+conclave.example.com {
+    reverse_proxy /api/export_record 127.0.0.1:3100
+    reverse_proxy /api/discuss 127.0.0.1:3100
+}
+```
+
+**Required configuration:**
+
+| Setting | Requirement |
+|---------|-------------|
+| `CONCLAVE_API_KEY` | **Mandatory** for `POST /api/export_record`. Unset key causes 503 (fail-closed, no anonymous export). Callers must send `Authorization: Bearer <key>`. For `/api/discuss` the key is optional. |
+| TLS | Required for any network-reachable deployment. Terminate at the reverse proxy; the app speaks plain HTTP on 127.0.0.1 only. |
+| Raw port | Never expose port 3100 (or `MCP_SSE_PORT`) to the public internet. Route through nginx/Caddy. |
+
+Export returns bytes inline in the JSON response (no server-side PDF storage). The endpoint is read-only — it loads a stored session and renders it without running new LLM calls.
+
 ### Context path allowlist (stdio only)
 
 By default the `context` and `project` parameters only accept paths that resolve inside the MCP server's working directory. For local stdio setups where you want to reference specs in sibling repos (e.g. `/Users/you/Workspace/other-project/docs/spec.md`), declare extra roots via an env var:
