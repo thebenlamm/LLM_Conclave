@@ -145,4 +145,92 @@ describe('DeliberationRecordPdfFormatter', () => {
     const parsedNoMit = await pdf(bufNoMit);
     expect(parsedNoMit.text).toContain('operator to complete');
   });
+
+  // ============================================================================
+  // Phase 21-05 (WR-01, IN-03): framing gate coverage + null-safe synthesis
+  // ============================================================================
+
+  // Test 6: panelRationale containing "overridden" → PDF renders "addressed" (WR-01)
+  it('panelRationale with "overridden" framing is neutralized to "addressed"', async () => {
+    const source = DeliberationRecordBuilder.fromConsultation(consultFixture, operatorFixture);
+    const formatter = new DeliberationRecordPdfFormatter();
+
+    const operatorWithFraming: OperatorInputs = {
+      ...operatorFixture,
+      panelRationale: 'warning was overridden by ops',
+    };
+    const buf = await formatter.render(source, operatorWithFraming);
+    const parsed = await pdf(buf);
+
+    expect(parsed.text).toContain('addressed');
+    expect(parsed.text).not.toMatch(/\boverridden\b/);
+  });
+
+  // Test 7: mitigation value containing "overrode" → PDF renders "addressed" (WR-01)
+  it('mitigation value with "overrode" framing is neutralized to "addressed"', async () => {
+    const source = DeliberationRecordBuilder.fromConsultation(consultFixture, operatorFixture);
+    const formatter = new DeliberationRecordPdfFormatter();
+
+    const operatorWithMit: OperatorInputs = {
+      ...operatorFixture,
+      mitigations: {
+        'Premature optimization risk is high.': 'Acknowledged — overrode the dissent with board approval.',
+      },
+    };
+    const buf = await formatter.render(source, operatorWithMit);
+    const parsed = await pdf(buf);
+
+    expect(parsed.text).toContain('addressed');
+    expect(parsed.text).not.toMatch(/\boverrode\b/);
+  });
+
+  // Test 8: operatorName with quantified confidence → neutralized in PDF (WR-01)
+  it('operatorName with quantified confidence is neutralized in the PDF', async () => {
+    const source = DeliberationRecordBuilder.fromConsultation(consultFixture, operatorFixture);
+    const formatter = new DeliberationRecordPdfFormatter();
+
+    const operatorWithConf: OperatorInputs = {
+      ...operatorFixture,
+      operatorName: 'Dr. Smith (95% confident)',
+    };
+    const buf = await formatter.render(source, operatorWithConf);
+    const parsed = await pdf(buf);
+
+    expect(parsed.text).not.toMatch(/95%\s*confident/i);
+    expect(parsed.text).toContain('confident');
+  });
+
+  // Test 9: companyName (chrome/orgLabel) with quantified confidence → neutralized (WR-01)
+  it('branding companyName with quantified confidence is neutralized in the PDF chrome', async () => {
+    const source = DeliberationRecordBuilder.fromConsultation(consultFixture, operatorFixture);
+    const formatter = new DeliberationRecordPdfFormatter();
+
+    const brandingWithConf: BrandingInputs = { companyName: 'Acme Health (90% certain)' };
+    const buf = await formatter.render(source, operatorFixture, brandingWithConf);
+    const parsed = await pdf(buf);
+
+    expect(parsed.text).not.toMatch(/90%\s*certain/i);
+    expect(parsed.text).toContain('certain');
+  });
+
+  // Test 10: undefined synthesis → fallback renders, does NOT throw (IN-03)
+  it('undefined synthesis renders the fallback string and does not throw', async () => {
+    const source = DeliberationRecordBuilder.fromConsultation(consultFixture, operatorFixture);
+    const formatter = new DeliberationRecordPdfFormatter();
+
+    // Cast synthesis away to simulate undefined at runtime (the type says string,
+    // but the builder may produce '' which coerces to undefined in edge cases).
+    const sourceWithNoSynthesis = { ...source, synthesis: undefined } as unknown as typeof source;
+
+    let buf: Buffer | undefined;
+    await expect(
+      formatter.render(sourceWithNoSynthesis, operatorFixture).then((b) => {
+        buf = b;
+        return b;
+      })
+    ).resolves.toBeDefined();
+
+    const parsed = await pdf(buf!);
+    expect(parsed.text).toContain('No synthesis recorded');
+  });
 });
