@@ -8,7 +8,9 @@
  * Phase 21-02 — Plan 02: no LLM calls, no side effects, no re-parsing of markdown.
  *
  * Threat mitigations:
- *   T-21-01: sanitizeFraming applied to every LLM free-text value before draw.
+ *   T-21-01: sanitizeFraming applied at the draw primitives (body/bullet/heading) so
+ *            every drawn string is gated exactly once — no draw site can drift. Chrome
+ *            draws (orgLabel, footerText) call sanitizeFraming explicitly.
  *   T-21-02: normalizeAccent validates hex and falls back to default (#222222).
  */
 
@@ -72,24 +74,24 @@ export class DeliberationRecordPdfFormatter {
         const margins = doc.page.margins;
         const contentWidth = doc.page.width - margins.left - margins.right;
 
-        // Header: orgLabel in accent color
+        // Header: orgLabel in accent color (sanitizeFraming applied — T-21-01 chrome path)
         doc
           .font('Helvetica-Bold')
           .fontSize(CHROME_FONT_SIZE)
           .fillColor(accent)
-          .text(orgLabel, margins.left, 28, {
+          .text(sanitizeFraming(orgLabel), margins.left, 28, {
             width: contentWidth,
             align: 'left',
             lineBreak: false,
           });
 
-        // Footer: footerText (if supplied)
+        // Footer: footerText (if supplied) (sanitizeFraming applied — T-21-01 chrome path)
         if (footerText) {
           doc
             .font('Helvetica')
             .fontSize(8)
             .fillColor('#888888')
-            .text(footerText, margins.left, doc.page.height - 36, {
+            .text(sanitizeFraming(footerText), margins.left, doc.page.height - 36, {
               width: contentWidth,
               align: 'left',
               lineBreak: false,
@@ -123,13 +125,15 @@ export class DeliberationRecordPdfFormatter {
   ): void {
     const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
+    // sanitizeFraming is applied INSIDE each primitive so every drawn string is
+    // gated exactly once (T-21-01 — structural gate, no draw site can drift).
     const heading = (text: string): void => {
       doc
         .moveDown(0.6)
         .font('Helvetica-Bold')
         .fontSize(HEADING_FONT_SIZE)
         .fillColor(accent)
-        .text(text, { width: contentWidth });
+        .text(sanitizeFraming(text), { width: contentWidth });
       doc
         .moveDown(0.2)
         .font('Helvetica')
@@ -142,7 +146,7 @@ export class DeliberationRecordPdfFormatter {
         .font('Helvetica')
         .fontSize(BODY_FONT_SIZE)
         .fillColor('#000000')
-        .text(text, { width: contentWidth });
+        .text(sanitizeFraming(text), { width: contentWidth });
     };
 
     const bullet = (text: string): void => {
@@ -150,23 +154,23 @@ export class DeliberationRecordPdfFormatter {
         .font('Helvetica')
         .fontSize(BODY_FONT_SIZE)
         .fillColor('#000000')
-        .text('• ' + text, { width: contentWidth - 16, indent: 16 });
+        .text('• ' + sanitizeFraming(text), { width: contentWidth - 16, indent: 16 });
     };
 
     // ----------------------------------------------------------------
     // Field 1: Decision Framed
     // ----------------------------------------------------------------
     heading(HEADING_TEXT.field1);
-    body(sanitizeFraming(source.decision.question));
+    body(source.decision.question);
     if (source.decision.context) {
       doc.moveDown(0.3);
-      body('Context: ' + sanitizeFraming(source.decision.context));
+      body('Context: ' + source.decision.context);
     }
     if (source.decision.constraints && source.decision.constraints.length > 0) {
       doc.moveDown(0.3);
       body('Constraints:');
       for (const c of source.decision.constraints) {
-        bullet(sanitizeFraming(c));
+        bullet(c);
       }
     }
 
@@ -191,7 +195,7 @@ export class DeliberationRecordPdfFormatter {
     if (source.positions.length > 0) {
       for (const pos of source.positions) {
         if (pos.stance) {
-          bullet(`${pos.agent}: ${sanitizeFraming(pos.stance)}`);
+          bullet(`${pos.agent}: ${pos.stance}`);
         } else {
           bullet(`${pos.agent}: (position not individually persisted in stored session)`);
         }
@@ -208,7 +212,7 @@ export class DeliberationRecordPdfFormatter {
       // Attributed dissents available (consult path)
       for (const d of source.dissents) {
         const severityStr = d.severity ? ` (${d.severity})` : '';
-        bullet(`${d.agent}${severityStr}: ${sanitizeFraming(d.concern)}`);
+        bullet(`${d.agent}${severityStr}: ${d.concern}`);
       }
     } else if (source.dissentQuality !== undefined) {
       // Discuss path: dissent_quality set but no individual dissents persisted
@@ -229,7 +233,7 @@ export class DeliberationRecordPdfFormatter {
     // Field 5: Synthesis & Recommendation
     // ----------------------------------------------------------------
     heading(HEADING_TEXT.field5);
-    body(sanitizeFraming(source.synthesis) || '(No synthesis recorded.)');
+    body(source.synthesis || '(No synthesis recorded.)');
 
     // ----------------------------------------------------------------
     // Field 6: Risks Surfaced & Human Mitigation
@@ -242,7 +246,7 @@ export class DeliberationRecordPdfFormatter {
       for (const d of source.dissents) {
         const mitigations = operator.mitigations ?? {};
         const mitigation = mitigations[d.concern] ?? MITIGATION_PLACEHOLDER;
-        body(`Risk: ${sanitizeFraming(d.concern)}`);
+        body(`Risk: ${d.concern}`);
         body(`Mitigation: ${mitigation}`);
         doc.moveDown(0.2);
       }
