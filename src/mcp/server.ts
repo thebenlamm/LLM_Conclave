@@ -64,7 +64,6 @@ import { LEADING_ROLE_PREFIX } from '../core/personaBoundary.js';
 import { deriveConfidenceCause } from '../core/ConfidenceReconciler.js';
 import { isAgentContribution, contributorsOverall } from '../core/roundMembership.js';
 import { classifyNonConsensus } from '../core/consensusClassifier.js';
-import { renderDeliberationRecordFromSession } from '../consult/formatting/exportDeliberationRecord.js';
 import { exportDeliberationRecordCore, ExportValidationError } from '../consult/formatting/exportDeliberationRecordCore.js';
 
 // ============================================================================
