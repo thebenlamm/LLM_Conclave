@@ -142,6 +142,10 @@ jest.mock('../../config/PersonaSystem.js', () => ({
 jest.mock('../../consult/formatting/FormatterFactory.js', () => ({
   FormatterFactory: {
     format: jest.fn(() => 'formatted output'),
+    // Phase 21-03: async dispatch for Deliberation Record export (D-08)
+    renderDeliberationRecord: jest.fn().mockResolvedValue(
+      '# Deliberation Record\n\n## 1. Decision Framed\n\nTest content.\n'
+    ),
   },
 }));
 
@@ -1171,7 +1175,9 @@ describe('MCP Server Handlers', () => {
       expect(result.content[0].text).toContain('No sessions found');
     });
 
-    it('handleExportRecord with no session_id and a recent session calls loadSession with recent id and renders Deliberation Record', async () => {
+    it('handleExportRecord with no session_id and a recent session uses getMostRecentSession and renders Deliberation Record', async () => {
+      // Phase 21-03: the shared core (exportDeliberationRecordCore) uses the manifest
+      // returned by getMostRecentSession directly — no second loadSession call needed.
       const SessionManager = require('../../core/SessionManager').default;
 
       const recentManifest = {
@@ -1192,9 +1198,10 @@ describe('MCP Server Handlers', () => {
         outputFiles: {},
       };
 
+      const mockGetMostRecent = jest.fn().mockResolvedValue(recentManifest);
       const mockLoadSession = jest.fn().mockResolvedValue(recentManifest);
       SessionManager.mockImplementation(() => ({
-        getMostRecentSession: jest.fn().mockResolvedValue(recentManifest),
+        getMostRecentSession: mockGetMostRecent,
         loadSession: mockLoadSession,
       }));
 
@@ -1205,7 +1212,8 @@ describe('MCP Server Handlers', () => {
         },
       });
 
-      expect(mockLoadSession).toHaveBeenCalledWith('recent-1');
+      // Core uses getMostRecentSession manifest directly; loadSession not called for most-recent path.
+      expect(mockGetMostRecent).toHaveBeenCalled();
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('# Deliberation Record');
     });
