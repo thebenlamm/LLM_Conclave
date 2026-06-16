@@ -81,19 +81,31 @@ export const MITIGATION_PLACEHOLDER = '_[operator to complete]_';
 /**
  * Render-time framing gate (WR-01).
  *
+ * Best-effort neutralization of the known forbidden phrasings: quantified
+ * confidence (percent and decimal forms) and override/overrule framing of
+ * dissent. Not an exhaustive guarantee against all possible
+ * confidence/override phrasings.
+ *
  * The Deliberation Record embeds free-text drawn from LLM output (synthesis,
- * decision question/context, dissent concerns, position stances). To uphold the
- * compliance guarantee that a record never frames a dissent as "warning-overridden"
- * nor asserts a quantified confidence, neutralize forbidden phrasing in the
- * fully-assembled output. The locked headers and disclaimer contain none of these
- * patterns, so a final pass cannot corrupt them.
+ * decision question/context, dissent concerns, position stances). The locked
+ * headers and disclaimer contain none of these patterns, so a final pass cannot
+ * corrupt them. Function is idempotent: sanitizeFraming(sanitizeFraming(x)) ===
+ * sanitizeFraming(x).
  */
 export function sanitizeFraming(text: string): string {
   return (
     text
-      // "90% confident" / "75 % sure" → drop the quantified confidence, keep the word
-      .replace(/\b\d+\s*%\s*(sure|confident)\b/gi, '$1')
-      // "overridden" must never frame a dissent in a compliance artifact
-      .replace(/\boverridden\b/gi, 'addressed')
+      // "90% confident" / "75 % sure" / "80% certain" / "95% confidence" →
+      // drop the quantified percent, keep the word
+      .replace(/\b\d+\s*%\s*(sure|certain|confident|confidence)\b/gi, '$1')
+      // "confidence of 0.9" → "confidence"
+      .replace(/\bconfidence\s+of\s+\d*\.\d+\b/gi, 'confidence')
+      // "0.9 confidence" / "0.85 certainty" → keep the word
+      .replace(/\b\d*\.\d+\s+(confidence|certainty)\b/gi, '$1')
+      // override/overrule stems must never frame a dissent in a compliance artifact
+      // covers: override, overrides, overriding, overridden
+      .replace(/\boverrid(?:e|es|ing|den)\b/gi, 'addressed')
+      // covers: overrode, overrule, overrules, overruled, overruling
+      .replace(/\boverr(?:ode|ule[ds]?|uling)\b/gi, 'addressed')
   );
 }
