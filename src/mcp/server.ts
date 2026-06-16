@@ -64,6 +64,7 @@ import { deriveConfidenceCause } from '../core/ConfidenceReconciler.js';
 import { isAgentContribution, contributorsOverall } from '../core/roundMembership.js';
 import { classifyNonConsensus } from '../core/consensusClassifier.js';
 import { renderDeliberationRecordFromSession } from '../consult/formatting/exportDeliberationRecord.js';
+import { exportDeliberationRecordCore, ExportValidationError } from '../consult/formatting/exportDeliberationRecordCore.js';
 
 // ============================================================================
 // Server Factory - creates a configured Server instance per connection
@@ -322,7 +323,11 @@ Example inline JSON:
       properties: {
         session_id: {
           type: 'string',
-          description: 'Session ID to export. Omit to export the most recent session.',
+          description:
+            'Session ID to export (e.g. session_2026-01-20T00-13-38_p3n1). ' +
+            'Omit to export the most recent session. ' +
+            'Must contain only letters, digits, underscores, hyphens, and colons — ' +
+            'path-traversal characters are rejected.',
         },
         operator_name: {
           type: 'string',
@@ -331,6 +336,27 @@ Example inline JSON:
         panel_rationale: {
           type: 'string',
           description: 'Optional free-text rationale for the panel composition (Field 2).',
+        },
+        format: {
+          type: 'string',
+          enum: ['markdown', 'pdf'],
+          description: "Output format. 'markdown' (default) returns a UTF-8 string; 'pdf' returns a base64-encoded PDF Buffer.",
+        },
+        branding: {
+          type: 'object',
+          description: 'Per-request PDF branding. Ignored when format=markdown.',
+          properties: {
+            companyName: { type: 'string', description: 'Company or organization name shown in the PDF header.' },
+            accentColor: { type: 'string', description: "Accent hex color for headings and rules (e.g. '#1a73e8')." },
+            footerText: { type: 'string', description: 'Optional footer line (e.g. confidentiality notice).' },
+          },
+        },
+        mitigations: {
+          type: 'object',
+          description:
+            'Operator mitigations keyed by EXACT dissent concern text (verbatim match only). ' +
+            'Matching keys render in Field 6; non-matching keys surface in the unmatched_mitigations response field.',
+          additionalProperties: { type: 'string' },
         },
       },
       required: ['operator_name'],
@@ -981,39 +1007,60 @@ async function handleStatus() {
 
 /**
  * Handle llm_conclave_export_record — renders a stored session as a Deliberation Record.
- * Read-only: no LLM calls, no panel re-run. Returns a clear message when session not found.
+ * Delegates to the shared core (D-07): read-only, no LLM calls, no panel re-run.
+ * Session-id resolution, mitigations threading, concern_key reconciliation, and
+ * all input guards are centralized in exportDeliberationRecordCore.
  */
 async function handleExportRecord(args: {
   session_id?: string;
   operator_name: string;
   panel_rationale?: string;
+  format?: string;
+  branding?: { companyName?: string; accentColor?: string; footerText?: string };
+  mitigations?: Record<string, string>;
 }) {
-  const { session_id, operator_name, panel_rationale } = args;
-  const sessionManager = new SessionManager();
+  const { session_id, operator_name, panel_rationale, format, branding, mitigations } = args;
 
-  // Resolve session ID: use explicit ID or fall back to the most recent session
-  let resolvedId = session_id;
-  if (!resolvedId) {
-    const recent = await sessionManager.getMostRecentSession();
-    if (!recent) {
-      return {
-        content: [{
-          type: 'text',
-          text: 'No sessions found. Run a discussion first using llm_conclave_discuss.',
-        }],
-      };
-    }
-    resolvedId = recent.id;
+  let result;
+  try {
+    result = await exportDeliberationRecordCore({
+      sessionId: session_id,
+      operatorName: operator_name,
+      panelRationale: panel_rationale,
+      format: format as 'markdown' | 'pdf' | undefined,
+      branding,
+      mitigations,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      content: [{ type: 'text', text: `Export error: ${message}` }],
+    };
   }
 
-  const operator = {
-    operatorName: operator_name,
-    panelRationale: panel_rationale,
-    mitigations: {},
-  };
+  if (result.format === 'pdf') {
+    const base64 = (result.content as Buffer).toString('base64');
+    const concernSummary =
+      result.concernKeys.length > 0
+        ? `Concern keys: ${result.concernKeys.join('; ')}`
+        : 'No attributed dissents (concern_keys: []).';
+    const unmatchedNote =
+      result.unmatchedMitigations.length > 0
+        ? ` Unmatched mitigation keys: ${result.unmatchedMitigations.join(', ')}.`
+        : '';
+    return {
+      content: [{
+        type: 'text',
+        text:
+          `Deliberation Record exported as PDF (${(result.content as Buffer).length} bytes, base64).\n` +
+          `${concernSummary}${unmatchedNote}\n\n` +
+          base64,
+      }],
+    };
+  }
 
-  const text = await renderDeliberationRecordFromSession(resolvedId, operator, sessionManager);
-
+  // markdown (default)
+  const text = result.content as string;
   return {
     content: [{ type: 'text', text }],
   };
