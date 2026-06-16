@@ -1033,9 +1033,24 @@ async function handleExportRecord(args: {
       mitigations,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    // WR-01: distinguish validation errors from unexpected failures.
+    // ExportValidationError messages are safe, user-actionable guidance
+    // (e.g. "No sessions found...") and are intentionally surfaced as graceful
+    // text without isError (matches the documented/tested consult-tool pattern).
+    // Any OTHER error (e.g. an FS permission error that may embed
+    // ~/.llm-conclave paths) must NOT echo err.message — that would leak
+    // internal detail to MCP clients reachable over SSE, an asymmetry with the
+    // hardened HTTP route. Log server-side, return a generic message, and flag
+    // isError so a genuine failure cannot masquerade as a valid record.
+    if (err instanceof ExportValidationError) {
+      return {
+        content: [{ type: 'text', text: `Export error: ${err.message}` }],
+      };
+    }
+    console.error('[MCP] export_record failed:', err);
     return {
-      content: [{ type: 'text', text: `Export error: ${message}` }],
+      content: [{ type: 'text', text: 'Export error: internal error' }],
+      isError: true,
     };
   }
 
