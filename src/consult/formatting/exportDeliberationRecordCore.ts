@@ -139,6 +139,12 @@ export async function exportDeliberationRecordCore(
   }
 
   // ── Step 2: Validate field lengths ────────────────────────────────────────
+  // WR-02: typeof guard before .trim() so a non-string truthy value (e.g. 42)
+  // throws a clean ExportValidationError instead of a raw TypeError for any
+  // non-HTTP caller that bypasses the HTTP route's own string guard.
+  if (typeof input.operatorName !== 'string') {
+    throw new ExportValidationError('operatorName must be a string');
+  }
   if (!input.operatorName || !input.operatorName.trim()) {
     throw new ExportValidationError('operatorName is required and must not be empty');
   }
@@ -160,6 +166,16 @@ export async function exportDeliberationRecordCore(
     }
   }
   if (input.branding !== undefined) {
+    // WR-02: guard object-ness before destructuring so `null`, arrays, or
+    // primitives throw a clean ExportValidationError instead of a TypeError
+    // (`const { companyName } = null` throws) for non-HTTP callers.
+    if (
+      typeof input.branding !== 'object' ||
+      input.branding === null ||
+      Array.isArray(input.branding)
+    ) {
+      throw new ExportValidationError('branding must be an object');
+    }
     const { companyName, accentColor, footerText } = input.branding;
     if (companyName !== undefined) {
       if (typeof companyName !== 'string') {
@@ -193,6 +209,16 @@ export async function exportDeliberationRecordCore(
     }
   }
   if (input.mitigations !== undefined) {
+    // WR-02: guard object-ness before Object.keys so a string (which yields
+    // index "keys") or other non-object throws a clean ExportValidationError
+    // instead of silently producing bogus mitigation keys for non-HTTP callers.
+    if (
+      typeof input.mitigations !== 'object' ||
+      input.mitigations === null ||
+      Array.isArray(input.mitigations)
+    ) {
+      throw new ExportValidationError('mitigations must be an object');
+    }
     const mitKeys = Object.keys(input.mitigations);
     if (mitKeys.length > CAPS.mitigationCount) {
       throw new ExportValidationError(
