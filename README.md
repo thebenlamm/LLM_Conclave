@@ -552,3 +552,11 @@ src/
 - [docs/RESUME_FEATURE_DESIGN.md](docs/RESUME_FEATURE_DESIGN.md)
 - [docs/plans/2026-02-12-context-tax-optimization.md](docs/plans/2026-02-12-context-tax-optimization.md)
 - [TEST_COVERAGE_ANALYSIS.md](TEST_COVERAGE_ANALYSIS.md)
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and the pull request process.
+
+## License
+
+ISC License. See [LICENSE](LICENSE) for details.

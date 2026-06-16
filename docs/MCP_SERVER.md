@@ -130,7 +130,7 @@ Free-form collaborative discussion with persisted sessions.
 | `rounds` | number | No | Default `4` |
 | `min_rounds` | number | No | Default `2`; cannot exceed `rounds` |
 | `dynamic` | boolean | No | Enables LLM-selected speaker order |
-| `selector_model` | string | No | Defaults to `gpt-4o-mini` |
+| `selector_model` | string | No | Defaults to `gemini-2.5-flash` |
 | `judge_model` | string | No | Overrides the judge model |
 | `timeout` | number | No | Seconds; `0` disables timeout |
 | `format` | string | No | `markdown`, `json`, or `both` |
@@ -264,6 +264,7 @@ Endpoints exposed in SSE mode:
 - `GET /sse`
 - `POST /messages`
 - `POST /api/discuss`
+- `POST /api/export_record`
 - `GET /health`
 
 ### REST endpoint
