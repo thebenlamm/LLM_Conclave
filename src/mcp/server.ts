@@ -2027,12 +2027,16 @@ export async function startSSE(port: number) {
 
   // REST API endpoint — direct HTTP request/response, no MCP protocol overhead
   app.post('/api/discuss', async (req, res) => {
-    // Optional API key auth via CONCLAVE_API_KEY env var
+    // Optional API key auth via CONCLAVE_API_KEY env var.
+    // RR-04: constant-time, length-safe bearer compare via crypto.timingSafeEqual
+    // (mirrors the /api/export_record route; the timing-unsafe `!==` leaked key
+    // length/prefix). Auth remains optional — only enforced when the key is set.
     const apiKey = process.env.CONCLAVE_API_KEY;
     if (apiKey) {
-      const match = req.headers.authorization?.match(/^Bearer\s+(.+)$/);
-      const provided = match?.[1];
-      if (provided !== apiKey) {
+      const provided = req.headers.authorization?.match(/^Bearer\s+(.+)$/)?.[1];
+      const providedBuf = Buffer.from(provided ?? '');
+      const keyBuf = Buffer.from(apiKey);
+      if (providedBuf.length !== keyBuf.length || !timingSafeEqual(providedBuf, keyBuf)) {
         res.status(401).json({ success: false, error: 'Invalid or missing API key' });
         return;
       }
