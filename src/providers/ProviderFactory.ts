@@ -3,6 +3,7 @@ import ClaudeProvider from './ClaudeProvider';
 import GrokProvider from './GrokProvider';
 import GeminiProvider from './GeminiProvider';
 import MistralProvider from './MistralProvider';
+import PerplexityProvider from './PerplexityProvider';
 import { CostTracker } from '../core/CostTracker';
 
 /**
@@ -32,6 +33,8 @@ export default class ProviderFactory {
       if (modelLower === 'gemini' || modelLower === 'gemini-pro') return 'gemini-2.5-pro';
       if (modelLower === 'gemini-flash') return 'gemini-2.0-flash';
     }
+
+    if (modelLower === 'perplexity') return 'sonar-pro';
 
     return modelIdentifier;
   }
@@ -81,7 +84,14 @@ export default class ProviderFactory {
       return new MistralProvider(modelIdentifier, undefined, options?.costTracker);
     }
 
-    throw new Error(`Unknown model: ${modelIdentifier}. Supported models: GPT (OpenAI), Claude (Anthropic), Grok (xAI), Gemini (Google), Mistral (Mistral AI)`);
+    // Perplexity models (Sonar family — web-grounded). Accept the bare
+    // "perplexity" alias as a convenience, mapped to sonar-pro.
+    if (modelLower.includes('sonar') || modelLower.includes('perplexity')) {
+      const fullModelName = modelLower === 'perplexity' ? 'sonar-pro' : modelIdentifier;
+      return new PerplexityProvider(fullModelName, undefined, options?.costTracker);
+    }
+
+    throw new Error(`Unknown model: ${modelIdentifier}. Supported models: GPT (OpenAI), Claude (Anthropic), Grok (xAI), Gemini (Google), Mistral (Mistral AI), Sonar (Perplexity)`);
   }
 
   /**
@@ -94,7 +104,8 @@ export default class ProviderFactory {
       'claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5, sonnet, opus, haiku (Anthropic)',
       'grok-3, grok-vision-3 (xAI)',
       'gemini-3-pro, gemini-2.5-pro, gemini-2.5-pro-exp, gemini-2.5-flash, gemini-2.0-flash, gemini-flash, gemini-pro (Google - Gemini 2.x/3.x)',
-      'mistral-large-latest, mistral-small-latest, codestral-latest (Mistral AI)'
+      'mistral-large-latest, mistral-small-latest, codestral-latest (Mistral AI)',
+      'sonar, sonar-pro, sonar-reasoning, sonar-reasoning-pro, sonar-deep-research, perplexity (Perplexity - web-grounded)'
     ];
   }
 }

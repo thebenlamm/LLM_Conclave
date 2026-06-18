@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenAI } from '@google/genai';
 import ProviderFactory from './ProviderFactory.js';
+import { SONAR_MODELS } from './PerplexityProvider.js';
 
 export interface AgentSpec {
   name: string;
@@ -28,7 +29,7 @@ export class PreflightError extends Error {
   }
 }
 
-type ProviderType = 'anthropic' | 'openai' | 'grok' | 'gemini' | 'mistral' | 'unknown';
+type ProviderType = 'anthropic' | 'openai' | 'grok' | 'gemini' | 'mistral' | 'perplexity' | 'unknown';
 
 /**
  * A ping failure classified by whether it should abort the run.
@@ -53,6 +54,7 @@ function detectProvider(model: string): ProviderType {
   if (lower.includes('grok')) return 'grok';
   if (lower.includes('gemini')) return 'gemini';
   if (lower.includes('mistral') || lower.includes('codestral')) return 'mistral';
+  if (lower.includes('sonar') || lower.includes('perplexity')) return 'perplexity';
   return 'unknown';
 }
 
@@ -140,6 +142,20 @@ async function pingModel(type: ProviderType, resolvedModel: string): Promise<Pin
         if (!key) return missingKey('MISTRAL_API_KEY not set');
         const client = new OpenAI({ apiKey: key, baseURL: 'https://api.mistral.ai/v1', maxRetries: 0, timeout: PING_TIMEOUT_MS });
         await withTimeout(client.models.retrieve(resolvedModel), PING_TIMEOUT_MS);
+        return null;
+      }
+      case 'perplexity': {
+        const key = process.env.PERPLEXITY_API_KEY;
+        if (!key) return missingKey('PERPLEXITY_API_KEY not set');
+        // Perplexity's OpenAI-compatible API does not reliably implement the
+        // /models retrieve endpoint, so a network ping there can false-abort a
+        // valid run. Instead validate the model name against the known Sonar set
+        // locally — this catches a typo'd model ('sonar-pr') before it burns a
+        // full run, while still soft-proceeding on everything else (auth and
+        // transient errors surface live via the run's own retry path).
+        if (!(SONAR_MODELS as readonly string[]).includes(resolvedModel.toLowerCase())) {
+          return { severity: 'hard', message: `Model not found: ${resolvedModel}` };
+        }
         return null;
       }
       default:
