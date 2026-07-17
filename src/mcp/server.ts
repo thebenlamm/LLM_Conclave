@@ -377,17 +377,22 @@ function registerHandlers(server: Server) {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    // Forward the client's progressToken so long-running tools can emit real MCP
+    // progress notifications. The client's tool-call idle-timeout is reset by
+    // notifications/progress — NOT by logging messages — so a silent multi-round
+    // run must send progress or the client aborts it (observed on discuss).
+    const progressToken = (request.params as any)._meta?.progressToken;
 
     try {
       switch (name) {
         case 'llm_conclave_consult':
-          return await handleConsult(args as any, server);
+          return await handleConsult(args as any, server, progressToken);
 
         case 'llm_conclave_discuss':
-          return await handleDiscuss(args as any, server);
+          return await handleDiscuss(args as any, server, progressToken);
 
         case 'llm_conclave_continue':
-          return await handleContinue(args as any, server);
+          return await handleContinue(args as any, server, progressToken);
 
         case 'llm_conclave_sessions':
           return await handleSessions(args as any);
@@ -501,7 +506,7 @@ async function handleConsult(args: {
   format?: string;
   judge_model?: string;
   strict_models?: boolean;
-}, server: Server) {
+}, server: Server, progressToken?: string | number) {
   const { question, context: contextPath, personas, rounds, quick = false, format = 'markdown', judge_model, strict_models } = args;
   const maxRounds = rounds ? Math.min(4, Math.max(1, rounds)) : (quick ? 2 : 4);
 
@@ -509,6 +514,7 @@ async function handleConsult(args: {
   // Starts before loadContextFromPath to prevent idle gaps on large contexts.
   let roundEstimate = 0;
   let phase = 'loading context';
+  let heartbeatCount = 0;
   const progressHeartbeat = setInterval(() => {
     if (phase === 'consulting') {
       roundEstimate = Math.min(roundEstimate + 1, maxRounds);
@@ -520,6 +526,14 @@ async function handleConsult(args: {
         ? 'Loading context...'
         : `Consultation in progress — round ~${roundEstimate}/${maxRounds}...`
     }).catch(() => {});
+    // Real MCP progress notification — this is what resets the client idle-timeout
+    // (the logging message above does not). Only when the client sent a progressToken.
+    if (progressToken !== undefined) {
+      server.notification({
+        method: 'notifications/progress',
+        params: { progressToken, progress: ++heartbeatCount },
+      }).catch(() => {});
+    }
   }, 30_000);
 
   let result: any;
@@ -657,10 +671,11 @@ async function handleDiscuss(args: {
   context_optimization?: boolean;
   strict_models?: boolean;
   show_turns?: boolean;
-}, server: Server) {
+}, server: Server, progressToken?: string | number) {
   const format = args.format ?? 'markdown';
 
   // Build progress callback that forwards events to MCP logging
+  let progressCount = 0;
   const onProgress = (event: { type: string; message: string }) => {
     const level = event.type === 'error' ? 'warning' : 'info';
     server.sendLoggingMessage({
@@ -668,6 +683,15 @@ async function handleDiscuss(args: {
       logger: 'llm-conclave',
       data: event.message,
     }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
+    // Real MCP progress notification — resets the client idle-timeout during long
+    // silent rounds (the logging message above does not). Only when the client
+    // sent a progressToken; the DiscussionRunner heartbeat drives this every 30s.
+    if (progressToken !== undefined) {
+      server.notification({
+        method: 'notifications/progress',
+        params: { progressToken, progress: ++progressCount, message: event.message },
+      }).catch(() => {});
+    }
   };
 
   const runner = new DiscussionRunner();
@@ -744,7 +768,7 @@ async function handleContinue(args: {
   task: string;
   reset?: boolean;
   show_turns?: boolean;
-}, server: Server) {
+}, server: Server, progressToken?: string | number) {
   const { session_id, task, reset = false } = args;
   const sessionManager = new SessionManager();
   const continuationHandler = new ContinuationHandler();
@@ -803,6 +827,7 @@ async function handleContinue(args: {
   }
 
   // Build progress callback that forwards events to MCP logging
+  let progressCount = 0;
   const onProgress = (event: { type: string; message: string }) => {
     const level = event.type === 'error' ? 'warning' : 'info';
     server.sendLoggingMessage({
@@ -810,6 +835,15 @@ async function handleContinue(args: {
       logger: 'llm-conclave',
       data: event.message,
     }).catch((err: any) => { console.error('[MCP] Log send failed:', err?.message); });
+    // Real MCP progress notification — resets the client idle-timeout during long
+    // silent rounds (the logging message above does not). Only when the client
+    // sent a progressToken; the DiscussionRunner heartbeat drives this every 30s.
+    if (progressToken !== undefined) {
+      server.notification({
+        method: 'notifications/progress',
+        params: { progressToken, progress: ++progressCount, message: event.message },
+      }).catch(() => {});
+    }
   };
 
   // Delegate execution to DiscussionRunner with pre-resolved config and prior history
