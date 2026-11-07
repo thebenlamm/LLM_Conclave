@@ -1,7 +1,7 @@
 /**
  * Persona boundary enforcement (Phase 15.1).
  *
- * Pure helper that scans agent-produced content for a LEADING bold role-prefix
+ * Pure helper that scans agent-produced content for a LEADING role-prefix
  * indicating the agent is impersonating a different configured advisor or the
  * Judge. This runs AFTER the existing self-prefix strip in AgentTurnExecutor
  * so echoed self-prefixes are already removed by the time this is called.
@@ -52,6 +52,36 @@ export interface ImpersonationResult {
  */
 export const LEADING_ROLE_PREFIX = /^\s*\*\*([A-Za-z][A-Za-z][A-Za-z '\-]*?):(?:\*\*|\s)/;
 
+/**
+ * Matches `Judge's Assessment:` or `Judge's Final Ruling:`. Limited to two words
+ * so prose such as `Judge's ruling was clear: ...` is not flagged.
+ */
+const JUDGE_POSSESSIVE_LABEL = /^\s*(?:#{1,6}\s+)?(?:\*\*)?Judge's(?:\s+[A-Za-z]+){1,2}(?:\*\*)?\s*:/i;
+
+/**
+ * Finds another panelist's name used as a leading label, in any shape seen in
+ * stored sessions: `Name:`, `# Name:`, `**Name**:` or `**Name:`. Matches only
+ * configured names, so ordinary labels like `Summary:` are never flagged.
+ *
+ * Accepted false positives, which cost one retry: a turn addressing a panelist
+ * (`Name: you raise a good point`), and a section label that matches a panelist
+ * named with a common word (`Primary: recommended approach`).
+ */
+function findLeadingLabel(text: string, selfName: string, allAgentNames: string[]): string | null {
+  const selfLower = (selfName || '').trim().toLowerCase();
+  if (selfLower !== 'judge' && JUDGE_POSSESSIVE_LABEL.test(text)) {
+    return 'Judge';
+  }
+  for (const name of [...allAgentNames, 'Judge']) {
+    if (!name || name.trim().toLowerCase() === selfLower) continue;
+    const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`^\\s*(?:#{1,6}\\s+)?(?:\\*\\*)?${escaped}(?:\\*\\*)?\\s*:`, 'i').test(text)) {
+      return name;
+    }
+  }
+  return null;
+}
+
 export function detectImpersonation(
   content: string,
   selfName: string,
@@ -66,10 +96,20 @@ export function detectImpersonation(
   // mid-body bold phrases that happen to look role-ish.
   let head = content.slice(0, 200);
 
+  // Check before stripping headings, since a heading can itself be the label.
+  const labelled = findLeadingLabel(head, selfName, allAgentNames);
+  if (labelled) {
+    return { offender: labelled };
+  }
+
   // Strip leading whitespace and any markdown heading tokens (`## Summary\n`)
   // so a heading that precedes a body doesn't mask a downstream impersonation.
-  // Headings themselves are never flagged because `##` is not `**`.
   head = head.replace(/^\s*(?:#{1,6}\s[^\n]*\n+)?/, '');
+
+  const labelledAfterHeading = findLeadingLabel(head, selfName, allAgentNames);
+  if (labelledAfterHeading) {
+    return { offender: labelledAfterHeading };
+  }
 
   const match = head.match(LEADING_ROLE_PREFIX);
   if (!match) {

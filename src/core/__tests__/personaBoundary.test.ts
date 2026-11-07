@@ -98,4 +98,42 @@ describe('detectImpersonation (Phase 15.1)', () => {
     const content = `**Random Person: speaking up here with an unrelated thought.**`;
     expect(detectImpersonation(content, SELF, AGENTS)).toEqual({ offender: null });
   });
+
+  // ── Label shapes found in stored sessions that the bold-only match missed ──
+
+  describe('other label shapes', () => {
+    const PANEL = ['Architect', 'Pragmatist', 'Masoretic_Textual_Scholar', 'Comparativist-Skeptic', 'Dr. Lee (Stats)'];
+
+    it.each([
+      ['plain', `Pragmatist: The fear of breaking changes is valid.`, 'Pragmatist'],
+      ['plain before bold body', `Pragmatist: **My position: ship it.**`, 'Pragmatist'],
+      ['heading', `# Pragmatist: Devil's Advocate Against My Own Proposal`, 'Pragmatist'],
+      ['bold name with outer colon', `**Pragmatist**: I disagree.`, 'Pragmatist'],
+      ['underscored name in bold', `**Masoretic_Textual_Scholar: Round 3**`, 'Masoretic_Textual_Scholar'],
+      ['underscored name, plain', `Masoretic_Textual_Scholar: Round 3`, 'Masoretic_Textual_Scholar'],
+      ['hyphenated name', `Comparativist-Skeptic: A reflection`, 'Comparativist-Skeptic'],
+      ['name with regex characters', `Dr. Lee (Stats): The sample is small.`, 'Dr. Lee (Stats)'],
+      ['leading whitespace', `\n\n  Pragmatist: I disagree.`, 'Pragmatist'],
+      ['different case', `pragmatist: I disagree.`, 'Pragmatist'],
+      ['after an unrelated heading', `## Summary\n\nPragmatist: I disagree.`, 'Pragmatist'],
+      ['plain Judge', `Judge: The panel concludes.`, 'Judge'],
+      ['plain Judge possessive', `Judge's guidance: CONFIDENCE: LOW`, 'Judge'],
+      ['heading Judge possessive', `# Judge's Assessment: Complete Consensus`, 'Judge'],
+    ])('flags %s', (_shape, content, offender) => {
+      expect(detectImpersonation(content, 'Architect', PANEL)).toEqual({ offender });
+    });
+
+    it.each([
+      ['own plain label', `Architect: I disagree.`],
+      ['own heading label', `# Architect: My Reflection`],
+      ['name with no colon', `Pragmatist raised a good point: tests matter.`],
+      ['name inside a longer word', `Pragmatists: all of you are wrong.`],
+      ['unconfigured plain label', `Summary: ship it.`],
+      ['heading naming a panelist without a colon', `## Pragmatist Reflection\n\nMy view follows.`],
+      ['label after the opening line', `I agree.\nPragmatist: tests matter.`],
+      ['prose about the Judge', `Judge's ruling was clear: we continue.`],
+    ])('does NOT flag %s', (_shape, content) => {
+      expect(detectImpersonation(content, 'Architect', PANEL)).toEqual({ offender: null });
+    });
+  });
 });

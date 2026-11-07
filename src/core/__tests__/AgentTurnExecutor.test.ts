@@ -173,6 +173,34 @@ describe('AgentTurnExecutor', () => {
     expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(true);
   });
 
+  // ─── Persona boundary: plain-label impersonation ────────────────────────────
+  it('retries a plain-label impersonation and keeps only the clean response', async () => {
+    const deps = makeDeps();
+    deps.agents.Alice.provider.chat = jest.fn()
+      .mockResolvedValueOnce('Bob: I disagree.')
+      .mockResolvedValueOnce('I disagree with Bob.');
+    const executor = new AgentTurnExecutor(deps);
+
+    await executor.agentTurn('Alice');
+
+    expect(deps.agents.Alice.provider.chat).toHaveBeenCalledTimes(2);
+    expect(deps.conversationHistory).toHaveLength(1);
+    expect(deps.conversationHistory[0]).toMatchObject({ speaker: 'Alice', content: 'I disagree with Bob.' });
+  });
+
+  it('trips the circuit breaker after two turns of persistent impersonation', async () => {
+    const deps = makeDeps();
+    deps.agents.Alice.provider.chat = jest.fn().mockResolvedValue('Bob: I disagree.');
+    const executor = new AgentTurnExecutor(deps);
+
+    await executor.agentTurn('Alice');
+    expect(deps.conversationHistory[0]).toMatchObject({ errorDetails: 'persona-impersonation' });
+    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(false);
+
+    await executor.agentTurn('Alice');
+    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(true);
+  });
+
   // ─── Test 7: getFallbackModel returns model from different provider family ───
   it('getFallbackModel returns a model from a different provider family', () => {
     const deps = makeDeps();
