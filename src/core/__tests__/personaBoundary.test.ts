@@ -123,6 +123,11 @@ describe('detectImpersonation (Phase 15.1)', () => {
       expect(detectImpersonation(content, 'Architect', PANEL)).toEqual({ offender });
     });
 
+    it('flags a section label matching a common-word panelist name (accepted false positive)', () => {
+      const content = `Primary: recommended approach`;
+      expect(detectImpersonation(content, 'Validator', ['Primary', 'Validator', 'Reviewer'])).toEqual({ offender: 'Primary' });
+    });
+
     it.each([
       ['own plain label', `Architect: I disagree.`],
       ['own heading label', `# Architect: My Reflection`],
