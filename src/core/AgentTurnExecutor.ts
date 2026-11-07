@@ -1,8 +1,7 @@
 import ProviderFactory from '../providers/ProviderFactory.js';
 import TokenCounter from '../utils/TokenCounter.js';
 import { ContextOptimizer } from '../utils/ContextOptimizer.js';
-import { detectImpersonation } from './personaBoundary.js';
-import type { DiscussionHistoryEntry, Config } from '../types/index.js';
+import { detectImpersonation, stripImpersonationLabel } from './personaBoundary.js';import type { DiscussionHistoryEntry, Config } from '../types/index.js';
 import type ConversationHistory from './ConversationHistory.js';
 import type { EventBus } from './EventBus.js';
 import type { TaskRouter } from './TaskRouter.js';
@@ -143,7 +142,9 @@ export default class AgentTurnExecutor {
       const prefixPattern = new RegExp(`^\\s*${escapeRegex(agentName)}\\s*:\\s*`, 'i');
 
       let text = '';
+      let strippedLabelOf: string | null = null;
       for (let attempt = 0; attempt < 2; attempt++) {
+        strippedLabelOf = null;
         // Clone messages per attempt — providers may mutate in place, corrupting future turns
         const attemptMessages = messages.map((m: any) => ({ ...m }));
         const { controller: callController, cleanup: callCleanup } = this.createCallAbortController();
@@ -162,9 +163,8 @@ export default class AgentTurnExecutor {
         // Phase 15.1: Persona boundary enforcement. If the stripped text still
         // begins with another advisor's role-prefix (e.g. `**Tech Ethicist:...**`)
         // or a Judge-attributed block, retry ONCE with an explicit reminder
-        // injected into a local history copy, then error-push on persistent
-        // failure. The existing failedAgents aggregator in ConversationManager
-        // already picks up errorDetails='persona-impersonation'.
+        // injected into a local history copy. If the label persists, keep the
+        // turn with the label removed and record personaLabelStripped on it.
         if (text && text.length > 0) {
           const allAgentNames = Object.keys(this.deps.agents);
           const { offender } = detectImpersonation(text, agentName, allAgentNames);
@@ -201,29 +201,17 @@ export default class AgentTurnExecutor {
               // Retry succeeded — adopt the clean text and continue normal flow.
               text = impText;
             } else {
-              // Persistent impersonation (or empty retry). Error-push via the
-              // same terminal shape used by the catch block at ~line 345.
-              console.warn(
-                `⚠️ [AgentTurnExecutor] ${agentName} persona retry failed (offender=${retryCheck.offender ?? 'empty'}) — marking turn as errored`
-              );
-              if (this.deps.eventBus) {
-                this.deps.eventBus.emitEvent('error', {
-                  message: `${agentName} persona boundary violation (offender=${offender})`,
-                  context: 'persona_impersonation'
-                });
+              // Persistent label (or empty retry): keep the turn with the label
+              // removed. Recording a failure would trip the circuit breaker and
+              // drop a panelist over what may be a turn addressing a colleague.
+              // Prefer the retry; use the original if the retry is empty or
+              // nothing but a label.
+              let kept = this.removeImpersonationLabel(impText, agentName);
+              if (!kept.text) {
+                kept = this.removeImpersonationLabel(text, agentName);
               }
-              this.deps.conversationHistory.push({
-                role: 'assistant',
-                content: `[${agentName} unavailable: persona boundary violation — impersonated ${offender}]`,
-                speaker: agentName,
-                model: agent.model,
-                error: true,
-                errorDetails: 'persona-impersonation',
-                timestamp: new Date().toISOString(),
-                roundNumber: this.deps.getCurrentRound?.() ?? 0, // Phase 18 (AUDIT-03)
-              });
-              this.recordAgentFailure(agentName, 'persona-impersonation');
-              return;
+              text = kept.text;
+              strippedLabelOf = kept.offender ?? offender;
             }
           }
         }
@@ -270,7 +258,7 @@ export default class AgentTurnExecutor {
       }
 
       // Add to conversation history (with context optimization extraction if enabled)
-      this.pushAgentResponse(text, agentName, agent.model);
+      this.pushAgentResponse(text, agentName, agent.model, strippedLabelOf);
 
       // Circuit breaker: reset failure count on success
       this.recordAgentSuccess(agentName);
@@ -302,6 +290,8 @@ export default class AgentTurnExecutor {
             const escapeRegex2 = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const prefixPattern2 = new RegExp(`^\\s*${escapeRegex2(agentName)}\\s*:\\s*`, 'i');
             retryText = retryText.replace(prefixPattern2, '').trim();
+            const retryLabel = this.removeImpersonationLabel(retryText, agentName);
+            retryText = retryLabel.text;
 
             if (retryText && retryText.length > 0) {
               console.log(`[${agentName}: Connection retry succeeded]`);
@@ -311,7 +301,7 @@ export default class AgentTurnExecutor {
               if (this.deps.eventBus) {
                 this.deps.eventBus.emitEvent('agent:response', { agent: agentName, content: retryText });
               }
-              this.pushAgentResponse(retryText, agentName, agent.model);
+              this.pushAgentResponse(retryText, agentName, agent.model, retryLabel.offender);
               this.recordAgentSuccess(agentName);
               return;
             }
@@ -364,6 +354,8 @@ export default class AgentTurnExecutor {
             const escapeRegex3 = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const prefixPattern3 = new RegExp(`^\\s*${escapeRegex3(agentName)}\\s*:\\s*`, 'i');
             fallbackText = fallbackText.replace(prefixPattern3, '').trim();
+            const fallbackLabel = this.removeImpersonationLabel(fallbackText, agentName);
+            fallbackText = fallbackLabel.text;
 
             if (fallbackText && fallbackText.length > 0) {
               if (this.deps.streamOutput) {
@@ -394,7 +386,7 @@ export default class AgentTurnExecutor {
                 timestamp: new Date().toISOString()
               }));
 
-              this.pushAgentResponse(fallbackText, agentName, fallbackModel);
+              this.pushAgentResponse(fallbackText, agentName, fallbackModel, fallbackLabel.offender);
               // Fallback counts as success — reset consecutive failure counter
               this.recordAgentSuccess(agentName);
               return; // Fallback succeeded
@@ -516,7 +508,42 @@ export default class AgentTurnExecutor {
    * Push an agent response to conversation history, pre-extracting
    * position summary when context optimization is enabled.
    */
-  private pushAgentResponse(text: string, speaker: string, model: string): void {
+  /**
+   * Removes another panelist's leading label from a response that is kept
+   * without a retry, and reports whose label it was.
+   */
+  private removeImpersonationLabel(text: string, agentName: string): { text: string; offender: string | null } {
+    const allAgentNames = Object.keys(this.deps.agents);
+    const { offender } = detectImpersonation(text, agentName, allAgentNames);
+    if (offender === null) {
+      return { text, offender: null };
+    }
+    // Labels can be stacked (`Bob: Carol: ...`); strip until none remain. Each
+    // pass removes a non-empty label, so the loop shortens the text every time.
+    let stripped = text;
+    while (detectImpersonation(stripped, agentName, allAgentNames).offender !== null) {
+      const next = stripImpersonationLabel(stripped, agentName, allAgentNames);
+      if (next === stripped) break;
+      stripped = next;
+    }
+    console.warn(
+      `⚠️ [AgentTurnExecutor] ${agentName} response labelled as "${offender}" — keeping the turn with the label removed`
+    );
+    if (this.deps.eventBus) {
+      this.deps.eventBus.emitEvent('error', {
+        message: `${agentName} persona boundary violation (offender=${offender}); label removed`,
+        context: 'persona_impersonation'
+      });
+    }
+    return { text: stripped, offender };
+  }
+
+  private pushAgentResponse(
+    text: string,
+    speaker: string,
+    model: string,
+    personaLabelStripped: string | null = null
+  ): void {
     const entry: any = {
       role: 'assistant',
       content: text,
@@ -525,6 +552,9 @@ export default class AgentTurnExecutor {
       timestamp: new Date().toISOString(),
       roundNumber: this.deps.getCurrentRound?.() ?? 0, // Phase 18 (AUDIT-03)
     };
+    if (personaLabelStripped) {
+      entry.personaLabelStripped = personaLabelStripped;
+    }
     if (this.deps.config.contextOptimization?.enabled) {
       entry.positionSummary = ContextOptimizer.extractPosition(text);
     }

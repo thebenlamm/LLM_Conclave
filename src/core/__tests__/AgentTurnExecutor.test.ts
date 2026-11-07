@@ -188,17 +188,95 @@ describe('AgentTurnExecutor', () => {
     expect(deps.conversationHistory[0]).toMatchObject({ speaker: 'Alice', content: 'I disagree with Bob.' });
   });
 
-  it('trips the circuit breaker after two turns of persistent impersonation', async () => {
+  it('keeps a persistently labelled turn with the label removed, without tripping the breaker', async () => {
     const deps = makeDeps();
     deps.agents.Alice.provider.chat = jest.fn().mockResolvedValue('Bob: I disagree.');
     const executor = new AgentTurnExecutor(deps);
 
     await executor.agentTurn('Alice');
-    expect(deps.conversationHistory[0]).toMatchObject({ errorDetails: 'persona-impersonation' });
+    await executor.agentTurn('Alice');
+    await executor.agentTurn('Alice');
+
+    expect(deps.agents.Alice.provider.chat).toHaveBeenCalledTimes(6);
+    expect(deps.conversationHistory).toHaveLength(3);
+    for (const entry of deps.conversationHistory) {
+      expect(entry).toMatchObject({ speaker: 'Alice', content: 'I disagree.', personaLabelStripped: 'Bob' });
+      expect(entry.error).toBeUndefined();
+    }
     expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(false);
+  });
+
+  it('removes stacked labels from a kept turn', async () => {
+    const deps = makeDeps();
+    deps.agents.Carol = { name: 'Carol', provider: makeProvider(), systemPrompt: 'You are Carol.', model: 'gpt-4o' };
+    deps.agents.Alice.provider.chat = jest.fn().mockResolvedValue('Bob: Carol: verdict');
+    const executor = new AgentTurnExecutor(deps);
 
     await executor.agentTurn('Alice');
-    expect(executor.getPersistentlyFailedAgents().has('Alice')).toBe(true);
+
+    expect(deps.conversationHistory[0]).toMatchObject({ content: 'verdict', personaLabelStripped: 'Bob' });
+  });
+
+  it('removes more than five stacked labels', async () => {
+    const deps = makeDeps();
+    for (const name of ['Carol', 'Dave', 'Eve', 'Frank', 'Grace']) {
+      deps.agents[name] = { name, provider: makeProvider(), systemPrompt: '', model: 'gpt-4o' };
+    }
+    deps.agents.Alice.provider.chat = jest.fn().mockResolvedValue('Bob: Carol: Dave: Eve: Frank: Grace: verdict');
+    const executor = new AgentTurnExecutor(deps);
+
+    await executor.agentTurn('Alice');
+
+    expect(deps.conversationHistory[0]).toMatchObject({ content: 'verdict' });
+  });
+
+  it('keeps the original turn when the retry is nothing but a label, without a third call', async () => {
+    const deps = makeDeps();
+    deps.agents.Alice.provider.chat = jest.fn()
+      .mockResolvedValueOnce('Bob: original point.')
+      .mockResolvedValueOnce('Bob:');
+    const executor = new AgentTurnExecutor(deps);
+
+    await executor.agentTurn('Alice');
+
+    expect(deps.agents.Alice.provider.chat).toHaveBeenCalledTimes(2);
+    expect(deps.conversationHistory).toHaveLength(1);
+    expect(deps.conversationHistory[0]).toMatchObject({ content: 'original point.', personaLabelStripped: 'Bob' });
+  });
+
+  it('does not mark clean responses as label-stripped', async () => {
+    const deps = makeDeps();
+    const executor = new AgentTurnExecutor(deps);
+    await executor.agentTurn('Alice');
+    expect(deps.conversationHistory[0]).not.toHaveProperty('personaLabelStripped');
+  });
+
+  it('removes another panelist label from a connection-retry response', async () => {
+    const deps = makeDeps();
+    deps.agents.Alice.provider.chat = jest.fn()
+      .mockRejectedValueOnce(new Error('connection error ECONNRESET'))
+      .mockResolvedValueOnce('Bob: speaking as Bob.');
+    const executor = new AgentTurnExecutor(deps);
+
+    await executor.agentTurn('Alice');
+
+    expect(deps.conversationHistory).toHaveLength(1);
+    expect(deps.conversationHistory[0]).toMatchObject({ content: 'speaking as Bob.', personaLabelStripped: 'Bob' });
+  });
+
+  it('removes another panelist label from a fallback-model response', async () => {
+    const deps = makeDeps();
+    deps.agents.Alice.provider.chat = jest.fn().mockRejectedValue(new Error('rate limit 429'));
+    (MockProviderFactory.createProvider as jest.Mock).mockReturnValue({
+      chat: jest.fn().mockResolvedValue('**Bob:** fallback speaking as Bob.'),
+    });
+    const executor = new AgentTurnExecutor(deps);
+
+    await executor.agentTurn('Alice');
+
+    const kept = deps.conversationHistory.filter(e => !e.error);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toMatchObject({ content: 'fallback speaking as Bob.', personaLabelStripped: 'Bob' });
   });
 
   // ─── Test 7: getFallbackModel returns model from different provider family ───

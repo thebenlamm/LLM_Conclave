@@ -1,4 +1,4 @@
-import { detectImpersonation } from '../personaBoundary';
+import { detectImpersonation, stripImpersonationLabel } from '../personaBoundary';
 
 describe('detectImpersonation (Phase 15.1)', () => {
   const AGENTS = ['Security Expert', 'Tech Ethicist', 'Pragmatic Engineer', 'Critical Analyst'];
@@ -119,6 +119,10 @@ describe('detectImpersonation (Phase 15.1)', () => {
       ['plain Judge', `Judge: The panel concludes.`, 'Judge'],
       ['plain Judge possessive', `Judge's guidance: CONFIDENCE: LOW`, 'Judge'],
       ['heading Judge possessive', `# Judge's Assessment: Complete Consensus`, 'Judge'],
+      ['Judge possessive with a curly apostrophe', `Judge’s Final Ruling: adopt B.`, 'Judge'],
+      ['label below stacked headings', `## Summary\n## Position\nPragmatist: I speak.`, 'Pragmatist'],
+      ['label below a long heading', `## ${'x'.repeat(190)}\nPragmatist: I speak.`, 'Pragmatist'],
+      ['label after the speaker\'s own label', `Architect: Pragmatist: I speak.`, 'Pragmatist'],
     ])('flags %s', (_shape, content, offender) => {
       expect(detectImpersonation(content, 'Architect', PANEL)).toEqual({ offender });
     });
@@ -137,8 +141,48 @@ describe('detectImpersonation (Phase 15.1)', () => {
       ['heading naming a panelist without a colon', `## Pragmatist Reflection\n\nMy view follows.`],
       ['label after the opening line', `I agree.\nPragmatist: tests matter.`],
       ['prose about the Judge', `Judge's ruling was clear: we continue.`],
+      ['bold prose about the Judge', `**Judge's ruling was clear: we continue.**`],
     ])('does NOT flag %s', (_shape, content) => {
       expect(detectImpersonation(content, 'Architect', PANEL)).toEqual({ offender: null });
+    });
+
+    it.each([
+      [`# Judge's Advocate: My own view`],
+      [`**Judge's Advocate:** My own view`],
+    ])('does NOT flag a panelist named "Judge\'s Advocate" for its own label: %s', content => {
+      expect(detectImpersonation(content, "Judge's Advocate", ["Judge's Advocate", 'Bob'])).toEqual({ offender: null });
+    });
+
+    it('reports a panelist named "Judge\'s Advocate" by name, not as the Judge', () => {
+      expect(detectImpersonation(`Judge's Advocate: dissent`, 'Bob', ["Judge's Advocate", 'Bob']))
+        .toEqual({ offender: "Judge's Advocate" });
+    });
+
+    it('does NOT flag Judge labels when the speaker is the Judge', () => {
+      expect(detectImpersonation(`**Judge's Assessment:** final`, 'Judge', ['Judge', 'Bob'])).toEqual({ offender: null });
+    });
+  });
+
+  describe('stripImpersonationLabel', () => {
+    const PANEL = ['Architect', 'Pragmatist'];
+
+    it.each([
+      ['plain', `Pragmatist: I disagree.`, `I disagree.`],
+      ['bold span', `**Pragmatist: My position: ship it.** And more.`, `My position: ship it. And more.`],
+      ['bold name with closing marker after colon', `**Pragmatist:** I disagree.`, `I disagree.`],
+      ['bold name with outer colon', `**Pragmatist**: I disagree.`, `I disagree.`],
+      ['heading keeps its marker', `# Pragmatist: Devil's Advocate\n\nBody.`, `# Devil's Advocate\n\nBody.`],
+      ['below an unrelated heading', `## Summary\n\nPragmatist: I disagree.`, `## Summary\n\nI disagree.`],
+      ['Judge possessive', `Judge's guidance: CONFIDENCE: LOW`, `CONFIDENCE: LOW`],
+      ['no label', `I disagree with Pragmatist.`, `I disagree with Pragmatist.`],
+      ['bold span keeps later emphasis', `**Pragmatist: first paragraph\n\nKeep **important** here.`, `first paragraph\n\nKeep **important** here.`],
+      ['empty heading label does not promote the body', `# Pragmatist:\n\nBody paragraph.`, `Body paragraph.`],
+      ['keeps a space after the speaker\'s own label', `Architect: Pragmatist: verdict`, `Architect: verdict`],
+      ['keeps code block indentation', `Pragmatist:\n\n    const answer = 42;`, `    const answer = 42;`],
+      ['bold span keeps later emphasis across CRLF paragraphs', `**Pragmatist: first\r\n\r\nKeep **important** here.`, `first\r\n\r\nKeep **important** here.`],
+      ['closing-only marker does not remove body emphasis', `Pragmatist**: Keep **important** text.`, `Keep **important** text.`],
+    ])('%s', (_shape, content, expected) => {
+      expect(stripImpersonationLabel(content, 'Architect', PANEL)).toBe(expected);
     });
   });
 });

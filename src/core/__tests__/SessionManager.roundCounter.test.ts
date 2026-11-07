@@ -43,6 +43,19 @@ function buildFreshHistory(): DiscussionHistoryEntry[] {
   ];
 }
 
+describe('persona label flag persistence', () => {
+  it('saves personaLabelStripped on the turn and omits it elsewhere', () => {
+    const sm = new SessionManager(tmpSessionsRoot());
+    const history = buildFreshHistory();
+    history[1] = { ...history[1], personaLabelStripped: 'AgentB' };
+    const manifest = sm.createSessionManifest('consensus', 'task', agents, history,
+      { rounds: 3, solution: 'verdict', consensusReached: true });
+
+    expect(manifest.conversationHistory[1].personaLabelStripped).toBe('AgentB');
+    expect(manifest.conversationHistory.filter(m => 'personaLabelStripped' in m)).toHaveLength(1);
+  });
+});
+
 describe('Phase 18 — Round Counter Unification (AUDIT-03)', () => {
   describe('Fresh discussion: session.currentRound, per-message roundNumber, and index summary all agree', () => {
     it('AUDIT-03 fresh: session.currentRound === max(history roundNumber) === summary.roundCount', async () => {

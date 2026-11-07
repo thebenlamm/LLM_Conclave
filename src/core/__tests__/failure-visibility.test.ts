@@ -76,6 +76,24 @@ describe('renderTranscriptMarkdown failure visibility (Phase 15.2)', () => {
     expect(md).not.toContain('reason: provider failure');
   });
 
+  it('notes a kept turn whose impersonation label was removed', () => {
+    const history = [
+      {
+        role: 'assistant',
+        content: 'I disagree.',
+        speaker: 'Security Expert',
+        model: 'claude-sonnet-4',
+        personaLabelStripped: 'Tech Ethicist',
+      },
+    ];
+
+    const md = renderTranscriptMarkdown(history);
+
+    expect(md).toContain("> note: response opened with Tech Ethicist's label, which was removed");
+    expect(md).toContain('I disagree.');
+    expect(md).not.toContain('[FAILED]');
+  });
+
   it('does not regress clean transcripts (no FAILED token, all turns rendered)', () => {
     const history = [
       {
