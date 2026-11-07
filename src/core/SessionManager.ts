@@ -323,6 +323,7 @@ export default class SessionManager {
         ? entry.roundNumber
         : Math.floor(index / agents.length),
       error: entry.error,
+      ...(entry.personaLabelStripped ? { personaLabelStripped: entry.personaLabelStripped } : {}),
     }));
 
     // Phase 18 (AUDIT-03) invariant: the top-level currentRound MUST equal the

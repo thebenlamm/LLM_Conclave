@@ -1219,7 +1219,10 @@ function renderTranscriptMarkdown(conversationHistory: any[]): string {
       continue;
     }
 
-    output += `**${speaker}** _(${msg.model || 'unknown'})_:\n\n${msg.content}\n\n---\n\n`;
+    const labelNote = msg.personaLabelStripped
+      ? `> note: response opened with ${msg.personaLabelStripped}'s label, which was removed\n\n`
+      : '';
+    output += `**${speaker}** _(${msg.model || 'unknown'})_:\n\n${labelNote}${msg.content}\n\n---\n\n`;
   }
 
   return output;
@@ -1761,6 +1764,7 @@ export function formatDiscussionResultJson(result: any, logFilePath: string, ses
         content: String(m.content || ''),
         timestamp: m.timestamp ? String(m.timestamp) : undefined,
         error: m.error === true ? true : undefined,
+        personaLabelStripped: m.personaLabelStripped ? String(m.personaLabelStripped) : undefined,
       }))
     : undefined;
 

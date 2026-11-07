@@ -216,6 +216,11 @@ export interface DiscussionHistoryEntry {
    * AgentTurnExecutor always set it after this phase.
    */
   roundNumber?: number;
+  /**
+   * Set when the agent's response opened with another panelist's (or the
+   * Judge's) label and the label was removed. Holds that panelist's name.
+   */
+  personaLabelStripped?: string;
 }
 
 // ============================================================================
@@ -469,6 +474,8 @@ export interface SessionMessage {
   isContinuation?: boolean;
   continuationContext?: string;
   error?: boolean;
+  /** See DiscussionHistoryEntry.personaLabelStripped. */
+  personaLabelStripped?: string;
 }
 
 export interface IterativeSessionState {
