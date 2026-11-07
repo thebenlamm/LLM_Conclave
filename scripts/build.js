@@ -6,7 +6,11 @@ const { spawnSync } = require('child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 const tscPath = require.resolve('typescript/bin/tsc');
-const serverEntry = path.join(repoRoot, 'dist', 'src', 'mcp', 'server.js');
+const distDir = path.join(repoRoot, 'dist');
+const serverEntry = path.join(distDir, 'src', 'mcp', 'server.js');
+
+// tsc never deletes output, so removed sources would otherwise survive in dist/.
+fs.rmSync(distDir, { recursive: true, force: true });
 
 const result = spawnSync(process.execPath, [tscPath], {
   cwd: repoRoot,

@@ -47,6 +47,16 @@ This repo now includes a project-local `.mcp.json` that launches `scripts/mcp-st
 
 `npm run setup` creates `.env` from `.env.example` if needed, validates that `.mcp.json` points to `scripts/mcp-stdio.js`, builds the server, smoke-tests the MCP stdio launcher with an `initialize` request, and prints the exact next steps for Claude Code.
 
+### Using it across repos in Claude Code
+
+The project-local `.mcp.json` only applies when Claude Code runs inside this repo. To have the tools in every repo, register the server at user scope:
+
+```bash
+claude mcp add --scope user llm-conclave -- node /absolute/path/to/llm_conclave/scripts/mcp-stdio.js
+```
+
+The launcher loads this repo's `.env` wherever it runs from, so you don't need to copy API keys. Start a fresh Claude Code session afterward.
+
 ### Codex Fast Path
 
 If you want Codex sessions to have persistent access to LLM Conclave tools, register this repo as a global Codex MCP server:
@@ -395,6 +405,18 @@ The resolved path is surfaced to callers in three places:
 - Confirm `npm install` completed successfully so `dist/src/mcp/server.js` exists.
 - Start a fresh client session after changing `.mcp.json`.
 - Check whether the client is waiting for MCP server approval.
+- The checked-in `.mcp.json` only applies inside this repo. To use the tools from other repos, see [Using it across repos in Claude Code](#using-it-across-repos-in-claude-code).
+
+### `llm-conclave` fails with `Cannot find module 'commander'` or `command not found`
+
+The `llm-conclave` CLI was removed; LLM Conclave is MCP-only. An older `npm link` or global install leaves a dead command behind. Remove both the global package and its command, using the same Node version that installed it:
+
+```bash
+npm unlink -g llm_conclave
+rm -f "$(npm prefix -g)/bin/llm-conclave"
+```
+
+The `rm` is required: the current `package.json` no longer declares the command, so `npm unlink` does not remove it. Then use the MCP tools instead.
 
 ### The server starts but mixed-model runs fail
 
