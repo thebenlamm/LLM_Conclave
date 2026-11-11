@@ -68,7 +68,8 @@ export class ConfigCascade {
         anthropic: { enabled: true },
         google: { enabled: true },
         xai: { enabled: true },
-        mistral: { enabled: false }
+        mistral: { enabled: false },
+        perplexity: { enabled: false }
       };
     }
 
@@ -77,7 +78,8 @@ export class ConfigCascade {
       anthropic: { enabled: available.includes('anthropic') },
       google: { enabled: available.includes('google') },
       xai: { enabled: available.includes('xai') },
-      mistral: { enabled: available.includes('mistral') }
+      mistral: { enabled: available.includes('mistral') },
+      perplexity: { enabled: available.includes('perplexity') }
     };
   }
 
@@ -89,6 +91,7 @@ export class ConfigCascade {
     if (envVars.GOOGLE_API_KEY || envVars.GEMINI_API_KEY) available.push('google');
     if (envVars.XAI_API_KEY) available.push('xai');
     if (envVars.MISTRAL_API_KEY) available.push('mistral');
+    if (envVars.PERPLEXITY_API_KEY) available.push('perplexity');
 
     return available;
   }
@@ -144,6 +147,11 @@ export class ConfigCascade {
         { model: 'mistral-large-latest', provider: 'mistral' },
         { model: 'mistral-small-latest', provider: 'mistral' },
         { model: 'mistral-large-latest', provider: 'mistral' }
+      ],
+      perplexity: [
+        { model: 'sonar-pro', provider: 'perplexity' },
+        { model: 'sonar', provider: 'perplexity' },
+        { model: 'sonar-reasoning-pro', provider: 'perplexity' }
       ]
     };
 
@@ -152,7 +160,8 @@ export class ConfigCascade {
       openai: { model: 'gpt-5.5', provider: 'openai' },
       google: { model: 'gemini-2.5-flash', provider: 'google' },
       xai: { model: 'grok-4.3', provider: 'xai' },
-      mistral: { model: 'mistral-large-latest', provider: 'mistral' }
+      mistral: { model: 'mistral-large-latest', provider: 'mistral' },
+      perplexity: { model: 'sonar-pro', provider: 'perplexity' }
     };
 
     const rolePrompts = {
@@ -285,6 +294,7 @@ export class ConfigCascade {
     'providers_google',
     'providers_xai',
     'providers_mistral',
+    'providers_perplexity',
     'anthropic_context_editing'
   ]);
 

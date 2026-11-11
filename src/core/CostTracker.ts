@@ -75,6 +75,14 @@ export class CostTracker {
     // Grok
     'grok-4.3': { input: 0.00125, output: 0.0025 }, // $1.25/$2.50 per 1M tokens (source: openrouter, apiyi.com, May 2026)
     'grok-3': { input: 0.003, output: 0.015 },      // $3/$15 per 1M tokens
+
+    // Perplexity (Sonar family). Token prices below; note Perplexity also
+    // charges a separate per-request search fee not modeled here.
+    'sonar': { input: 0.001, output: 0.001 },                  // $1/$1 per 1M tokens
+    'sonar-pro': { input: 0.003, output: 0.015 },              // $3/$15 per 1M tokens
+    'sonar-reasoning': { input: 0.001, output: 0.005 },        // $1/$5 per 1M tokens
+    'sonar-reasoning-pro': { input: 0.002, output: 0.008 },    // $2/$8 per 1M tokens
+    'sonar-deep-research': { input: 0.002, output: 0.008 },    // $2/$8 per 1M tokens (+ reasoning tokens)
   };
 
   constructor() {}
@@ -93,6 +101,7 @@ export class CostTracker {
     grok: 0.5,        // 50% discount (OpenAI-compatible)
     gemini: 0.75,     // 75-90% discount, use conservative estimate
     mistral: 0,       // No provider caching
+    perplexity: 0,    // No provider-side prompt caching
   };
 
   private static CACHE_WRITE_SURCHARGE: Record<string, number> = {
@@ -101,6 +110,7 @@ export class CostTracker {
     grok: 0,          // No write surcharge
     gemini: 0,        // Storage fee is separate, not per-token surcharge
     mistral: 0,
+    perplexity: 0,    // No write surcharge
   };
 
   // Normalizes a CallLog.provider (the provider DISPLAY name from
